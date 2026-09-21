@@ -1,13 +1,16 @@
 // PG2 Irrigation Dashboard - Service Worker for PWA
-const CACHE_NAME = 'pg2-irrigation-v1.3.1';
+const CACHE_NAME = 'pg2-irrigation-v1.4.0';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './app.js',
   './manifest.json',
   './assets/favicon.ico',
-  './assets/favicon-32.png',
+  './assets/favicon.svg',
   './assets/favicon-16.png',
+  './assets/favicon-32.png',
+  './assets/logo-white-192.png',
+  './assets/logo-white-512.png',
   './assets/apple-touch-icon.png',
   './assets/icon-72.png',
   './assets/icon-96.png',
@@ -16,7 +19,9 @@ const ASSETS_TO_CACHE = [
   './assets/icon-152.png',
   './assets/icon-192.png',
   './assets/icon-384.png',
-  './assets/icon-512.png'
+  './assets/icon-512.png',
+  './assets/icon-maskable-192.png',
+  './assets/icon-maskable-512.png'
 ];
 
 // Install - cache static assets

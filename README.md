@@ -126,6 +126,14 @@ Pastikan sheet **File > Share > Anyone with link - Viewer**.
 - Responsive: sidebar filters sticky desktop, drawer mobile
 - KPI cards hover lift
 
+## 🪧 Logo & Ikon
+Logo: tetes air + sprinkler irigasi (brand emerald `#10A05C`).
+- **Ikon transparan** (tanpa kotak putih): `favicon.svg`, `favicon.ico`, `favicon-16/32.png`, `icon-16…512.png` → tampil bersih di tab browser, bookmark, dan taskbar
+- **Glyph putih transparan**: `logo-white-192.png`, `logo-white-512.png` → dipakai di header dashboard & loading screen
+- **Full-bleed hijau** (khusus platform yang tidak mendukung transparansi): `apple-touch-icon.png`, `icon-180.png`
+- **Maskable Android** (safe zone 66%): `icon-maskable-192.png`, `icon-maskable-512.png`
+- Ukuran kecil (16–32 px) memakai versi glyph disederhanakan (tetes air saja) agar tetap tajam
+
 ## 📈 Roadmap
 - [ ] Tambah sheet target vs realisasi
 - [ ] Alert Telegram jika utilization <60%

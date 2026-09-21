@@ -6,6 +6,7 @@
     <title>PG2 Irrigation Evaluation Dashboard | ZPAS637</title>
     <meta name="description" content="Dashboard evaluasi realisasi aktivitas irigasi PG2 - ZPAS637. Monitoring solar, jam efektif, luas siram, kecepatan, ketebalan, serta analisa biaya irigasi (solar, upah, alat, Rp/Ha) per wilayah dan per periode.">
     <!-- PWA & Icons -->
+    <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
     <link rel="icon" type="image/x-icon" href="./assets/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon-32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./assets/favicon-16.png">
@@ -13,8 +14,8 @@
     <link rel="apple-touch-icon" sizes="152x152" href="./assets/icon-152.png">
     <link rel="apple-touch-icon" sizes="144x144" href="./assets/icon-144.png">
     <link rel="manifest" href="./manifest.json">
-    <meta name="theme-color" content="#16a34a">
-    <meta name="msapplication-TileColor" content="#16a34a">
+    <meta name="theme-color" content="#10A05C">
+    <meta name="msapplication-TileColor" content="#10A05C">
     <meta name="msapplication-TileImage" content="./assets/icon-144.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -73,8 +74,8 @@
         <div class="mx-auto max-w-[1600px] px-6 lg:px-8">
             <div class="flex min-h-[68px] items-center justify-between gap-3 py-2 sm:py-0">
                 <div class="flex min-w-0 items-center gap-3 sm:gap-5">
-                    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-soft">
-                        <i data-lucide="droplets" class="h-5 w-5"></i>
+                    <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-soft">
+                        <img src="./assets/logo-white-192.png" alt="Logo PG2 Irrigation" width="26" height="26" class="h-[26px] w-[26px] object-contain drop-shadow-sm" onerror="this.replaceWith(Object.assign(document.createElement('i'),{className:'h-5 w-5',dataset:{lucide:'droplets'}}))">
                     </div>
                     <div>
                         <h1 class="text-[13px] font-semibold leading-tight tracking-tight text-slate-900 sm:text-[15px]">PG2 Irrigation Evaluation</h1>
@@ -763,7 +764,7 @@
     <!-- Loading Overlay -->
     <div id="loadingOverlay" class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
         <div class="text-center">
-            <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-soft animate-pulse"><i data-lucide="droplets" class="h-6 w-6"></i></div>
+            <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-soft animate-pulse"><img src="./assets/logo-white-192.png" alt="" width="30" height="30" class="h-[30px] w-[30px] object-contain"></div>
             <div class="mt-4 text-[13px] font-medium text-slate-900">Memuat data irigasi PG2...</div>
             <div class="mt-1 text-[11px] text-slate-500">Sinkronisasi ke Spreadsheet ZPAS637</div>
             <div class="mt-4 h-1 w-32 overflow-hidden rounded-full bg-slate-100 mx-auto"><div class="h-full w-1/2 animate-[shimmer_1s_infinite] rounded-full bg-emerald-500"></div></div>
