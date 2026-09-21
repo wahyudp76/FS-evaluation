@@ -324,13 +324,22 @@
                             </tbody>
                         </table>
                     </div>
-                    <div class="flex items-center justify-between border-t border-slate-100 bg-slate-50/50 px-5 py-3 text-[11px]">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3 text-[11px]">
                         <div class="flex items-center gap-2">
                             <button id="btnPrevPage" class="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium hover:bg-slate-50 disabled:opacity-50">Prev</button>
                             <span id="pageInfo" class="font-mono text-slate-600">Page 1 / 1</span>
                             <button id="btnNextPage" class="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium hover:bg-slate-50 disabled:opacity-50">Next</button>
                         </div>
-                        <span class="text-slate-500">Menampilkan 50 per halaman</span>
+                        <div class="flex items-center gap-2.5">
+                            <span class="text-slate-500">Tampilkan</span>
+                            <select id="pageSizeSelect" class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-50">
+                                <option value="15" selected>15 / halaman</option>
+                                <option value="30">30 / halaman</option>
+                                <option value="50">50 / halaman</option>
+                                <option value="100">100 / halaman</option>
+                            </select>
+                            <span id="pageSizeInfo" class="hidden sm:inline text-slate-400">• 15 max default</span>
+                        </div>
                     </div>
                 </section>
 

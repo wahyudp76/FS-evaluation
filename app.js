@@ -14,7 +14,7 @@ let granularity = 'daily';
 let sortField = 'date';
 let sortDir = 'desc';
 let currentPage = 1;
-const pageSize = 50;
+let pageSize = 15;
 let filters = {
   start: null,
   end: null,
@@ -829,6 +829,20 @@ function initFiltersUI() {
   });
   $('#btnPrevPage').addEventListener('click', ()=>{ if (currentPage>1){ currentPage--; renderTable(); } });
   $('#btnNextPage').addEventListener('click', ()=>{ currentPage++; renderTable(); });
+  // page size selector - 15 default, options 15,30,50,100
+  const psSelect = $('#pageSizeSelect');
+  if (psSelect) {
+    psSelect.addEventListener('change', (e)=>{
+      const newSize = parseInt(e.target.value);
+      if (!isNaN(newSize) && newSize>0) {
+        pageSize = newSize;
+        currentPage = 1; // reset to first page when size changes
+        renderTable();
+        const info = $('#pageSizeInfo');
+        if (info) info.textContent = `• ${pageSize} per halaman`;
+      }
+    });
+  }
   // sort headers
   $$('th[data-sort]').forEach(th=>{
     th.addEventListener('click', ()=>{
