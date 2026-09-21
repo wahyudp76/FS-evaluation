@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PG2 Irrigation Evaluation Dashboard | ZPAS637</title>
-    <meta name="description" content="Dashboard evaluasi realisasi aktivitas irigasi PG2 - ZPAS637. Monitoring solar, jam efektif, luas siram, kecepatan, ketebalan.">
+    <meta name="description" content="Dashboard evaluasi realisasi aktivitas irigasi PG2 - ZPAS637. Monitoring solar, jam efektif, luas siram, kecepatan, ketebalan, serta analisa biaya irigasi (solar, upah, alat, Rp/Ha) per wilayah dan per periode.">
     <!-- PWA & Icons -->
     <link rel="icon" type="image/x-icon" href="./assets/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon-32.png">
@@ -318,18 +318,28 @@
                             </div>
                             <div class="flex items-center gap-2">
                                 <select id="wilayahMetric" class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-50">
-                                    <option value="luas">Total Luas Siram</option>
-                                    <option value="solar">Total Solar</option>
-                                    <option value="avgLuas">Avg Luas / Aktivitas</option>
-                                    <option value="avgSolar">Avg Solar / Aktivitas</option>
-                                    <option value="haPerJam">Avg Ha/Jam (Produktivitas)</option>
-                                    <option value="ltrPerHa">Avg Ltr/Ha (Efisiensi)</option>
-                                    <option value="ltrPerJam">Avg Ltr/Jam</option>
-                                    <option value="operating">Avg Jam Operasi</option>
-                                    <option value="kecepatan">Avg Kecepatan</option>
-                                    <option value="tebal">Avg Tebal Siram</option>
-                                    <option value="util">Avg % Utilization</option>
-                                    <option value="rpPerHa">Avg Rp/Ha (Biaya)</option>
+                                    <optgroup label="Pemakaian &amp; Hasil">
+                                        <option value="luas">Total Luas Siram</option>
+                                        <option value="solar">Total Solar</option>
+                                        <option value="avgLuas">Avg Luas / Aktivitas</option>
+                                        <option value="avgSolar">Avg Solar / Aktivitas</option>
+                                        <option value="haPerJam">Avg Ha/Jam (Produktivitas)</option>
+                                        <option value="ltrPerHa">Avg Ltr/Ha (Efisiensi)</option>
+                                        <option value="ltrPerJam">Avg Ltr/Jam</option>
+                                        <option value="operating">Avg Jam Operasi</option>
+                                        <option value="kecepatan">Avg Kecepatan</option>
+                                        <option value="tebal">Avg Tebal Siram</option>
+                                        <option value="util">Avg % Utilization</option>
+                                    </optgroup>
+                                    <optgroup label="Biaya Irigasi">
+                                        <option value="rpPerHa">Avg Rp/Ha (Biaya)</option>
+                                        <option value="totalBiaya">Total Biaya Irigasi</option>
+                                        <option value="biayaSolar">Biaya Solar</option>
+                                        <option value="biayaUpah">Biaya Upah</option>
+                                        <option value="biayaAlat">Biaya Alat</option>
+                                        <option value="rpPerJam">Biaya Rp/Jam Operasi</option>
+                                        <option value="rpPerLiter">Biaya Rp/Liter Solar</option>
+                                    </optgroup>
                                 </select>
                             </div>
                         </div>
@@ -421,6 +431,124 @@
                             <div class="relative h-[260px] bg-white rounded-xl border border-slate-200 p-3"><canvas id="chartWilayahCompare"></canvas></div>
                             <p class="mt-2 text-[10px] text-slate-500">Bandingkan rata-rata pemakaian solar dan hasil luas per wilayah.</p>
                         </div>
+                    </div>
+                </section>
+
+                <!-- Row 3c - Analisa Biaya Irigasi: Total & per Wilayah -->
+                <section class="rounded-[20px] border border-slate-200/70 bg-white shadow-soft overflow-hidden">
+                    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 p-5 md:p-6">
+                        <div>
+                            <h3 class="text-[14px] font-semibold text-slate-900 flex items-center gap-2">
+                                <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-amber-50 text-amber-600"><i data-lucide="wallet" class="h-3.5 w-3.5"></i></span>
+                                Analisa Biaya Irigasi - Total &amp; per Wilayah
+                            </h3>
+                            <p class="mt-1 text-[12px] text-slate-500">Rincian biaya solar, upah, alat &amp; Rp/Ha total maupun per afdeling selama periode terpilih</p>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <select id="biayaGran" class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium outline-none focus:border-amber-300">
+                                <option value="all">Seluruh Periode</option>
+                                <option value="daily">Per Hari</option>
+                                <option value="weekly">Per Minggu</option>
+                                <option value="monthly">Per Bulan</option>
+                            </select>
+                            <select id="biayaSort" class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium outline-none focus:border-amber-300">
+                                <option value="totalBiaya">Total Biaya Tertinggi</option>
+                                <option value="rpPerHa">Rp/Ha Tertinggi</option>
+                                <option value="rpPerHaAsc">Rp/Ha Terendah</option>
+                                <option value="biayaSolar">Biaya Solar Tertinggi</option>
+                                <option value="biayaUpah">Biaya Upah Tertinggi</option>
+                                <option value="biayaAlat">Biaya Alat Tertinggi</option>
+                                <option value="totalLuas">Luas Siram Tertinggi</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Ringkasan biaya total -->
+                    <div class="grid grid-cols-12 gap-6 p-5 md:p-6">
+                        <div class="col-span-12 xl:col-span-7">
+                            <h4 class="text-[12px] font-semibold text-slate-900 mb-3">Total Biaya per Wilayah (Rp)</h4>
+                            <div class="relative h-[280px]"><canvas id="chartBiayaWilayah"></canvas></div>
+                            <div id="biayaTotalCards" class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2.5"></div>
+                        </div>
+                        <div class="col-span-12 xl:col-span-5 space-y-6">
+                            <div>
+                                <h4 class="text-[12px] font-semibold text-slate-900 mb-1">Komposisi Biaya</h4>
+                                <p class="text-[11px] text-slate-500 mb-3">Solar vs Upah vs Alat</p>
+                                <div class="relative h-[190px]"><canvas id="chartBiayaKomposisi"></canvas></div>
+                            </div>
+                            <div>
+                                <h4 class="text-[12px] font-semibold text-slate-900 mb-1">Tren Biaya Irigasi</h4>
+                                <p class="text-[11px] text-slate-500 mb-3">Biaya total &amp; Rp/Ha per periode</p>
+                                <div class="relative h-[190px]"><canvas id="chartBiayaTrend"></canvas></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tabel biaya per wilayah -->
+                    <div class="border-t border-slate-100">
+                        <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 px-5 py-3 md:px-6">
+                            <h4 class="text-[12px] font-semibold text-slate-900">Rincian Biaya Irigasi per Wilayah</h4>
+                            <span class="text-[10px] text-slate-500">Solar + Upah + Alat = Biaya Total • Rp/Ha = Biaya Total ÷ Luas Siram</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-[11px]">
+                                <thead class="bg-slate-50/80 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                                    <tr>
+                                        <th class="px-4 py-3 whitespace-nowrap">Wilayah</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-center">Rec</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Luas Ha</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Solar Rp</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Upah Rp</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Alat Rp</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Total Rp</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">% dr Total</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Ha</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Jam Op</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Liter Solar</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Solar L/Ha</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-center">Efisiensi Biaya</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="biayaWilayahBody" class="divide-y divide-slate-100">
+                                    <tr><td colspan="13" class="px-4 py-8 text-center text-slate-400">Memuat analisa biaya...</td></tr>
+                                </tbody>
+                                <tfoot id="biayaWilayahFoot" class="bg-slate-900 text-white text-[11px] font-semibold"></tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Rincian biaya per periode -->
+                    <div class="border-t border-slate-100">
+                        <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 px-5 py-3 md:px-6">
+                            <h4 class="text-[12px] font-semibold text-slate-900">Rincian Biaya Irigasi per Periode</h4>
+                            <span id="biayaPeriodeInfo" class="text-[10px] text-slate-500">Pilih granularitas di atas</span>
+                        </div>
+                        <div class="max-h-[380px] overflow-y-auto overflow-x-auto">
+                            <table class="w-full text-left text-[11px]">
+                                <thead class="sticky top-0 bg-slate-50/95 backdrop-blur text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                                    <tr>
+                                        <th class="px-4 py-3 whitespace-nowrap">Periode</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-center">Rec</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Luas Ha</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Solar Rp</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Upah Rp</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Alat Rp</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Total Rp</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Ha</th>
+                                        <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Jam Op</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="biayaPeriodeBody" class="divide-y divide-slate-100">
+                                    <tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">Memuat rincian biaya per periode...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Insight biaya -->
+                    <div class="border-t border-slate-100 bg-slate-50/30 p-5 md:p-6">
+                        <h4 class="text-[12px] font-semibold text-slate-900 mb-3 flex items-center gap-2"><span class="inline-flex h-5 w-5 items-center justify-center rounded-md bg-amber-100 text-amber-700"><i data-lucide="lightbulb" class="h-3 w-3"></i></span> Insight Biaya Irigasi</h4>
+                        <div id="biayaInsights" class="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-[11px] text-slate-600"></div>
                     </div>
                 </section>
 
