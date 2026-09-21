@@ -54,7 +54,8 @@ Tab terakhir yang dibuka tersimpan otomatis (localStorage + hash URL), filter te
 
 ### 6. Interaktivitas
 - **Bar navigasi tab**: Overview / Performance Wilayah / Analisa Biaya / Utilisasi & Efisiensi / Detail Data Harian
-- Filter: Tanggal (7H/30H/90H/All), Bulan (Jan–Des), Tahun, Wilayah, Jenis Engine (SPC, DEC, SPE, DEM), Search Engine/Irigator/Lokasi
+- Filter: **Periode Tanggal manual** (Mulai–Selesai + tombol *Semua* untuk kembali ke rentang penuh), **Filter Bulan** (Jan–Des) & **Tahun**, Wilayah, Jenis Engine (SPC, DEC, SPE, DEM), Search Engine/Irigator/Lokasi
+- Granularitas agregasi terpisah: **Harian / Mingguan / Bulanan** (chart solar, luas, jam, kecepatan, efisiensi)
 - Tabel detail 15/page (opsi 15/30/50/100) dengan sort & search
 - Export CSV filtered
 - Auto-sync 5 menit

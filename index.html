@@ -129,7 +129,12 @@
 
                     <!-- Date Range -->
                     <div class="space-y-3 mb-5">
-                        <label class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Periode Tanggal</label>
+                        <label class="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                            <span>Periode Tanggal</span>
+                            <button id="btnRangeAll" class="inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-normal text-emerald-600 hover:text-emerald-700" title="Kembalikan ke seluruh rentang tanggal data">
+                                <i data-lucide="calendar-range" class="h-3 w-3"></i> Semua
+                            </button>
+                        </label>
                         <div class="grid grid-cols-2 gap-2">
                             <div>
                                 <span class="text-[10px] text-slate-400">Mulai</span>
@@ -140,12 +145,7 @@
                                 <input id="filterEnd" type="date" class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-[13px] font-medium outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-50 transition">
                             </div>
                         </div>
-                        <div class="flex gap-1.5">
-                            <button data-range="7" class="range-btn flex-1 rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-white">7H</button>
-                            <button data-range="30" class="range-btn flex-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">30H</button>
-                            <button data-range="90" class="range-btn flex-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">90H</button>
-                            <button data-range="all" class="range-btn flex-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">All</button>
-                        </div>
+                        <p class="text-[10px] leading-relaxed text-slate-400">Atur tanggal manual, atau pakai <strong class="font-semibold text-slate-500">Filter Bulan</strong> / <strong class="font-semibold text-slate-500">Tahun</strong> di bawah untuk periode cepat.</p>
                     </div>
 
                     <!-- Filter Bulan -->

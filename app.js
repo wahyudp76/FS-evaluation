@@ -1594,23 +1594,19 @@ function initFiltersUI() {
   renderMonthChips();
   $('#filterStart').addEventListener('change', e=>{ filters.start = e.target.value ? new Date(e.target.value) : null; currentPage=1; updateAll(); });
   $('#filterEnd').addEventListener('change', e=>{ filters.end = e.target.value ? new Date(e.target.value) : null; currentPage=1; updateAll(); });
-  $$('.range-btn').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      $$('.range-btn').forEach(b=>{ b.className='range-btn flex-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50'; });
-      btn.className='range-btn flex-1 rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-white';
-      const range = btn.dataset.range;
-      const max = new Date(Math.max(...rawData.map(d=>d.date)));
-      let start = new Date(max);
-      if (range==='7') start.setDate(max.getDate()-7);
-      else if (range==='30') start.setDate(max.getDate()-30);
-      else if (range==='90') start.setDate(max.getDate()-90);
-      else { start = new Date(Math.min(...rawData.map(d=>d.date))); }
-      $('#filterStart').value = formatDateISO(start);
-      $('#filterEnd').value = formatDateISO(max);
-      filters.start = start; filters.end = max;
+  // Kembalikan periode tanggal ke seluruh rentang data (pengganti tombol 7H/30H/90H)
+  const btnRangeAll = $('#btnRangeAll');
+  if (btnRangeAll) {
+    btnRangeAll.addEventListener('click', ()=>{
+      if (!rawData.length) return;
+      const dates = rawData.map(d=>d.date).sort((a,b)=>a-b);
+      const minDate = dates[0], maxDate = dates[dates.length-1];
+      $('#filterStart').value = formatDateISO(minDate);
+      $('#filterEnd').value = formatDateISO(maxDate);
+      filters.start = minDate; filters.end = maxDate;
       currentPage=1; updateAll();
     });
-  });
+  }
   $$('.gran-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       $$('.gran-btn').forEach(b=>{ b.className='gran-btn rounded-lg px-2 py-2 text-[12px] font-medium text-slate-500 hover:text-slate-700'; });
