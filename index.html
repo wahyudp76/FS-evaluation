@@ -5,6 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PG2 Irrigation Evaluation Dashboard | ZPAS637</title>
     <meta name="description" content="Dashboard evaluasi realisasi aktivitas irigasi PG2 - ZPAS637. Monitoring solar, jam efektif, luas siram, kecepatan, ketebalan.">
+    <!-- PWA & Icons -->
+    <link rel="icon" type="image/x-icon" href="./assets/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./assets/favicon-16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="./assets/icon-152.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="./assets/icon-144.png">
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#16a34a">
+    <meta name="msapplication-TileColor" content="#16a34a">
+    <meta name="msapplication-TileImage" content="./assets/icon-144.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="PG2 Irrigation">
+    <meta name="application-name" content="PG2 Irrigation">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -70,6 +85,9 @@
                         <span class="truncate max-w-[180px]">1mhXxr7cf...45o</span>
                         <span class="h-1 w-1 rounded-full bg-emerald-500"></span>
                     </div>
+                    <button id="btnInstallPWA" class="hidden inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-[13px] font-medium text-white shadow-soft hover:bg-emerald-700 transition">
+                        <i data-lucide="download" class="h-4 w-4"></i> Install App
+                    </button>
                     <button id="btnSync" class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-[13px] font-medium text-white shadow-soft hover:bg-slate-800 transition">
                         <i data-lucide="refresh-cw" class="h-4 w-4"></i> Sync
                     </button>
@@ -113,6 +131,50 @@
                             <button data-range="90" class="range-btn flex-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">90H</button>
                             <button data-range="all" class="range-btn flex-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">All</button>
                         </div>
+                    </div>
+
+                    <!-- Filter Bulan -->
+                    <div class="space-y-2 mb-5">
+                        <label class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                            <span>Filter Bulan</span>
+                            <button id="btnClearMonth" class="text-[10px] font-medium normal-case tracking-normal text-emerald-600 hover:text-emerald-700">Clear</button>
+                        </label>
+                        <div id="monthFilter" class="grid grid-cols-3 gap-1.5">
+                            <!-- injected by JS -->
+                            <button data-month="0" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Jan</button>
+                            <button data-month="1" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Feb</button>
+                            <button data-month="2" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Mar</button>
+                            <button data-month="3" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Apr</button>
+                            <button data-month="4" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Mei</button>
+                            <button data-month="5" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Jun</button>
+                            <button data-month="6" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Jul</button>
+                            <button data-month="7" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Agu</button>
+                            <button data-month="8" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Sep</button>
+                            <button data-month="9" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Okt</button>
+                            <button data-month="10" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Nov</button>
+                            <button data-month="11" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Des</button>
+                        </div>
+                        <div class="flex gap-1.5 mt-2">
+                            <select id="filterYear" class="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
+                                <option value="all">Semua Tahun</option>
+                            </select>
+                            <select id="filterMonthDropdown" class="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
+                                <option value="all">Semua Bulan</option>
+                                <option value="0">Januari</option>
+                                <option value="1">Februari</option>
+                                <option value="2">Maret</option>
+                                <option value="3">April</option>
+                                <option value="4">Mei</option>
+                                <option value="5">Juni</option>
+                                <option value="6">Juli</option>
+                                <option value="7">Agustus</option>
+                                <option value="8">September</option>
+                                <option value="9">Oktober</option>
+                                <option value="10">November</option>
+                                <option value="11">Desember</option>
+                            </select>
+                        </div>
+                        <div id="activeMonthChips" class="flex flex-wrap gap-1.5 mt-2"></div>
                     </div>
 
                     <!-- Wilayah -->
@@ -362,6 +424,50 @@
     </div>
 
     <script type="module" src="./app.js"></script>
-    <script>lucide.createIcons();</script>
+    <script>
+        lucide.createIcons();
+        // PWA Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => {
+                        console.log('SW registered:', reg.scope);
+                        // Check for updates
+                        reg.addEventListener('updatefound', () => {
+                            const newWorker = reg.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // New content available, show prompt
+                                    if (confirm('Update dashboard tersedia! Reload untuk versi terbaru?')) {
+                                        window.location.reload();
+                                    }
+                                }
+                            });
+                        });
+                    })
+                    .catch(err => console.log('SW registration failed:', err));
+            });
+        }
+        // PWA Install Prompt
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            // Show custom install button if exists
+            const installBtn = document.getElementById('btnInstallPWA');
+            if (installBtn) {
+                installBtn.classList.remove('hidden');
+                installBtn.addEventListener('click', async () => {
+                    if (deferredPrompt) {
+                        deferredPrompt.prompt();
+                        const { outcome } = await deferredPrompt.userChoice;
+                        console.log('PWA install outcome:', outcome);
+                        deferredPrompt = null;
+                        installBtn.classList.add('hidden');
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>

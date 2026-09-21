@@ -19,6 +19,8 @@ let filters = {
   start: null,
   end: null,
   wilayah: new Set(),
+  months: new Set(), // 0-11
+  year: 'all',
   jenisEngine: 'all',
   search: '',
   tableSearch: ''
@@ -261,6 +263,15 @@ function applyFilters() {
     const end = new Date(filters.end);
     end.setHours(23,59,59,999);
     data = data.filter(d => d.date <= end);
+  }
+  // months filter (0-11)
+  if (filters.months.size > 0) {
+    data = data.filter(d => filters.months.has(d.date.getMonth()));
+  }
+  // year filter
+  if (filters.year !== 'all') {
+    const y = parseInt(filters.year);
+    if (!isNaN(y)) data = data.filter(d => d.date.getFullYear() === y);
   }
   // wilayah
   if (filters.wilayah.size > 0) {
@@ -765,6 +776,128 @@ function initFiltersUI() {
   const sel = $('#filterJenisEngine');
   sel.innerHTML = '<option value="all">Semua Jenis</option>' + jenisSet.map(j=>`<option value="${j}">${j}</option>`).join('');
 
+  // year filter populate
+  const yearsSet = [...new Set(rawData.map(d=>d.date.getFullYear()))].sort();
+  const yearSel = $('#filterYear');
+  if (yearSel) {
+    yearSel.innerHTML = '<option value="all">Semua Tahun</option>' + yearsSet.map(y=>`<option value="${y}">${y}</option>`).join('');
+  }
+
+  // helper to render active month chips
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const shortNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  function renderMonthChips() {
+    const container = $('#activeMonthChips');
+    if (!container) return;
+    if (filters.months.size===0 && filters.year==='all') {
+      container.innerHTML = '<span class="text-[10px] text-slate-400">Semua bulan & tahun</span>';
+      return;
+    }
+    let chips = [];
+    if (filters.months.size>0) {
+      filters.months.forEach(m=>{
+        chips.push(`<span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">${shortNames[m]} <button data-remove-month="${m}" class="ml-1 rounded-full hover:bg-emerald-100 px-0.5">×</button></span>`);
+      });
+    }
+    if (filters.year!=='all') {
+      chips.push(`<span class="inline-flex items-center gap-1 rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-medium text-white">${filters.year} <button data-remove-year class="ml-1 rounded-full hover:bg-slate-800 px-0.5">×</button></span>`);
+    }
+    container.innerHTML = chips.join('');
+    container.querySelectorAll('[data-remove-month]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const m = parseInt(btn.dataset.removeMonth);
+        filters.months.delete(m);
+        // update UI buttons
+        document.querySelectorAll('.month-btn').forEach(b=>{
+          if (parseInt(b.dataset.month)===m) {
+            b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100');
+            b.classList.add('bg-white','text-slate-600','border-slate-200');
+          }
+        });
+        if ($('#filterMonthDropdown')) $('#filterMonthDropdown').value = 'all';
+        currentPage=1; updateAll(); renderMonthChips();
+      });
+    });
+    const rmYear = container.querySelector('[data-remove-year]');
+    if (rmYear) {
+      rmYear.addEventListener('click', ()=>{
+        filters.year='all';
+        if ($('#filterYear')) $('#filterYear').value='all';
+        currentPage=1; updateAll(); renderMonthChips();
+      });
+    }
+  }
+
+  // month buttons toggle
+  $$('.month-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const m = parseInt(btn.dataset.month);
+      if (filters.months.has(m)) {
+        filters.months.delete(m);
+        btn.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100');
+        btn.classList.add('bg-white','text-slate-600','border-slate-200');
+      } else {
+        filters.months.add(m);
+        btn.classList.remove('bg-white','text-slate-600','border-slate-200');
+        btn.classList.add('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100');
+      }
+      currentPage=1; updateAll(); renderMonthChips();
+    });
+  });
+
+  // month dropdown (single select, adds to set)
+  const monthDropdown = $('#filterMonthDropdown');
+  if (monthDropdown) {
+    monthDropdown.addEventListener('change', (e)=>{
+      const v = e.target.value;
+      if (v==='all') {
+        // clear months if user selects all via dropdown? Keep existing? We'll clear
+        filters.months.clear();
+        $$('.month-btn').forEach(b=>{
+          b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100');
+          b.classList.add('bg-white','text-slate-600','border-slate-200');
+        });
+      } else {
+        const m = parseInt(v);
+        filters.months.add(m);
+        // highlight button
+        document.querySelectorAll('.month-btn').forEach(b=>{
+          if (parseInt(b.dataset.month)===m) {
+            b.classList.remove('bg-white','text-slate-600','border-slate-200');
+            b.classList.add('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100');
+          }
+        });
+      }
+      currentPage=1; updateAll(); renderMonthChips();
+    });
+  }
+
+  // year dropdown
+  if (yearSel) {
+    yearSel.addEventListener('change', (e)=>{
+      filters.year = e.target.value;
+      currentPage=1; updateAll(); renderMonthChips();
+    });
+  }
+
+  // clear month filter
+  const btnClearMonth = $('#btnClearMonth');
+  if (btnClearMonth) {
+    btnClearMonth.addEventListener('click', ()=>{
+      filters.months.clear();
+      filters.year='all';
+      $$('.month-btn').forEach(b=>{
+        b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100');
+        b.classList.add('bg-white','text-slate-600','border-slate-200');
+      });
+      if ($('#filterMonthDropdown')) $('#filterMonthDropdown').value='all';
+      if ($('#filterYear')) $('#filterYear').value='all';
+      currentPage=1; updateAll(); renderMonthChips();
+    });
+  }
+
+  renderMonthChips();
+
   // bind events
   $('#filterStart').addEventListener('change', e=>{
     filters.start = e.target.value ? new Date(e.target.value) : null;
@@ -814,18 +947,26 @@ function initFiltersUI() {
   });
   $('#btnClearFilters').addEventListener('click', ()=>{
     filters.wilayah.clear();
+    filters.months.clear();
+    filters.year='all';
     filters.jenisEngine='all';
     filters.search='';
     filters.tableSearch='';
     $$('.wilayah-cb').forEach(cb=>cb.checked=false);
+    $$('.month-btn').forEach(b=>{
+      b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100');
+      b.classList.add('bg-white','text-slate-600','border-slate-200');
+    });
     $('#filterJenisEngine').value='all';
+    if ($('#filterYear')) $('#filterYear').value='all';
+    if ($('#filterMonthDropdown')) $('#filterMonthDropdown').value='all';
     $('#filterSearch').value='';
     $('#tableSearch').value='';
     const dates = rawData.map(d=>d.date).sort((a,b)=>a-b);
     $('#filterStart').value = formatDateISO(dates[0]);
     $('#filterEnd').value = formatDateISO(dates[dates.length-1]);
     filters.start = dates[0]; filters.end = dates[dates.length-1];
-    currentPage=1; updateAll();
+    currentPage=1; updateAll(); renderMonthChips();
   });
   $('#btnPrevPage').addEventListener('click', ()=>{ if (currentPage>1){ currentPage--; renderTable(); } });
   $('#btnNextPage').addEventListener('click', ()=>{ currentPage++; renderTable(); });
