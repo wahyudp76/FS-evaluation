@@ -1,10 +1,10 @@
 // PG2 Irrigation Evaluation Dashboard - ZPAS637
 // Auto-sync to Google Sheets ID: 1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o
+// Updated: Luas Cek column removed (now 34 cols), dynamic label-based parsing
 const SPREADSHEET_ID = '1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o';
 const SHEET_NAME = 'ZPAS637';
 const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=${SHEET_NAME}`;
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${SHEET_NAME}`;
-const CSV_EXPORT_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&sheet=${SHEET_NAME}`;
 
 // State
 let rawData = [];
@@ -19,7 +19,7 @@ let filters = {
   start: null,
   end: null,
   wilayah: new Set(),
-  months: new Set(), // 0-11
+  months: new Set(),
   year: 'all',
   jenisEngine: 'all',
   search: '',
@@ -32,7 +32,6 @@ const $$ = (s) => document.querySelectorAll(s);
 
 // Utilities
 function parseGvizDate(v) {
-  // v like "Date(2026,4,29)" or "Date(2026,4,29,10,30,0)"
   if (!v) return null;
   if (v instanceof Date) return v;
   if (typeof v === 'string') {
@@ -44,12 +43,10 @@ function parseGvizDate(v) {
       const se = m[6] ? parseInt(m[6]) : 0;
       return new Date(y, mo, d, h, mi, se);
     }
-    // fallback f format like "29-Mei"
     return new Date(v);
   }
   return null;
 }
-
 function formatNumber(n, decimals = 2) {
   if (n == null || isNaN(n)) return '-';
   return new Intl.NumberFormat('id-ID', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
@@ -83,75 +80,91 @@ function getMonthLabel(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-// Fetch & Parse
+// Fetch & Parse - dynamic label based (resilient to column removal like Luas Cek)
 async function fetchSheetData() {
   try {
-    // Try GVIZ JSON first
     const res = await fetch(GVIZ_URL, { cache: 'no-store' });
     if (!res.ok) throw new Error('GVIZ fetch failed');
     const text = await res.text();
-    // Extract JSON
-    const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}')+1);
-    // The text is wrapped in google.visualization.Query.setResponse(...)
-    // So we need to extract between first { and last }
-    // But there is outer wrapper, we already did substring, but need to handle prefix
-    // Better regex
     const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]+)\)/);
     if (!match) throw new Error('Invalid GVIZ response');
     const data = JSON.parse(match[1]);
     const cols = data.table.cols.map(c => c.label);
+    const colIndex = {};
+    cols.forEach((label, idx) => { colIndex[label] = idx; });
+    // Helper to get value by label
+    const getByLabel = (c, label) => {
+      const idx = colIndex[label];
+      if (idx === undefined || !c[idx]) return null;
+      return c[idx].v;
+    };
+    const getFByLabel = (c, label) => {
+      const idx = colIndex[label];
+      if (idx === undefined || !c[idx]) return null;
+      return c[idx].f;
+    };
+
     const rows = data.table.rows;
     const parsed = rows.map(r => {
       const c = r.c;
-      // helper to get v
-      const getV = (i) => c[i] ? c[i].v : null;
-      const getF = (i) => c[i] ? c[i].f : null;
-      // Date is col 0
-      const dateRaw = getV(0);
-      const date = parseGvizDate(dateRaw) || parseGvizDate(getF(0));
+      const dateRaw = getByLabel(c, 'Date');
+      const dateF = getFByLabel(c, 'Date');
+      const date = parseGvizDate(dateRaw) || parseGvizDate(dateF);
+      // Dynamic getters
+      const getNum = (label) => {
+        const v = getByLabel(c, label);
+        const n = Number(v);
+        return isNaN(n) ? 0 : n;
+      };
+      const getStr = (label) => {
+        const v = getByLabel(c, label);
+        return v ? String(v).trim() : '';
+      };
+      // Luas Cek may be removed - handle gracefully
+      const luasCek = colIndex['Luas Cek'] !== undefined ? getNum('Luas Cek') : 0;
+
       return {
         date,
-        dateLabel: getF(0) || formatDate(date),
-        wilayah: getV(1) || '',
-        lokasi: getV(2) || '',
-        engine: getV(3) || '',
-        irigator: getV(4) || '',
-        jenisIrigator: getV(5) || '',
-        planTime: Number(getV(6)) || 0,
-        luasSiram: Number(getV(7)) || 0,
-        luasCek: Number(getV(8)) || 0,
-        kecepatan: Number(getV(9)) || 0,
-        tebalSiram: Number(getV(10)) || 0,
-        prepareTime: Number(getV(11)) || 0,
-        operatingTime: Number(getV(12)) || 0,
-        waitingTime: Number(getV(13)) || 0,
-        repair: Number(getV(14)) || 0,
-        downTime: Number(getV(15)) || 0,
-        standby: Number(getV(16)) || 0,
-        offTime: Number(getV(17)) || 0,
-        totOperTime: Number(getV(18)) || 0,
-        totalAvail: Number(getV(19)) || 0,
-        totalTime: Number(getV(20)) || 0,
-        availability: Number(getV(21)) || 0,
-        utilization: Number(getV(22)) || 0,
-        air: Number(getV(23)) || 0,
-        solarTerpakai: Number(getV(24)) || 0,
-        biayaSolar: Number(getV(25)) || 0,
-        biayaUpah: Number(getV(26)) || 0,
-        biayaAlat: Number(getV(27)) || 0,
-        biayaTotal: Number(getV(28)) || 0,
-        rpPerHa: Number(getV(29)) || 0,
-        haPerHari: Number(getV(30)) || 0,
-        haPerJam: Number(getV(31)) || 0,
-        solarPerJam: Number(getV(32)) || 0,
-        solarPerHa: Number(getV(33)) || 0,
-        jenisEngine: getV(34) || '',
+        dateLabel: dateF || formatDate(date),
+        wilayah: getStr('Wilayah'),
+        lokasi: getStr('Lokasi'),
+        engine: getStr('Engine'),
+        irigator: getStr('Irigator'),
+        jenisIrigator: getStr('Jenis Irigator'),
+        planTime: getNum('Plan Time'),
+        luasSiram: getNum('Luas Siram'),
+        luasCek: luasCek, // kept for backward compatibility, 0 if removed
+        kecepatan: getNum('Kecepatan Rata-rata'),
+        tebalSiram: getNum('Tebal Siram'),
+        prepareTime: getNum('Prepare Time'),
+        operatingTime: getNum('Operating Time'),
+        waitingTime: getNum('Waiting Time'),
+        repair: getNum('Repair'),
+        downTime: getNum('Down Time'),
+        standby: getNum('Standby'),
+        offTime: getNum('Off Time'),
+        totOperTime: getNum('Tot. Oper. Time'),
+        totalAvail: getNum('Total Avail'),
+        totalTime: getNum('Total Time'),
+        availability: getNum('% Availability'),
+        utilization: getNum('% Utilization'),
+        air: getNum('Air'),
+        solarTerpakai: getNum('Solar Terpakai (ltr)'),
+        biayaSolar: getNum('Biaya Solar (Std)'),
+        biayaUpah: getNum('Biaya Upah'),
+        biayaAlat: getNum('Biaya Alat'),
+        biayaTotal: getNum('Biaya Total'),
+        rpPerHa: getNum('Rp/Ha'),
+        haPerHari: getNum('Ha/Hari'),
+        haPerJam: getNum('Ha/Jam'),
+        solarPerJam: getNum('Solar Ltr/jam'),
+        solarPerHa: getNum('Solar Ltr/Ha'),
+        jenisEngine: getStr('Jenis Engine'),
       };
     }).filter(r => r.date && !isNaN(r.date));
     return parsed;
   } catch (e) {
     console.warn('GVIZ JSON failed, trying CSV', e);
-    // fallback CSV
     try {
       const res = await fetch(CSV_URL, { cache: 'no-store' });
       if (!res.ok) throw new Error('CSV fetch failed');
@@ -159,7 +172,6 @@ async function fetchSheetData() {
       return parseCSVText(csvText);
     } catch (e2) {
       console.error('CSV fallback failed', e2);
-      // try sample local
       try {
         const res = await fetch('./assets/sample-data.csv');
         if (res.ok) {
@@ -175,15 +187,11 @@ async function fetchSheetData() {
 function parseCSVText(csvText) {
   const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
   const data = result.data.map(row => {
-    // Date parsing: row.Date like "29-Mei" - we need year? Assume 2026 from context, but we have sample with month name Indonesian
-    // We'll try to parse Date with year 2026 if not present
     let date = null;
     const dateStr = row['Date'] || row['date'];
     if (dateStr) {
-      // Try Indonesian month mapping
       const months = { 'Jan':0,'Feb':1,'Mar':2,'Apr':3,'Mei':4,'Jun':5,'Jul':6,'Ags':7,'Agu':7,'Sep':8,'Okt':9,'Nov':10,'Des':11,
                        'Januari':0,'Februari':1,'Maret':2,'April':3,'Mei':4,'Juni':5,'Juli':6,'Agustus':7,'September':8,'Oktober':9,'November':10,'Desember':11 };
-      // Format "29-Mei" or "29-Mei-2026" etc
       const parts = dateStr.split('-');
       if (parts.length >=2) {
         const day = parseInt(parts[0]);
@@ -197,14 +205,9 @@ function parseCSVText(csvText) {
     }
     const num = (k) => {
       let v = row[k];
-      if (v == null) return 0;
-      // remove Rp, dots, replace comma with dot
+      if (v == null || v === '') return 0;
       if (typeof v === 'string') {
         v = v.replace(/Rp|\./g,'').replace(',','.').trim();
-        // But for thousand separator with dot, above removes dot, but need handle: Indonesian 1.234,56 -> 1234.56
-        // Our replace removes dots then comma->dot is okay
-        // However if it's like "2,05" -> "2.05"
-        // If it's "2.332.240" -> after replace Rp and . -> "2332240"
       }
       const n = parseFloat(v);
       return isNaN(n) ? 0 : n;
@@ -220,7 +223,7 @@ function parseCSVText(csvText) {
       jenisIrigator: str('Jenis Irigator'),
       planTime: num('Plan Time'),
       luasSiram: num('Luas Siram'),
-      luasCek: num('Luas Cek'),
+      luasCek: num('Luas Cek'), // will be 0 if column removed
       kecepatan: num('Kecepatan Rata-rata'),
       tebalSiram: num('Tebal Siram'),
       prepareTime: num('Prepare Time'),
@@ -255,52 +258,28 @@ function parseCSVText(csvText) {
 // Filtering
 function applyFilters() {
   let data = [...rawData];
-  // date range
-  if (filters.start) {
-    data = data.filter(d => d.date >= filters.start);
-  }
+  if (filters.start) data = data.filter(d => d.date >= filters.start);
   if (filters.end) {
     const end = new Date(filters.end);
     end.setHours(23,59,59,999);
     data = data.filter(d => d.date <= end);
   }
-  // months filter (0-11)
-  if (filters.months.size > 0) {
-    data = data.filter(d => filters.months.has(d.date.getMonth()));
-  }
-  // year filter
+  if (filters.months.size > 0) data = data.filter(d => filters.months.has(d.date.getMonth()));
   if (filters.year !== 'all') {
     const y = parseInt(filters.year);
     if (!isNaN(y)) data = data.filter(d => d.date.getFullYear() === y);
   }
-  // wilayah
-  if (filters.wilayah.size > 0) {
-    data = data.filter(d => filters.wilayah.has(d.wilayah));
-  }
-  // jenisEngine
-  if (filters.jenisEngine !== 'all') {
-    data = data.filter(d => d.jenisEngine === filters.jenisEngine);
-  }
-  // search
+  if (filters.wilayah.size > 0) data = data.filter(d => filters.wilayah.has(d.wilayah));
+  if (filters.jenisEngine !== 'all') data = data.filter(d => d.jenisEngine === filters.jenisEngine);
   if (filters.search) {
     const q = filters.search.toLowerCase();
-    data = data.filter(d => 
-      d.engine.toLowerCase().includes(q) ||
-      d.irigator.toLowerCase().includes(q) ||
-      d.lokasi.toLowerCase().includes(q) ||
-      d.wilayah.toLowerCase().includes(q)
-    );
+    data = data.filter(d => d.engine.toLowerCase().includes(q) || d.irigator.toLowerCase().includes(q) || d.lokasi.toLowerCase().includes(q) || d.wilayah.toLowerCase().includes(q));
   }
-  // table search
   if (filters.tableSearch) {
     const q = filters.tableSearch.toLowerCase();
-    data = data.filter(d =>
-      Object.values(d).some(v => String(v).toLowerCase().includes(q))
-    );
+    data = data.filter(d => Object.values(d).some(v => String(v).toLowerCase().includes(q)));
   }
-  // sort for table? Keep separate
   filteredData = data;
-  // sort for aggregation? Keep chronological for charts
   filteredData.sort((a,b) => a.date - b.date);
 }
 
@@ -319,15 +298,13 @@ function getAggregated(gran) {
     const arr = groups[k];
     const sum = (field) => arr.reduce((s,x)=>s+(x[field]||0),0);
     const avg = (field) => arr.length ? sum(field)/arr.length : 0;
-    // date for label
-    let labelDate = arr[0].date;
     return {
       key: k,
       label: k,
-      date: labelDate,
+      date: arr[0].date,
       count: arr.length,
       totalLuasSiram: sum('luasSiram'),
-      totalLuasCek: sum('luasCek'),
+      // luasCek removed - no longer aggregated, kept as 0 for compatibility
       totalSolar: sum('solarTerpakai'),
       avgSolarPerJam: avg('solarPerJam'),
       avgSolarPerHa: avg('solarPerHa'),
@@ -349,7 +326,6 @@ function getAggregated(gran) {
   return result;
 }
 
-// KPI Calculation
 function calculateKPIs() {
   const data = filteredData;
   if (data.length === 0) return null;
@@ -357,7 +333,6 @@ function calculateKPIs() {
   const avg = (f) => data.length ? sum(f)/data.length : 0;
   return {
     totalLuasSiram: sum('luasSiram'),
-    totalLuasCek: sum('luasCek'),
     totalSolar: sum('solarTerpakai'),
     avgOperating: avg('operatingTime'),
     avgSolarPerJam: avg('solarPerJam'),
@@ -378,7 +353,6 @@ function calculateKPIs() {
   };
 }
 
-// Rendering
 function renderKPIs() {
   const kpi = calculateKPIs();
   const grid = $('#kpiGrid');
@@ -389,7 +363,7 @@ function renderKPIs() {
     return;
   }
   const cards = [
-    { label: 'Total Luas Siram', value: `${formatNumber(kpi.totalLuasSiram,2)} Ha`, sub: `Cek: ${formatNumber(kpi.totalLuasCek,2)} Ha • ${kpi.totalRecords} records`, icon: 'map', color: 'emerald', trend: '+'+formatNumber(kpi.avgHaPerHari,2)+' Ha/hari avg' },
+    { label: 'Total Luas Siram', value: `${formatNumber(kpi.totalLuasSiram,2)} Ha`, sub: `${kpi.totalRecords} aktivitas • ${formatNumber(kpi.avgHaPerHari,2)} Ha/hari avg`, icon: 'map', color: 'emerald', trend: `${formatNumber(kpi.avgHaPerJam,3)} Ha/Jam` },
     { label: 'Total Solar Terpakai', value: `${formatInt(kpi.totalSolar)} L`, sub: `${formatNumber(kpi.avgSolarPerJam,2)} L/jam • ${formatNumber(kpi.avgSolarPerHa,2)} L/Ha`, icon: 'fuel', color: 'amber', trend: `${formatNumber(kpi.totalAir,0)} L air` },
     { label: 'Jam Efektif Siram', value: `${formatNumber(kpi.avgOperating,2)} Jam`, sub: `Plan avg ${formatNumber(kpi.avgPlan,2)} Jam • Prepare ${formatNumber(kpi.avgPrepare,2)}`, icon: 'clock-3', color: 'blue', trend: `Util ${formatNumber(kpi.avgUtilization,1)}%` },
     { label: 'Efisiensi Operasional', value: `${formatNumber(kpi.avgHaPerJam,3)} Ha/Jam`, sub: `${formatNumber(kpi.avgHaPerHari,2)} Ha/Hari • Rp ${formatInt(kpi.avgRpPerHa)}/Ha`, icon: 'trending-up', color: 'violet', trend: `Avail ${formatNumber(kpi.avgAvailability,1)}%` },
@@ -427,10 +401,7 @@ function renderKPIs() {
       <div class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-50 text-slate-500"><i data-lucide="${c.icon}" class="h-4 w-4"></i></div>
     </div>
   `).join('');
-  // refresh icons
   if (window.lucide) lucide.createIcons();
-
-  // Update small stats
   $('#solarTotal').textContent = formatInt(kpi.totalSolar);
   $('#solarAvg').textContent = formatNumber(kpi.avgSolarPerJam,2);
   $('#avgPrepare').textContent = formatNumber(kpi.avgPrepare,2)+'h';
@@ -458,7 +429,6 @@ function ensureChart(id, config) {
 function renderCharts() {
   const agg = getAggregated(granularity);
   const labels = agg.map(a=>a.label);
-  // Solar chart
   ensureChart('chartSolar', {
     type: 'bar',
     data: {
@@ -480,25 +450,22 @@ function renderCharts() {
     }
   });
 
-  // Luas chart
+  // Luas Siram - now single dataset (Luas Cek removed)
   ensureChart('chartLuas', {
     type: 'bar',
     data: {
       labels,
       datasets: [
-        { label: 'Luas Siram', data: agg.map(a=>a.totalLuasSiram), backgroundColor: 'rgba(16,185,129,0.85)', borderRadius: 8 },
-        { label: 'Luas Cek', data: agg.map(a=>a.totalLuasCek), backgroundColor: 'rgba(16,185,129,0.25)', borderRadius: 8 }
+        { label: 'Luas Siram (Ha)', data: agg.map(a=>a.totalLuasSiram), backgroundColor: 'rgba(16,185,129,0.85)', borderRadius: 8, borderSkipped: false },
       ]
     },
     options: {
       responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{position:'bottom', labels:{usePointStyle:true,font:{size:11}}}, tooltip:{backgroundColor:'#0f172a',cornerRadius:12} },
-      scales:{ x:{grid:{display:false}, ticks:{font:{size:10}, maxTicksLimit:10}}, y:{beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}} }
+      scales:{ x:{grid:{display:false}, ticks:{font:{size:10}, maxTicksLimit:10}}, y:{beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}, title:{display:true,text:'Ha',font:{size:10}}} }
     }
   });
 
-  // Jam chart - stacked time components average
-  // For simplicity, show operating vs plan
   ensureChart('chartJam', {
     type: 'bar',
     data: {
@@ -516,7 +483,6 @@ function renderCharts() {
     }
   });
 
-  // Kecepatan & Tebal
   ensureChart('chartKecepatan', {
     type: 'line',
     data: {
@@ -534,7 +500,6 @@ function renderCharts() {
     }
   });
 
-  // Efisiensi
   ensureChart('chartEfisiensi', {
     type: 'line',
     data: {
@@ -551,7 +516,6 @@ function renderCharts() {
     }
   });
 
-  // Wilayah breakdown
   const wilayahGroups = {};
   filteredData.forEach(d=>{
     if (!wilayahGroups[d.wilayah]) wilayahGroups[d.wilayah]=[];
@@ -576,7 +540,6 @@ function renderCharts() {
     }
   });
 
-  // Jenis Engine doughnut
   const jenisGroups = {};
   filteredData.forEach(d=>{
     const k = d.jenisEngine || 'Unknown';
@@ -597,13 +560,11 @@ function renderCharts() {
       plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#0f172a',cornerRadius:12} }
     }
   });
-  // legend custom
   $('#jenisEngineLegend').innerHTML = jenisLabels.map((l,i)=>{
     const pct = jenisValues[i]/ (jenisValues.reduce((a,b)=>a+b,0) ||1) *100;
     return `<div class="flex items-center justify-between text-[11px]"><div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full" style="background:${colors[i%colors.length]}"></span><span class="font-medium text-slate-700">${l}</span></div><span class="font-mono text-slate-500">${formatNumber(pct,1)}%</span></div>`;
   }).join('');
 
-  // Top Engine & Irigator
   const engineMap = {};
   const irigatorMap = {};
   filteredData.forEach(d=>{
@@ -625,7 +586,6 @@ function renderCharts() {
     </div>
   `).join('') || '<div class="text-[11px] text-slate-400">No data</div>';
 
-  // Availability vs Utilization
   ensureChart('chartAvail', {
     type: 'line',
     data: {
@@ -643,7 +603,6 @@ function renderCharts() {
     }
   });
 
-  // Scatter
   const scatterData = filteredData.slice(0,800).map(d=>({ x:d.haPerJam, y:d.solarPerHa, wilayah:d.wilayah }));
   const wilayahColorMap = {};
   wilayahLabels.forEach((w,i)=>wilayahColorMap[w]=colors[i%colors.length]);
@@ -688,7 +647,6 @@ function renderInsights() {
 function renderTable() {
   const tbody = $('#dataTableBody');
   let data = [...filteredData];
-  // sort
   data.sort((a,b)=>{
     let av = a[sortField], bv = b[sortField];
     if (sortField==='date') { av=a.date; bv=b.date; }
@@ -708,7 +666,6 @@ function renderTable() {
   $('#pageInfo').textContent = `Page ${currentPage} / ${totalPages}`;
   $('#btnPrevPage').disabled = currentPage<=1;
   $('#btnNextPage').disabled = currentPage>=totalPages;
-
   if (pageData.length===0) {
     tbody.innerHTML = `<tr><td colspan="14" class="px-4 py-10 text-center text-slate-400">Tidak ada data</td></tr>`;
     return;
@@ -742,7 +699,6 @@ function updateAll() {
   $('#rowCount').textContent = `${formatInt(filteredData.length)} / ${formatInt(rawData.length)} records`;
 }
 
-// Init filters UI from data
 function initFiltersUI() {
   if (rawData.length===0) return;
   const dates = rawData.map(d=>d.date).sort((a,b)=>a-b);
@@ -751,8 +707,6 @@ function initFiltersUI() {
   $('#filterEnd').value = formatDateISO(maxDate);
   filters.start = minDate;
   filters.end = maxDate;
-
-  // wilayah checkboxes
   const wilayahSet = [...new Set(rawData.map(d=>d.wilayah))].sort();
   const wilayahContainer = $('#wilayahCheckboxes');
   wilayahContainer.innerHTML = wilayahSet.map(w=>`
@@ -766,25 +720,15 @@ function initFiltersUI() {
     cb.addEventListener('change', (e)=>{
       if (e.target.checked) filters.wilayah.add(e.target.value);
       else filters.wilayah.delete(e.target.value);
-      currentPage=1;
-      updateAll();
+      currentPage=1; updateAll();
     });
   });
-
-  // jenisEngine select
   const jenisSet = [...new Set(rawData.map(d=>d.jenisEngine).filter(Boolean))].sort();
   const sel = $('#filterJenisEngine');
   sel.innerHTML = '<option value="all">Semua Jenis</option>' + jenisSet.map(j=>`<option value="${j}">${j}</option>`).join('');
-
-  // year filter populate
   const yearsSet = [...new Set(rawData.map(d=>d.date.getFullYear()))].sort();
   const yearSel = $('#filterYear');
-  if (yearSel) {
-    yearSel.innerHTML = '<option value="all">Semua Tahun</option>' + yearsSet.map(y=>`<option value="${y}">${y}</option>`).join('');
-  }
-
-  // helper to render active month chips
-  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  if (yearSel) yearSel.innerHTML = '<option value="all">Semua Tahun</option>' + yearsSet.map(y=>`<option value="${y}">${y}</option>`).join('');
   const shortNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
   function renderMonthChips() {
     const container = $('#activeMonthChips');
@@ -807,7 +751,6 @@ function initFiltersUI() {
       btn.addEventListener('click', ()=>{
         const m = parseInt(btn.dataset.removeMonth);
         filters.months.delete(m);
-        // update UI buttons
         document.querySelectorAll('.month-btn').forEach(b=>{
           if (parseInt(b.dataset.month)===m) {
             b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100');
@@ -819,16 +762,12 @@ function initFiltersUI() {
       });
     });
     const rmYear = container.querySelector('[data-remove-year]');
-    if (rmYear) {
-      rmYear.addEventListener('click', ()=>{
-        filters.year='all';
-        if ($('#filterYear')) $('#filterYear').value='all';
-        currentPage=1; updateAll(); renderMonthChips();
-      });
-    }
+    if (rmYear) rmYear.addEventListener('click', ()=>{
+      filters.year='all';
+      if ($('#filterYear')) $('#filterYear').value='all';
+      currentPage=1; updateAll(); renderMonthChips();
+    });
   }
-
-  // month buttons toggle
   $$('.month-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const m = parseInt(btn.dataset.month);
@@ -844,14 +783,11 @@ function initFiltersUI() {
       currentPage=1; updateAll(); renderMonthChips();
     });
   });
-
-  // month dropdown (single select, adds to set)
   const monthDropdown = $('#filterMonthDropdown');
   if (monthDropdown) {
     monthDropdown.addEventListener('change', (e)=>{
       const v = e.target.value;
       if (v==='all') {
-        // clear months if user selects all via dropdown? Keep existing? We'll clear
         filters.months.clear();
         $$('.month-btn').forEach(b=>{
           b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100');
@@ -860,7 +796,6 @@ function initFiltersUI() {
       } else {
         const m = parseInt(v);
         filters.months.add(m);
-        // highlight button
         document.querySelectorAll('.month-btn').forEach(b=>{
           if (parseInt(b.dataset.month)===m) {
             b.classList.remove('bg-white','text-slate-600','border-slate-200');
@@ -871,16 +806,12 @@ function initFiltersUI() {
       currentPage=1; updateAll(); renderMonthChips();
     });
   }
-
-  // year dropdown
   if (yearSel) {
     yearSel.addEventListener('change', (e)=>{
       filters.year = e.target.value;
       currentPage=1; updateAll(); renderMonthChips();
     });
   }
-
-  // clear month filter
   const btnClearMonth = $('#btnClearMonth');
   if (btnClearMonth) {
     btnClearMonth.addEventListener('click', ()=>{
@@ -895,18 +826,9 @@ function initFiltersUI() {
       currentPage=1; updateAll(); renderMonthChips();
     });
   }
-
   renderMonthChips();
-
-  // bind events
-  $('#filterStart').addEventListener('change', e=>{
-    filters.start = e.target.value ? new Date(e.target.value) : null;
-    currentPage=1; updateAll();
-  });
-  $('#filterEnd').addEventListener('change', e=>{
-    filters.end = e.target.value ? new Date(e.target.value) : null;
-    currentPage=1; updateAll();
-  });
+  $('#filterStart').addEventListener('change', e=>{ filters.start = e.target.value ? new Date(e.target.value) : null; currentPage=1; updateAll(); });
+  $('#filterEnd').addEventListener('change', e=>{ filters.end = e.target.value ? new Date(e.target.value) : null; currentPage=1; updateAll(); });
   $$('.range-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       $$('.range-btn').forEach(b=>{ b.className='range-btn flex-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50'; });
@@ -933,58 +855,34 @@ function initFiltersUI() {
       updateAll();
     });
   });
-  $('#filterSearch').addEventListener('input', e=>{
-    filters.search = e.target.value;
-    currentPage=1; updateAll();
-  });
-  $('#filterJenisEngine').addEventListener('change', e=>{
-    filters.jenisEngine = e.target.value;
-    currentPage=1; updateAll();
-  });
-  $('#tableSearch').addEventListener('input', e=>{
-    filters.tableSearch = e.target.value;
-    currentPage=1; renderTable();
-  });
+  $('#filterSearch').addEventListener('input', e=>{ filters.search = e.target.value; currentPage=1; updateAll(); });
+  $('#filterJenisEngine').addEventListener('change', e=>{ filters.jenisEngine = e.target.value; currentPage=1; updateAll(); });
+  $('#tableSearch').addEventListener('input', e=>{ filters.tableSearch = e.target.value; currentPage=1; renderTable(); });
   $('#btnClearFilters').addEventListener('click', ()=>{
-    filters.wilayah.clear();
-    filters.months.clear();
-    filters.year='all';
-    filters.jenisEngine='all';
-    filters.search='';
-    filters.tableSearch='';
+    filters.wilayah.clear(); filters.months.clear(); filters.year='all'; filters.jenisEngine='all'; filters.search=''; filters.tableSearch='';
     $$('.wilayah-cb').forEach(cb=>cb.checked=false);
-    $$('.month-btn').forEach(b=>{
-      b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100');
-      b.classList.add('bg-white','text-slate-600','border-slate-200');
-    });
+    $$('.month-btn').forEach(b=>{ b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100'); b.classList.add('bg-white','text-slate-600','border-slate-200'); });
     $('#filterJenisEngine').value='all';
     if ($('#filterYear')) $('#filterYear').value='all';
     if ($('#filterMonthDropdown')) $('#filterMonthDropdown').value='all';
-    $('#filterSearch').value='';
-    $('#tableSearch').value='';
+    $('#filterSearch').value=''; $('#tableSearch').value='';
     const dates = rawData.map(d=>d.date).sort((a,b)=>a-b);
-    $('#filterStart').value = formatDateISO(dates[0]);
-    $('#filterEnd').value = formatDateISO(dates[dates.length-1]);
+    $('#filterStart').value = formatDateISO(dates[0]); $('#filterEnd').value = formatDateISO(dates[dates.length-1]);
     filters.start = dates[0]; filters.end = dates[dates.length-1];
     currentPage=1; updateAll(); renderMonthChips();
   });
   $('#btnPrevPage').addEventListener('click', ()=>{ if (currentPage>1){ currentPage--; renderTable(); } });
   $('#btnNextPage').addEventListener('click', ()=>{ currentPage++; renderTable(); });
-  // page size selector - 15 default, options 15,30,50,100
   const psSelect = $('#pageSizeSelect');
   if (psSelect) {
     psSelect.addEventListener('change', (e)=>{
       const newSize = parseInt(e.target.value);
       if (!isNaN(newSize) && newSize>0) {
-        pageSize = newSize;
-        currentPage = 1; // reset to first page when size changes
-        renderTable();
-        const info = $('#pageSizeInfo');
-        if (info) info.textContent = `• ${pageSize} per halaman`;
+        pageSize = newSize; currentPage = 1; renderTable();
+        const info = $('#pageSizeInfo'); if (info) info.textContent = `• ${pageSize} per halaman`;
       }
     });
   }
-  // sort headers
   $$('th[data-sort]').forEach(th=>{
     th.addEventListener('click', ()=>{
       const field = th.dataset.sort;
@@ -995,21 +893,10 @@ function initFiltersUI() {
   });
   $('#btnExport').addEventListener('click', ()=>{
     const csv = Papa.unparse(filteredData.map(d=>({
-      Date: formatDateISO(d.date),
-      Wilayah: d.wilayah,
-      Lokasi: d.lokasi,
-      Engine: d.engine,
-      Irigator: d.irigator,
-      'Jenis Engine': d.jenisEngine,
-      'Luas Siram': d.luasSiram,
-      'Operating Time': d.operatingTime,
-      'Solar L': d.solarTerpakai,
-      'Ltr/Jam': d.solarPerJam,
-      'Ha/Jam': d.haPerJam,
-      'Kecepatan': d.kecepatan,
-      'Tebal Siram': d.tebalSiram,
-      'Availability': d.availability,
-      'Utilization': d.utilization
+      Date: formatDateISO(d.date), Wilayah: d.wilayah, Lokasi: d.lokasi, Engine: d.engine, Irigator: d.irigator,
+      'Jenis Engine': d.jenisEngine, 'Luas Siram': d.luasSiram, 'Operating Time': d.operatingTime,
+      'Solar L': d.solarTerpakai, 'Ltr/Jam': d.solarPerJam, 'Ha/Jam': d.haPerJam, 'Kecepatan': d.kecepatan,
+      'Tebal Siram': d.tebalSiram, 'Availability': d.availability, 'Utilization': d.utilization
     })));
     const blob = new Blob([csv], {type:'text/csv'});
     const url = URL.createObjectURL(blob);
@@ -1018,20 +905,13 @@ function initFiltersUI() {
   });
   $('#btnSync').addEventListener('click', async ()=>{
     $('#btnSync').innerHTML = '<i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i> Syncing';
-    lucide.createIcons();
-    await loadData(true);
-    $('#btnSync').innerHTML = '<i data-lucide="refresh-cw" class="h-4 w-4"></i> Sync';
-    lucide.createIcons();
+    lucide.createIcons(); await loadData(true);
+    $('#btnSync').innerHTML = '<i data-lucide="refresh-cw" class="h-4 w-4"></i> Sync'; lucide.createIcons();
   });
   $('#btnFilters').addEventListener('click', ()=>{
     const panel = $('#filterPanel');
-    panel.classList.toggle('hidden');
-    panel.classList.toggle('fixed');
-    panel.classList.toggle('inset-0');
-    panel.classList.toggle('z-30');
-    panel.classList.toggle('bg-white');
-    panel.classList.toggle('p-6');
-    panel.classList.toggle('overflow-y-auto');
+    panel.classList.toggle('hidden'); panel.classList.toggle('fixed'); panel.classList.toggle('inset-0');
+    panel.classList.toggle('z-30'); panel.classList.toggle('bg-white'); panel.classList.toggle('p-6'); panel.classList.toggle('overflow-y-auto');
   });
 }
 
@@ -1040,14 +920,8 @@ async function loadData(isManual=false) {
     if (!isManual) $('#loadingOverlay').style.display='flex';
     const data = await fetchSheetData();
     rawData = data;
-    if (!isManual) {
-      initFiltersUI();
-    }
-    applyFilters();
-    renderKPIs();
-    renderCharts();
-    renderInsights();
-    renderTable();
+    if (!isManual) initFiltersUI();
+    applyFilters(); renderKPIs(); renderCharts(); renderInsights(); renderTable();
     $('#lastSync').textContent = `Sync ${new Date().toLocaleTimeString('id-ID')} • ${formatInt(rawData.length)} records`;
     $('#rowCount').textContent = `${formatInt(filteredData.length)} / ${formatInt(rawData.length)} records`;
     $('#loadingOverlay').style.display='none';
@@ -1058,9 +932,7 @@ async function loadData(isManual=false) {
   }
 }
 
-// Init
 document.addEventListener('DOMContentLoaded', ()=>{
   loadData(false);
-  // auto-sync every 5 minutes
   setInterval(()=>loadData(true), 5*60*1000);
 });
