@@ -17,8 +17,10 @@ let currentPage = 1;
 let pageSize = 15;
 let wilayahMetric = 'luas'; // metric for wilayah chart
 let wilayahSort = 'totalLuas';
-let biayaGran = 'all'; // granularity for biaya period table
+let biayaGran = 'monthly'; // granularity for biaya period table
 let biayaSort = 'totalBiaya'; // sort for biaya wilayah table
+let currentTab = 'overview'; // active tab
+const TAB_IDS = ['overview','wilayah','biaya','utilisasi','data'];
 let filters = {
   start: null,
   end: null,
@@ -646,15 +648,16 @@ function renderBiaya() {
     }
   });
 
-  // Chart: tren biaya per periode (mengikuti biayaGran)
+  // Chart: tren biaya per periode
   const periodRows = getBiayaPeriodStats();
+  const dailyAgg = getAggregated('daily');
   ensureChart('chartBiayaTrend', {
     type: 'line',
     data: {
-      labels: periodRows.map(r=>r.label),
+      labels: dailyAgg.map(r=>r.label),
       datasets: [
-        { label:'Biaya Total', data:periodRows.map(r=>r.biayaTotal), borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,0.15)', fill:true, tension:0.35, pointRadius: periodRows.length>40?0:2, borderWidth:2, yAxisID:'y' },
-        { label:'Rp/Ha', data:periodRows.map(r=>r.rpPerHa), borderColor:'#0f172a', backgroundColor:'rgba(15,23,42,0.05)', fill:false, tension:0.35, pointRadius: periodRows.length>40?0:2, borderWidth:2, borderDash:[4,3], yAxisID:'y1' }
+        { label:'Biaya Total', data:dailyAgg.map(r=>r.totalBiaya), borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,0.15)', fill:true, tension:0.35, pointRadius:0, borderWidth:2, yAxisID:'y' },
+        { label:'Rp/Ha', data:dailyAgg.map(r=>r.avgRpPerHa), borderColor:'#0f172a', backgroundColor:'rgba(15,23,42,0.05)', fill:false, tension:0.35, pointRadius:0, borderWidth:1.5, borderDash:[4,3], yAxisID:'y1' }
       ]
     },
     options:{
@@ -665,9 +668,34 @@ function renderBiaya() {
         tooltip:{ backgroundColor:'#0f172a', cornerRadius:12, callbacks:{ label: ctx => `${ctx.dataset.label}: ${formatRupiah(ctx.raw)}` }}
       },
       scales:{
-        x:{ grid:{display:false}, ticks:{font:{size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:8} },
+        x:{ grid:{display:false}, ticks:{font:{size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:6} },
         y:{ beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}, callback:v=>formatRupiahShort(v)} },
         y1:{ position:'right', beginAtZero:true, grid:{display:false}, ticks:{font:{size:10}, callback:v=>formatInt(v/1000)+'rb'} }
+      }
+    }
+  });
+
+  // Chart: Total Biaya & Rp/Ha per granularitas terpilih (selaras tabel di samping)
+  ensureChart('chartBiayaGran', {
+    type: 'bar',
+    data: {
+      labels: periodRows.map(r=>r.label),
+      datasets: [
+        { type:'bar', label:'Total Biaya', data: periodRows.map(r=>r.biayaTotal), backgroundColor:'rgba(245,158,11,0.85)', borderRadius:5, yAxisID:'y' },
+        { type:'line', label:'Rp/Ha', data: periodRows.map(r=>r.rpPerHa), borderColor:'#0f172a', backgroundColor:'#0f172a', borderWidth:2, pointRadius: periodRows.length>40?0:3, tension:0.35, yAxisID:'y1' }
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{position:'bottom', labels:{usePointStyle:true,font:{size:10}}},
+        tooltip:{backgroundColor:'#0f172a',cornerRadius:12, callbacks:{ label: ctx=> `${ctx.dataset.label}: ${formatRupiah(ctx.raw)}` }}
+      },
+      scales:{
+        x:{grid:{display:false}, ticks:{font:{size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:8}},
+        y:{beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}, callback:v=>formatRupiahShort(v)}, title:{display:true,text:'Total Biaya',font:{size:9}}},
+        y1:{position:'right', beginAtZero:true, grid:{display:false}, ticks:{font:{size:10}, callback:v=>formatInt(v/1000)+'rb'}, title:{display:true,text:'Rp/Ha',font:{size:9}}}
       }
     }
   });
@@ -677,6 +705,8 @@ function renderBiaya() {
   const periodoInfo = $('#biayaPeriodeInfo');
   const granLabel = biayaGran==='all' ? 'seluruh periode' : biayaGran==='daily' ? 'harian' : biayaGran==='weekly' ? 'mingguan' : 'bulanan';
   if (periodoInfo) periodoInfo.textContent = `Granularitas: ${granLabel} • ${periodRows.length} periode`;
+  const trendLabel = $('#biayaTrendGranLabel');
+  if (trendLabel) trendLabel.textContent = '(' + granLabel + ')';
   if (pbody) {
     pbody.innerHTML = periodRows.map(r=>`
       <tr class="hover:bg-amber-50/40 transition">
@@ -688,9 +718,8 @@ function renderBiaya() {
         <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(r.biayaAlat)}</td>
         <td class="px-4 py-2.5 whitespace-nowrap text-right font-bold text-amber-700">${formatInt(r.biayaTotal)}</td>
         <td class="px-4 py-2.5 whitespace-nowrap text-right font-semibold text-slate-900">${formatInt(r.rpPerHa)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(r.rpPerJam)}</td>
       </tr>
-    `).join('') || '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">Tidak ada data</td></tr>';
+    `).join('') || '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Tidak ada data</td></tr>';
   }
 
   // Insight biaya
@@ -792,10 +821,11 @@ function renderWilayahDetail() {
   }
 
   // Bubble chart: efisiensi per wilayah
+  const maxLuas = Math.max(...stats.map(s=>s.totalLuas)) || 1;
   const bubbleData = stats.map(s=>({
     x: s.avgHaPerJam,
     y: s.avgSolarPerHa,
-    r: Math.sqrt(s.totalLuas) * 2 + 5, // bubble size based on total luas
+    r: Math.sqrt(s.totalLuas / maxLuas) * 24 + 9, // proporsional, max ~33px
     wilayah: s.wilayah
   }));
   const colors = ['#10b981','#3b82f6','#f59e0b','#8b5cf6','#06b6d4','#ef4444','#64748b','#ec4899'];
@@ -938,6 +968,21 @@ function renderKPIs() {
     </div>
   `).join('');
   if (window.lucide) lucide.createIcons();
+  // Header ticker ringkas (selalu terlihat di semua tab)
+  const ticker = $('#headerTicker');
+  if (ticker) {
+    const items = [
+      { l:'Luas Siram', v:`${formatNumber(kpi.totalLuasSiram,1)} Ha`, c:'text-emerald-600' },
+      { l:'Solar', v:`${formatInt(kpi.totalSolar)} L`, c:'text-amber-600' },
+      { l:'Total Biaya', v:formatRupiahShort(kpi.totalBiaya), c:'text-slate-900' },
+      { l:'Rp/Ha', v:`Rp ${formatInt(kpi.rpPerHaOps)}`, c:'text-slate-900' },
+      { l:'Ha/Jam', v:formatNumber(kpi.avgHaPerJam,3), c:'text-emerald-600' },
+      { l:'Ltr/Ha', v:formatNumber(kpi.avgSolarPerHa,1), c:'text-amber-600' },
+      { l:'Util', v:`${formatNumber(kpi.avgUtilization,1)}%`, c:'text-slate-900' },
+      { l:'Avail', v:`${formatNumber(kpi.avgAvailability,1)}%`, c:'text-slate-900' }
+    ];
+    ticker.innerHTML = items.map(i=>`<span class="inline-flex items-center gap-1.5"><span class="text-[10px] uppercase tracking-wider text-slate-400">${i.l}</span><span class="font-semibold ${i.c}">${i.v}</span></span>`).join('<span class="h-3 w-px flex-shrink-0 bg-slate-200"></span>');
+  }
   $('#solarTotal').textContent = formatInt(kpi.totalSolar);
   $('#solarAvg').textContent = formatNumber(kpi.avgSolarPerJam,2);
   $('#avgPrepare').textContent = formatNumber(kpi.avgPrepare,2)+'h';
@@ -945,6 +990,90 @@ function renderKPIs() {
   $('#avgWaiting').textContent = formatNumber(kpi.avgWaiting,2)+'h';
   $('#avgKec').textContent = formatNumber(kpi.avgKecepatan,1);
   $('#avgTebal').textContent = formatNumber(kpi.avgTebal,1);
+}
+
+// ===== OVERVIEW: ringkasan garis besar semua wilayah =====
+function renderOverviewWilayah() {
+  const cont = $('#overviewWilayahCards');
+  if (!cont) return;
+  const stats = getWilayahStats();
+  const meta = $('#overviewWilayahMeta');
+  if (!stats.length) {
+    cont.innerHTML = '<div class="col-span-2 md:col-span-4 py-6 text-center text-[12px] text-slate-400">Tidak ada data wilayah untuk filter ini</div>';
+    if (meta) meta.textContent = '-';
+    return;
+  }
+  const maxLuas = Math.max(...stats.map(x=>x.totalLuas)) || 1;
+  const totalRec = stats.reduce((a,b)=>a+b.count,0);
+  if (meta) meta.textContent = `${stats.length} wilayah • ${formatInt(totalRec)} aktivitas`;
+  cont.innerHTML = stats.map(x=>{
+    const pct = Math.max(2, x.totalLuas/maxLuas*100);
+    const rpHa = x.rpPerHa !== undefined ? x.rpPerHa : (x.totalLuas ? x.totalBiaya/x.totalLuas : 0);
+    return `
+      <div class="group rounded-xl border border-slate-200 bg-slate-50/40 p-3 transition hover:border-emerald-300 hover:bg-white">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] font-bold text-slate-900">${x.wilayah}</span>
+          <span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200">${formatInt(x.count)} rec</span>
+        </div>
+        <div class="mt-2 text-[17px] font-bold tracking-tight text-slate-900">${formatNumber(x.totalLuas,1)} <span class="text-[10px] font-medium text-slate-400">Ha</span></div>
+        <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200/70"><div class="h-full rounded-full bg-emerald-500" style="width:${pct}%"></div></div>
+        <div class="mt-2 grid grid-cols-2 gap-1.5 text-[10px]">
+          <div class="rounded-lg bg-white px-2 py-1.5 ring-1 ring-slate-100"><div class="text-slate-400">Solar</div><div class="font-semibold text-amber-700">${formatInt(x.totalSolar)} L</div></div>
+          <div class="rounded-lg bg-white px-2 py-1.5 ring-1 ring-slate-100"><div class="text-slate-400">Rp/Ha</div><div class="font-semibold text-slate-900">${formatInt(rpHa)}</div></div>
+          <div class="rounded-lg bg-white px-2 py-1.5 ring-1 ring-slate-100"><div class="text-slate-400">Ha/Jam</div><div class="font-semibold text-emerald-700">${formatNumber(x.avgHaPerJam,3)}</div></div>
+          <div class="rounded-lg bg-white px-2 py-1.5 ring-1 ring-slate-100"><div class="text-slate-400">Ltr/Ha</div><div class="font-semibold text-slate-900">${formatNumber(x.avgSolarPerHa,1)}</div></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ===== TAB NAVIGATION =====
+function activateTab(tab, skipScroll) {
+  if (TAB_IDS.indexOf(tab) === -1) tab = 'overview';
+  $$('.tab-panel').forEach(p=>{ p.classList.toggle('hidden', p.id !== 'tab-'+tab); });
+  $$('.tab-btn').forEach(b=>{
+    const on = b.dataset.tab === tab;
+    b.className = 'tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium transition ' +
+      (on ? 'bg-slate-900 text-white shadow-soft' : 'text-slate-600 hover:bg-slate-100');
+    if (on && b.scrollIntoView) {
+      try { b.scrollIntoView({ block:'nearest', inline:'center', behavior:'smooth' }); } catch(e) {}
+    }
+  });
+  currentTab = tab;
+  try { localStorage.setItem('pg2-tab', tab); } catch(e) {}
+  try { if (history.replaceState) history.replaceState(null, '', '#'+tab); } catch(e) {}
+
+  if (!rawData.length) return;
+  const raf = (window.requestAnimationFrame || function(cb){ setTimeout(cb,16); });
+  raf(()=>{
+    try {
+      if (tab === 'overview') { renderKPIs(); renderOverviewWilayah(); renderCharts(); }
+      else if (tab === 'wilayah') { renderCharts(); renderWilayahDetail(); }
+      else if (tab === 'biaya') { renderBiaya(); }
+      else if (tab === 'utilisasi') { renderCharts(); }
+      else if (tab === 'data') { renderTable(); }
+    } catch(e) { console.error('tab render error', e); }
+    // resize semua chart agar kanvas yang baru tampil dihitung ulang
+    Object.keys(charts).forEach(k=>{ try { charts[k].resize(); } catch(e) {} });
+    if (window.lucide) window.lucide.createIcons();
+    if (!skipScroll) {
+      const nav = document.querySelector('nav.sticky');
+      const y = nav ? nav.getBoundingClientRect().top + window.pageYOffset - 90 : 0;
+      window.scrollTo({ top: Math.max(0,y), behavior: 'smooth' });
+    }
+  });
+}
+
+function initTabNav() {
+  $$('.tab-btn').forEach(b=>{
+    if (b.dataset.bound) return;
+    b.dataset.bound = '1';
+    b.addEventListener('click', ()=> activateTab(b.dataset.tab));
+  });
+  let saved = '';
+  try { saved = (location.hash||'').replace('#','') || localStorage.getItem('pg2-tab') || ''; } catch(e) { saved = ''; }
+  activateTab(TAB_IDS.indexOf(saved) !== -1 ? saved : 'overview', true);
 }
 
 function ensureChart(id, config) {
@@ -1041,14 +1170,24 @@ function renderCharts() {
     data: {
       labels,
       datasets: [
-        { label:'Ha/Jam', data: agg.map(a=>a.avgHaPerJam), borderColor:'#10b981', backgroundColor:'#10b981', tension:0.4, pointRadius:0, borderWidth:2 },
-        { label:'Solar Ltr/Ha', data: agg.map(a=>a.avgSolarPerHa), borderColor:'#f59e0b', backgroundColor:'#f59e0b', tension:0.4, pointRadius:0, borderWidth:2, yAxisID:'y1' }
+        { label:'Ha/Jam', data: agg.map(a=>a.avgHaPerJam), borderColor:'#10b981', backgroundColor:'#10b981', tension:0.4, pointRadius:0, borderWidth:2, yAxisID:'y' },
+        { label:'Solar Ltr/Ha', data: agg.map(a=>a.avgSolarPerHa), borderColor:'#f59e0b', backgroundColor:'#f59e0b', tension:0.4, pointRadius:0, borderWidth:2, yAxisID:'y1' },
+        { label:'Rp/Ha', data: agg.map(a=>a.avgRpPerHa), borderColor:'#0f172a', backgroundColor:'#0f172a', tension:0.4, pointRadius:0, borderWidth:1.5, borderDash:[5,3], yAxisID:'y2', hidden:true }
       ]
     },
     options:{
       responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom', labels:{usePointStyle:true,font:{size:10}}}, tooltip:{backgroundColor:'#0f172a',cornerRadius:12} },
-      scales:{ x:{grid:{display:false}, ticks:{font:{size:9}, maxTicksLimit:8}}, y:{grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}}, y1:{position:'right', grid:{display:false}, ticks:{font:{size:10}}} }
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{position:'bottom', labels:{usePointStyle:true,font:{size:9},boxWidth:8}},
+        tooltip:{backgroundColor:'#0f172a',cornerRadius:12, callbacks:{ label: ctx=> `${ctx.dataset.label}: ${ctx.dataset.label==='Rp/Ha' ? formatRupiah(ctx.raw) : formatNumber(ctx.raw, ctx.dataset.label==='Ha/Jam'?3:2)}` }}
+      },
+      scales:{
+        x:{grid:{display:false}, ticks:{font:{size:9}, maxTicksLimit:8}},
+        y:{grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}, title:{display:true,text:'Ha/Jam',font:{size:9}}},
+        y1:{position:'right', grid:{display:false}, ticks:{font:{size:10}}, title:{display:true,text:'Ltr/Ha',font:{size:9}}},
+        y2:{display:false, beginAtZero:true}
+      }
     }
   });
 
@@ -1268,6 +1407,7 @@ function updateAll() {
   renderKPIs();
   renderCharts();
   renderBiaya();
+  renderOverviewWilayah();
   renderInsights();
   renderTable();
   $('#rowCount').textContent = `${formatInt(filteredData.length)} / ${formatInt(rawData.length)} records`;
@@ -1405,9 +1545,26 @@ function initFiltersUI() {
   if (wilayahMetricSel) {
     wilayahMetricSel.addEventListener('change', (e)=>{
       wilayahMetric = e.target.value;
+      $$('.wm-chip').forEach(c=>{
+        const on = c.dataset.metric === wilayahMetric;
+        c.className = 'wm-chip flex-shrink-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition ' + (on ? 'bg-slate-900 text-white shadow-soft' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50');
+      });
       renderCharts();
     });
   }
+  // Quick metric chips untuk chart wilayah
+  $$('.wm-chip').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      const sel = $('#wilayahMetric');
+      if (sel) sel.value = chip.dataset.metric;
+      wilayahMetric = chip.dataset.metric;
+      $$('.wm-chip').forEach(c=>{
+        const on = c.dataset.metric === wilayahMetric;
+        c.className = 'wm-chip flex-shrink-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition ' + (on ? 'bg-slate-900 text-white shadow-soft' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50');
+      });
+      renderCharts();
+    });
+  });
   const wilayahSortSel = $('#wilayahSort');
   if (wilayahSortSel) {
     wilayahSortSel.addEventListener('change', (e)=>{
@@ -1419,13 +1576,16 @@ function initFiltersUI() {
   // Biaya irigasi: granularitas periode & sort wilayah
   const biayaGranSel = $('#biayaGran');
   if (biayaGranSel) {
+    biayaGranSel.value = biayaGran;
     biayaGranSel.addEventListener('change', (e)=>{
       biayaGran = e.target.value;
+      renderCharts();
       renderBiaya();
     });
   }
   const biayaSortSel = $('#biayaSort');
   if (biayaSortSel) {
+    biayaSortSel.value = biayaSort;
     biayaSortSel.addEventListener('change', (e)=>{
       biayaSort = e.target.value;
       renderBiaya();
@@ -1526,7 +1686,9 @@ async function loadData(isManual=false) {
     const data = await fetchSheetData();
     rawData = data;
     if (!isManual) initFiltersUI();
-    applyFilters(); renderKPIs(); renderCharts(); renderBiaya(); renderInsights(); renderTable();
+    applyFilters(); renderKPIs(); renderCharts(); renderBiaya(); renderOverviewWilayah(); renderInsights(); renderTable();
+    if (!isManual) initTabNav();
+    activateTab(currentTab, true);
     $('#lastSync').textContent = `Sync ${new Date().toLocaleTimeString('id-ID')} • ${formatInt(rawData.length)} records`;
     $('#rowCount').textContent = `${formatInt(filteredData.length)} / ${formatInt(rawData.length)} records`;
     $('#loadingOverlay').style.display='none';

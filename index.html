@@ -56,6 +56,14 @@
         .card-hover{transition: all .2s ease}
         .card-hover:hover{transform: translateY(-2px); box-shadow: 0 12px 32px -8px rgba(0,0,0,0.1)}
         .shimmer{background: linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%); background-size:200% 100%; animation: shimmer 1.5s infinite}
+        /* Kolom pertama tabel lebar tetap terlihat saat digeser */
+        table.wide-table thead th:first-child{position:sticky;left:0;z-index:2;background:#f8fafc}
+        table.wide-table tbody td:first-child{position:sticky;left:0;z-index:1;background:#fff}
+        table.wide-table tbody tr:hover td:first-child{background:#f8fafc}
+        table.wide-table tfoot td:first-child{position:sticky;left:0;z-index:1}
+        /* Panel tab: animasi halus */
+        .tab-panel{animation:tabIn .22s ease}
+        @keyframes tabIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
         @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
     </style>
 </head>
@@ -63,15 +71,15 @@
     <!-- Top Navigation -->
     <header class="sticky top-0 z-40 border-b border-slate-200/70 bg-white/80 glass">
         <div class="mx-auto max-w-[1600px] px-6 lg:px-8">
-            <div class="flex h-[68px] items-center justify-between">
-                <div class="flex items-center gap-5">
+            <div class="flex min-h-[68px] items-center justify-between gap-3 py-2 sm:py-0">
+                <div class="flex min-w-0 items-center gap-3 sm:gap-5">
                     <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-soft">
                         <i data-lucide="droplets" class="h-5 w-5"></i>
                     </div>
                     <div>
-                        <h1 class="text-[15px] font-semibold tracking-tight text-slate-900">PG2 Irrigation Evaluation</h1>
+                        <h1 class="text-[13px] font-semibold leading-tight tracking-tight text-slate-900 sm:text-[15px]">PG2 Irrigation Evaluation</h1>
                         <div class="flex items-center gap-2 text-[12px] text-slate-500">
-                            <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
+                            <span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
                                 <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> ZPAS637 LIVE
                             </span>
                             <span class="hidden sm:inline">•</span>
@@ -79,24 +87,31 @@
                         </div>
                     </div>
                 </div>
-                <div class="flex items-center gap-2.5">
+                <div class="flex flex-shrink-0 items-center gap-2 sm:gap-2.5">
                     <div class="hidden md:flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-mono text-slate-600">
                         <i data-lucide="link-2" class="h-3 w-3"></i>
                         <span class="truncate max-w-[180px]">1mhXxr7cf...45o</span>
                         <span class="h-1 w-1 rounded-full bg-emerald-500"></span>
                     </div>
-                    <button id="btnInstallPWA" class="hidden inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-[13px] font-medium text-white shadow-soft hover:bg-emerald-700 transition">
-                        <i data-lucide="download" class="h-4 w-4"></i> Install App
+                    <button id="btnInstallPWA" class="hidden items-center gap-2 rounded-full bg-emerald-600 px-3 py-2 text-[12px] font-medium text-white shadow-soft transition hover:bg-emerald-700 sm:px-4 sm:text-[13px]">
+                        <i data-lucide="download" class="h-4 w-4"></i><span class="hidden sm:inline">Install App</span>
                     </button>
-                    <button id="btnSync" class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-[13px] font-medium text-white shadow-soft hover:bg-slate-800 transition">
+                    <button id="btnSync" class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-[12px] font-medium text-white shadow-soft transition hover:bg-slate-800 sm:px-4 sm:text-[13px]">
                         <i data-lucide="refresh-cw" class="h-4 w-4"></i> Sync
                     </button>
-                    <button id="btnFilters" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-700 shadow-soft hover:bg-slate-50 transition lg:hidden">
+                    <button id="btnFilters" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-700 shadow-soft transition hover:bg-slate-50 sm:px-4 lg:hidden">
                         <i data-lucide="sliders-horizontal" class="h-4 w-4"></i> Filter
                     </button>
-                    <a href="https://github.com/wahyudp76/FS-evaluation" target="_blank" class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:text-slate-900 transition">
+                    <a href="https://github.com/wahyudp76/FS-evaluation" target="_blank" class="hidden h-9 w-9 sm:inline-flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:text-slate-900 transition">
                         <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
                     </a>
+                </div>
+            </div>
+            <!-- Ticker ringkas (selalu tampil di semua tab) -->
+            <div class="flex items-center gap-3 overflow-x-auto border-t border-slate-100 py-2 text-[11px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <span class="flex flex-shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-600/20"><i data-lucide="activity" class="h-3 w-3"></i> Ringkasan</span>
+                <div id="headerTicker" class="flex items-center gap-3 whitespace-nowrap">
+                    <span class="text-slate-400">Memuat metrik...</span>
                 </div>
             </div>
         </div>
@@ -105,7 +120,7 @@
     <div class="mx-auto max-w-[1600px] px-6 lg:px-8 py-6 lg:py-8">
         <div class="grid grid-cols-12 gap-6">
             <!-- Sidebar Filters - Desktop sticky -->
-            <aside id="filterPanel" class="col-span-12 lg:col-span-3 lg:sticky lg:top-[92px] lg:h-[calc(100vh-108px)] lg:overflow-y-auto space-y-5">
+            <aside id="filterPanel" class="hidden lg:block col-span-12 lg:col-span-3 lg:sticky lg:top-[104px] lg:h-[calc(100vh-120px)] lg:overflow-y-auto space-y-5">
                 <div class="rounded-[20px] border border-slate-200/70 bg-white p-5 shadow-soft">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-[13px] font-semibold tracking-wide text-slate-900 uppercase">Filters & Controls</h3>
@@ -233,6 +248,32 @@
 
             <!-- Main Content -->
             <main class="col-span-12 lg:col-span-9 space-y-6">
+                <!-- Tab Navigation -->
+                <nav class="z-20 -mt-1 rounded-[18px] border border-slate-200/70 bg-white/90 px-1.5 py-2 shadow-soft glass sm:px-2 lg:sticky lg:top-[104px]">
+                    <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        <button data-tab="overview" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
+                            <i data-lucide="layout-dashboard" class="h-3.5 w-3.5"></i><span>Overview</span>
+                        </button>
+                        <button data-tab="wilayah" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
+                            <i data-lucide="map-pinned" class="h-3.5 w-3.5"></i><span>Performance Wilayah</span>
+                        </button>
+                        <button data-tab="biaya" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
+                            <i data-lucide="wallet" class="h-3.5 w-3.5"></i><span>Analisa Biaya</span>
+                        </button>
+                        <button data-tab="utilisasi" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
+                            <i data-lucide="activity" class="h-3.5 w-3.5"></i><span>Utilisasi & Efisiensi</span>
+                        </button>
+                        <button data-tab="data" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
+                            <i data-lucide="table-2" class="h-3.5 w-3.5"></i><span>Detail Data Harian</span>
+                        </button>
+                        <span class="ml-auto hidden flex-shrink-0 items-center gap-1.5 pl-3 pr-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 xl:inline-flex">
+                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync
+                        </span>
+                    </div>
+                </nav>
+
+                <!-- ================= TAB: OVERVIEW ================= -->
+                <div id="tab-overview" class="tab-panel space-y-6">
                 <!-- KPI Grid -->
                 <section>
                     <div class="flex items-center justify-between mb-4">
@@ -254,6 +295,21 @@
                 <!-- Secondary KPIs -->
                 <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div id="kpiSecondary" class="contents"></div>
+                </section>
+
+                <!-- Ringkasan Semua Wilayah (compact) -->
+                <section class="rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+                        <div>
+                            <h3 class="text-[14px] font-semibold text-slate-900 flex items-center gap-2">
+                                <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><i data-lucide="layers" class="h-3.5 w-3.5"></i></span>
+                                Ringkasan Semua Wilayah
+                            </h3>
+                            <p class="mt-1 text-[11px] text-slate-500">Garis besar seluruh afdeling pada periode terpilih • klik tab Performance Wilayah untuk detail</p>
+                        </div>
+                        <span id="overviewWilayahMeta" class="text-[10px] font-medium uppercase tracking-wider text-slate-400">-</span>
+                    </div>
+                    <div id="overviewWilayahCards" class="grid grid-cols-2 md:grid-cols-4 gap-2.5"></div>
                 </section>
 
                 <!-- Main Charts Row 1 -->
@@ -305,9 +361,20 @@
                     </div>
                 </section>
 
+                </div>
+
+                <!-- ================= TAB: PERFORMANCE WILAYAH ================= -->
+                <div id="tab-wilayah" class="tab-panel hidden space-y-6">
+                    <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-emerald-50/70 to-white p-5 md:p-6 shadow-soft">
+                        <div>
+                            <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Performance per Wilayah</h2>
+                            <p class="mt-1 max-w-2xl text-[12px] text-slate-500">Perbandingan pemakaian &amp; hasil rata-rata setiap afdeling: luas siram, solar, produktivitas Ha/Jam, efisiensi Ltr/Ha, jam operasi, kecepatan, tebal siram, dan utilization.</p>
+                        </div>
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-200">Pemakaian &amp; Hasil</span>
+                    </div>
                 <!-- Row 3 - Breakdowns Enhanced: Performa per Wilayah Fokus Pemakaian & Hasil Rata-rata -->
                 <section class="grid grid-cols-12 gap-6">
-                    <div class="col-span-12 xl:col-span-7 rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
+                    <div class="col-span-12 rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
                         <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
                             <div>
                                 <h3 class="text-[14px] font-semibold text-slate-900 flex items-center gap-2">
@@ -343,32 +410,21 @@
                                 </select>
                             </div>
                         </div>
-                        <div class="relative h-[320px]"><canvas id="chartWilayah"></canvas></div>
+                        <!-- Quick metric chips -->
+                        <div class="mt-4 flex items-center gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            <span class="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Metric cepat</span>
+                            <button data-metric="luas" class="wm-chip flex-shrink-0 rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-white shadow-soft">Total Luas</button>
+                            <button data-metric="solar" class="wm-chip flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">Total Solar</button>
+                            <button data-metric="avgLuas" class="wm-chip flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">Avg Luas</button>
+                            <button data-metric="avgSolar" class="wm-chip flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">Avg Solar</button>
+                            <button data-metric="haPerJam" class="wm-chip flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">Ha/Jam</button>
+                            <button data-metric="ltrPerHa" class="wm-chip flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">Ltr/Ha</button>
+                            <button data-metric="totalBiaya" class="wm-chip flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">Total Biaya</button>
+                            <button data-metric="rpPerHa" class="wm-chip flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">Rp/Ha</button>
+                        </div>
+                        <div class="relative h-[380px]"><canvas id="chartWilayah"></canvas></div>
                         <!-- Mini avg cards per wilayah -->
                         <div id="wilayahMiniCards" class="mt-5 grid grid-cols-2 md:grid-cols-3 gap-2.5"></div>
-                    </div>
-                    <div class="col-span-12 xl:col-span-5 grid grid-rows-2 gap-6">
-                        <div class="rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
-                            <h3 class="text-[14px] font-semibold text-slate-900 mb-5 flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><i data-lucide="cpu" class="h-3.5 w-3.5"></i></span> Jenis Engine</h3>
-                            <div class="grid grid-cols-2 gap-4 items-center">
-                                <div class="relative h-[180px]"><canvas id="chartJenisEngine"></canvas></div>
-                                <div id="jenisEngineLegend" class="space-y-2"></div>
-                            </div>
-                        </div>
-                        <div class="rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
-                            <h3 class="text-[14px] font-semibold text-slate-900 mb-1">Top Engine & Irigator</h3>
-                            <p class="text-[11px] text-slate-500 mb-4">Berdasarkan total luas siram</p>
-                            <div class="grid grid-cols-2 gap-5">
-                                <div>
-                                    <div class="mb-2 flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-slate-500"><span>Engine</span><span>Ha</span></div>
-                                    <div id="topEngine" class="space-y-2"></div>
-                                </div>
-                                <div>
-                                    <div class="mb-2 flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-slate-500"><span>Irigator</span><span>Ha</span></div>
-                                    <div id="topIrigator" class="space-y-2"></div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </section>
 
@@ -381,6 +437,7 @@
                                 Evaluasi Mendalam per Wilayah - Pemakaian & Hasil Rata-rata
                             </h3>
                             <p class="mt-1 text-[12px] text-slate-500">Rata-rata pemakaian solar, hasil luas, efisiensi, jam operasi, kecepatan, tebal siram per afdeling</p>
+                            <p class="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-slate-400"><i data-lucide="move-horizontal" class="h-3 w-3"></i> Geser tabel ke kanan untuk melihat kolom lainnya — kolom Wilayah tetap terlihat</p>
                         </div>
                         <div class="flex items-center gap-2">
                             <span class="text-[11px] text-slate-500">Sort by:</span>
@@ -395,7 +452,7 @@
                         </div>
                     </div>
                     <div class="overflow-x-auto">
-                        <table class="w-full text-left text-[11px]">
+                        <table class="wide-table w-full text-left text-[11px]">
                             <thead class="bg-slate-50/80 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                                 <tr>
                                     <th class="px-4 py-3 whitespace-nowrap">Wilayah</th>
@@ -434,6 +491,17 @@
                     </div>
                 </section>
 
+                </div>
+
+                <!-- ================= TAB: ANALISA BIAYA ================= -->
+                <div id="tab-biaya" class="tab-panel hidden space-y-6">
+                    <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-amber-50/70 to-white p-5 md:p-6 shadow-soft">
+                        <div>
+                            <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Analisa Biaya Irigasi</h2>
+                            <p class="mt-1 max-w-2xl text-[12px] text-slate-500">Rincian biaya operasi irigasi total maupun per wilayah: biaya solar, upah, alat, Rp/Ha, Rp/Jam operasi, Rp/liter, komposisi &amp; tren biaya per periode.</p>
+                        </div>
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-amber-700 ring-1 ring-amber-200">Rupiah / Ha</span>
+                    </div>
                 <!-- Row 3c - Analisa Biaya Irigasi: Total & per Wilayah -->
                 <section class="rounded-[20px] border border-slate-200/70 bg-white shadow-soft overflow-hidden">
                     <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 p-5 md:p-6">
@@ -472,13 +540,13 @@
                         </div>
                         <div class="col-span-12 xl:col-span-5 space-y-6">
                             <div>
-                                <h4 class="text-[12px] font-semibold text-slate-900 mb-1">Komposisi Biaya</h4>
-                                <p class="text-[11px] text-slate-500 mb-3">Solar vs Upah vs Alat</p>
+                                <h4 class="text-[12px] font-semibold text-slate-900 mb-1">Komposisi Biaya Total</h4>
+                                <p class="text-[11px] text-slate-500 mb-3">Solar vs Upah vs Alat (seluruh periode terpilih)</p>
                                 <div class="relative h-[190px]"><canvas id="chartBiayaKomposisi"></canvas></div>
                             </div>
                             <div>
-                                <h4 class="text-[12px] font-semibold text-slate-900 mb-1">Tren Biaya Irigasi</h4>
-                                <p class="text-[11px] text-slate-500 mb-3">Biaya total &amp; Rp/Ha per periode</p>
+                                <h4 class="text-[12px] font-semibold text-slate-900 mb-1">Tren Biaya Irigasi <span id="biayaTrendGranLabel" class="font-normal text-slate-400">(bulanan)</span></h4>
+                                <p class="text-[11px] text-slate-500 mb-3">Biaya total (bar) &amp; Rp/Ha (garis) per periode</p>
                                 <div class="relative h-[190px]"><canvas id="chartBiayaTrend"></canvas></div>
                             </div>
                         </div>
@@ -488,10 +556,10 @@
                     <div class="border-t border-slate-100">
                         <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 px-5 py-3 md:px-6">
                             <h4 class="text-[12px] font-semibold text-slate-900">Rincian Biaya Irigasi per Wilayah</h4>
-                            <span class="text-[10px] text-slate-500">Solar + Upah + Alat = Biaya Total • Rp/Ha = Biaya Total ÷ Luas Siram</span>
+                            <span class="text-[10px] text-slate-500">Solar + Upah + Alat = Biaya Total • Rp/Ha = Biaya Total ÷ Luas Siram • geser tabel untuk kolom lainnya</span>
                         </div>
                         <div class="overflow-x-auto">
-                            <table class="w-full text-left text-[11px]">
+                            <table class="wide-table w-full text-left text-[11px]">
                                 <thead class="bg-slate-50/80 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                                     <tr>
                                         <th class="px-4 py-3 whitespace-nowrap">Wilayah</th>
@@ -503,7 +571,6 @@
                                         <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Total Rp</th>
                                         <th class="px-4 py-3 whitespace-nowrap text-right">% dr Total</th>
                                         <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Ha</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Jam Op</th>
                                         <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Liter Solar</th>
                                         <th class="px-4 py-3 whitespace-nowrap text-right">Solar L/Ha</th>
                                         <th class="px-4 py-3 whitespace-nowrap text-center">Efisiensi Biaya</th>
@@ -523,8 +590,15 @@
                             <h4 class="text-[12px] font-semibold text-slate-900">Rincian Biaya Irigasi per Periode</h4>
                             <span id="biayaPeriodeInfo" class="text-[10px] text-slate-500">Pilih granularitas di atas</span>
                         </div>
-                        <div class="max-h-[380px] overflow-y-auto overflow-x-auto">
-                            <table class="w-full text-left text-[11px]">
+                        <div class="space-y-5 p-5 md:p-6">
+                            <div>
+                                <h4 class="text-[12px] font-semibold text-slate-900 mb-1">Total Biaya &amp; Rp/Ha per Periode</h4>
+                                <p class="text-[11px] text-slate-500 mb-3">Mengikuti granularitas yang dipilih — batang = total biaya, garis = Rp/Ha</p>
+                                <div class="relative h-[300px]"><canvas id="chartBiayaGran"></canvas></div>
+                            </div>
+                            <div>
+                                <div class="max-h-[360px] overflow-y-auto overflow-x-auto rounded-xl border border-slate-200">
+                            <table class="wide-table w-full text-left text-[11px]">
                                 <thead class="sticky top-0 bg-slate-50/95 backdrop-blur text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                                     <tr>
                                         <th class="px-4 py-3 whitespace-nowrap">Periode</th>
@@ -535,13 +609,14 @@
                                         <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Alat Rp</th>
                                         <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Total Rp</th>
                                         <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Ha</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Jam Op</th>
                                     </tr>
                                 </thead>
                                 <tbody id="biayaPeriodeBody" class="divide-y divide-slate-100">
-                                    <tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">Memuat rincian biaya per periode...</td></tr>
+                                    <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Memuat rincian biaya per periode...</td></tr>
                                 </tbody>
                             </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -551,6 +626,45 @@
                         <div id="biayaInsights" class="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-[11px] text-slate-600"></div>
                     </div>
                 </section>
+
+                </div>
+
+                <!-- ================= TAB: UTILISASI & EFISIENSI ================= -->
+                <div id="tab-utilisasi" class="tab-panel hidden space-y-6">
+                    <!-- Tab intro -->
+                    <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-slate-50 to-white p-5 md:p-6 shadow-soft">
+                        <div>
+                            <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Utilisasi &amp; Efisiensi Alat</h2>
+                            <p class="mt-1 max-w-2xl text-[12px] text-slate-500">Tingkat pemanfaatan alat &amp; armada irigasi: availability, utilization, waktu prepare/waiting, jenis engine, serta engine &amp; irigator paling produktif.</p>
+                        </div>
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 ring-1 ring-slate-200">Pemanfaatan Alat</span>
+                    </div>
+
+                    <!-- Engine & Alat -->
+                    <section class="grid grid-cols-12 gap-6">
+                        <div class="col-span-12 md:col-span-6 rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
+                            <h3 class="text-[14px] font-semibold text-slate-900 mb-1 flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><i data-lucide="cpu" class="h-3.5 w-3.5"></i></span> Jenis Engine</h3>
+                            <p class="text-[11px] text-slate-500 mb-4">Kontribusi luas siram per jenis engine</p>
+                            <div class="grid grid-cols-2 gap-4 items-center">
+                                <div class="relative h-[200px]"><canvas id="chartJenisEngine"></canvas></div>
+                                <div id="jenisEngineLegend" class="space-y-2"></div>
+                            </div>
+                        </div>
+                        <div class="col-span-12 md:col-span-6 rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
+                            <h3 class="text-[14px] font-semibold text-slate-900 mb-1 flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white"><i data-lucide="trophy" class="h-3.5 w-3.5"></i></span> Top Engine &amp; Irigator</h3>
+                            <p class="text-[11px] text-slate-500 mb-4">Berdasarkan total luas siram</p>
+                            <div class="grid grid-cols-2 gap-5">
+                                <div>
+                                    <div class="mb-2 flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-slate-500"><span>Engine</span><span>Ha</span></div>
+                                    <div id="topEngine" class="space-y-2"></div>
+                                </div>
+                                <div>
+                                    <div class="mb-2 flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-slate-500"><span>Irigator</span><span>Ha</span></div>
+                                    <div id="topIrigator" class="space-y-2"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
 
                 <!-- Availability & Utilization -->
                 <section class="grid grid-cols-12 gap-6">
@@ -565,6 +679,17 @@
                     </div>
                 </section>
 
+                </div>
+
+                <!-- ================= TAB: DETAIL DATA HARIAN ================= -->
+                <div id="tab-data" class="tab-panel hidden space-y-6">
+                    <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-slate-50 to-white p-5 md:p-6 shadow-soft">
+                        <div>
+                            <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Detail Data Harian</h2>
+                            <p class="mt-1 max-w-2xl text-[12px] text-slate-500">Record aktivitas irigasi harian dari sheet ZPAS637. Sort dengan klik header, cari cepat, atur jumlah baris per halaman, dan export CSV.</p>
+                        </div>
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 ring-1 ring-slate-200">Raw Records</span>
+                    </div>
                 <!-- Data Table -->
                 <section class="rounded-[20px] border border-slate-200/70 bg-white shadow-soft overflow-hidden">
                     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5">
@@ -624,6 +749,9 @@
                     </div>
                 </section>
 
+                </div>
+                <!-- /tab panels -->
+
                 <footer class="flex flex-col md:flex-row items-center justify-between gap-3 rounded-[16px] border border-slate-200 bg-white px-5 py-4 text-[11px] text-slate-500">
                     <div class="flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-white"><i data-lucide="shield-check" class="h-3.5 w-3.5"></i></span> PG2 Irrigation Evaluation • Built for wahyudp76/FS-evaluation • Auto-sync Google Sheets ZPAS637</div>
                     <div class="font-mono">v1.0 • 2026 • Modern Minimalist Dashboard</div>
@@ -676,6 +804,7 @@
             const installBtn = document.getElementById('btnInstallPWA');
             if (installBtn) {
                 installBtn.classList.remove('hidden');
+                installBtn.classList.add('inline-flex');
                 installBtn.addEventListener('click', async () => {
                     if (deferredPrompt) {
                         deferredPrompt.prompt();
@@ -683,6 +812,7 @@
                         console.log('PWA install outcome:', outcome);
                         deferredPrompt = null;
                         installBtn.classList.add('hidden');
+                        installBtn.classList.remove('inline-flex');
                     }
                 });
             }

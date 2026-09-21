@@ -4,6 +4,20 @@ Dashboard profesional, modern, minimalis & interaktif untuk evaluasi realisasi a
 
 **Live Demo (GitHub Pages):** https://wahyudp76.github.io/FS-evaluation/
 
+## 🗂️ Navigasi Tab
+
+Dashboard disusun dalam bar navigasi tab (sticky) agar rapi dan tidak berdesakan:
+
+| Tab | Isi |
+|-----|-----|
+| **Overview** | Garis besar seluruh wilayah: 4 KPI utama + 4 KPI biaya/utilisasi, ringkasan semua afdeling, tren solar harian, luas siram, jam efektif, kecepatan & tebal, efisiensi |
+| **Performance Wilayah** | Pemakaian & hasil rata-rata per afdeling: chart metrik dinamis (+ quick chips), mini cards, tabel evaluasi 15 kolom (sortable), bubble efisiensi Ha/Jam vs Ltr/Ha, pemakaian vs hasil |
+| **Analisa Biaya** | Biaya irigasi total & per wilayah: stacked biaya solar/upah/alat + garis Rp/Ha, komposisi biaya, tren biaya harian, tabel biaya per wilayah (13 kolom + TOTAL), tabel & chart biaya per periode (harian/mingguan/bulanan), insight biaya |
+| **Utilisasi & Efisiensi** | Availability vs Utilization, jenis engine, top engine & irigator, distribusi solar efficiency |
+| **Data Harian** | Tabel record harian: sort kolom, pencarian, pagination 15/30/50/100, export CSV |
+
+Tab terakhir yang dibuka tersimpan otomatis (localStorage + hash URL), filter tetap berlaku lintas tab, dan header menampilkan ticker ringkas (luas, solar, biaya, Rp/Ha, Ha/Jam, Ltr/Ha, util, avail) di semua tab.
+
 ## ✨ Fitur Evaluasi
 
 ### 1. Penggunaan Solar
@@ -31,14 +45,17 @@ Dashboard profesional, modern, minimalis & interaktif untuk evaluasi realisasi a
 - Scatter plot efisiensi: Ha/Jam vs Solar Ltr/Ha
 
 ### 5. Biaya & Efisiensi
-- Biaya Solar, Upah, Alat, Total
-- Rp/Ha
-- Air terpakai
-- Solar efficiency distribution
+- **Analisa biaya total & per wilayah**: biaya Solar, Upah, Alat, Biaya Total, % share per wilayah
+- **Rasio biaya**: Rp/Ha, Rp/Jam Operasi, Rp/Liter Solar, Rp/Record (rasio total ÷ total, akurat meski ada outlier)
+- **Biaya per periode**: harian / mingguan / bulanan / seluruh periode (tabel + chart)
+- **Komposisi biaya** (doughnut solar–upah–alat) & **tren biaya** harian
+- **Insight biaya otomatis**: wilayah termurah/termahal Rp/Ha, penyumbang biaya terbesar, komponen dominan, tren periode terakhir
+- Air terpakai & solar efficiency distribution
 
 ### 6. Interaktivitas
-- Filter: Tanggal (7H/30H/90H/All), Wilayah, Jenis Engine (SPC, DEC, SPE, DEM), Search Engine/Irigator/Lokasi
-- Tabel detail 50/page dengan sort & search
+- **Bar navigasi tab**: Overview / Performance Wilayah / Analisa Biaya / Utilisasi & Efisiensi / Detail Data Harian
+- Filter: Tanggal (7H/30H/90H/All), Bulan (Jan–Des), Tahun, Wilayah, Jenis Engine (SPC, DEC, SPE, DEM), Search Engine/Irigator/Lokasi
+- Tabel detail 15/page (opsi 15/30/50/100) dengan sort & search
 - Export CSV filtered
 - Auto-sync 5 menit
 
