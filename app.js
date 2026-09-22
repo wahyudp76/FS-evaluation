@@ -103,6 +103,48 @@ function esc(v) {
   if (v === null || v === undefined) return '';
   return String(v).replace(/[&<>"']/g, c => _escMap[c]);
 }
+// ===== Offset header & panel filter =====
+// Tinggi header diukur runtime (bisa berubah: ticker, tombol install, zoom, font) lalu
+// dibagikan ke CSS lewat --header-h supaya panel filter & tab bar tidak pernah tertutup header.
+function headerHeight() {
+  const h = document.querySelector('header');
+  const v = h ? h.getBoundingClientRect().height : 112;
+  return Math.max(64, Math.round(v));
+}
+function syncHeaderOffset() {
+  const h = headerHeight();
+  document.documentElement.style.setProperty('--header-h', h + 'px');
+  return h;
+}
+const MOBILE_FILTER_MQ = window.matchMedia ? window.matchMedia('(max-width: 1023.98px)') : null;
+function filtersAreMobile() { return MOBILE_FILTER_MQ ? MOBILE_FILTER_MQ.matches : window.innerWidth < 1024; }
+function filtersOpen() { const p = document.getElementById('filterPanel'); return !!(p && p.classList.contains('is-open')); }
+function openFilters() {
+  const panel = document.getElementById('filterPanel');
+  if (!panel) return;
+  syncHeaderOffset();
+  panel.classList.add('is-open');
+  const bd = document.getElementById('filterBackdrop'); if (bd) bd.classList.add('is-open');
+  document.body.classList.add('filter-open');
+  const btn = document.getElementById('btnFilters'); if (btn) btn.setAttribute('aria-expanded', 'true');
+  const body = panel.querySelector('.filter-sheet-body'); if (body) body.scrollTop = 0;
+  const close = document.getElementById('btnCloseFilters'); if (close) close.focus({ preventScroll: true });
+  refreshIcons();
+}
+function closeFilters(restoreFocus = true) {
+  const panel = document.getElementById('filterPanel');
+  if (!panel || !panel.classList.contains('is-open')) return;
+  panel.classList.remove('is-open');
+  const bd = document.getElementById('filterBackdrop'); if (bd) bd.classList.remove('is-open');
+  document.body.classList.remove('filter-open');
+  const btn = document.getElementById('btnFilters');
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    if (restoreFocus && filtersAreMobile()) btn.focus({ preventScroll: true });
+  }
+}
+function toggleFilters() { filtersOpen() ? closeFilters() : openFilters(); }
+
 // Ikon: panggil sekali per frame (dulu bisa 3-4x dalam satu alur render)
 let _iconHandle = null;
 function refreshIcons() {
@@ -1370,9 +1412,13 @@ function activateTab(tab, skipScroll) {
     if (panel) panel.querySelectorAll('canvas').forEach(cv => { const ch = charts[cv.id]; if (ch) { try { ch.resize(); } catch(e) {} } });
     refreshIcons();
     if (!skipScroll) {
-      const nav = document.querySelector('nav.sticky');
-      const y = nav ? nav.getBoundingClientRect().top + window.pageYOffset - 90 : 0;
-      window.scrollTo({ top: Math.max(0,y), behavior: 'smooth' });
+      const nav = document.querySelector('nav[aria-label="Navigasi tab dashboard"]');
+      if (nav) {
+        const y = nav.getBoundingClientRect().top + window.pageYOffset - (headerHeight() + 16);
+        window.scrollTo({ top: Math.max(0, Math.round(y)), behavior: 'smooth' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     }
   });
 }
@@ -1740,12 +1786,34 @@ function renderTable() {
   `).join('');
 }
 
+// Teks ringkas di kepala laci filter: berapa filter aktif & berapa record tampil
+function updateFilterSheetMeta() {
+  const el = $('#filterSheetMeta');
+  if (!el) return;
+  let n = 0;
+  if (filters.wilayah.size) n++;
+  if (filters.months.size) n++;
+  if (filters.year !== 'all') n++;
+  if (filters.jenisEngine !== 'all') n++;
+  if (filters.search) n++;
+  if (filters.tableSearch) n++;
+  if (rawData.length && filters.start && filters.end) {
+    const first = rawData[0].date, last = rawData[rawData.length - 1].date;
+    const full = filters.start.getTime() <= first.getTime() && filters.end.getTime() >= last.getTime();
+    if (!full) n++;
+  }
+  el.textContent = n
+    ? `${n} filter aktif • ${formatInt(filteredData.length)} dari ${formatInt(rawData.length)} records`
+    : `Semua data • ${formatInt(rawData.length)} records`;
+}
+
 function updateAll() {
   applyFilters();
   updateTicker();
   safeRender('insights', renderInsights);
   renderTab(currentTab);          // hanya tab yang sedang dilihat
   $('#rowCount').textContent = `${formatInt(filteredData.length)} / ${formatInt(rawData.length)} records`;
+  updateFilterSheetMeta();
   scheduleIdlePrefetch();         // sisanya disiapkan saat browser menganggur
 }
 
@@ -2024,11 +2092,32 @@ function initFiltersUI() {
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
   });
   $('#btnSync').addEventListener('click', ()=>{ loadData({ manual: true }); });
-  $('#btnFilters').addEventListener('click', ()=>{
-    const panel = $('#filterPanel');
-    panel.classList.toggle('hidden'); panel.classList.toggle('fixed'); panel.classList.toggle('inset-0');
-    panel.classList.toggle('z-30'); panel.classList.toggle('bg-white'); panel.classList.toggle('p-6'); panel.classList.toggle('overflow-y-auto');
-  });
+  // Panel filter: laci penuh (mobile/tablet) atau kolom sticky (desktop)
+  const btnFilters = $('#btnFilters');
+  if (btnFilters && !btnFilters.dataset.bound) {
+    btnFilters.dataset.bound = '1';
+    btnFilters.addEventListener('click', toggleFilters);
+  }
+  const btnCloseFilters = $('#btnCloseFilters');
+  if (btnCloseFilters && !btnCloseFilters.dataset.bound) {
+    btnCloseFilters.dataset.bound = '1';
+    btnCloseFilters.addEventListener('click', () => closeFilters());
+  }
+  const backdrop = $('#filterBackdrop');
+  if (backdrop && !backdrop.dataset.bound) {
+    backdrop.dataset.bound = '1';
+    backdrop.addEventListener('click', () => closeFilters());
+  }
+  if (!window.__filterKeysBound) {
+    window.__filterKeysBound = true;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && filtersOpen()) closeFilters();       // Esc menutup laci
+    });
+    window.addEventListener('resize', debounce(() => {
+      syncHeaderOffset();
+      if (!filtersAreMobile()) closeFilters(false);                   // kembali ke desktop
+    }, 200));
+  }
 }
 
 // Export CSV internal (pengganti papaparse): escape kutip ganda & pemisah
@@ -2194,6 +2283,16 @@ function scheduleSync(isRetry = false) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  syncHeaderOffset();
+  // Tinggi header bisa berubah (ticker terisi, tombol Install muncul, font selesai dimuat)
+  // -> ukur ulang supaya offset panel filter & tab bar selalu pas.
+  const headerEl = document.querySelector('header');
+  if (headerEl && window.ResizeObserver) {
+    try { new ResizeObserver(() => syncHeaderOffset()).observe(headerEl); } catch (e) {}
+  }
+  window.addEventListener('resize', debounce(syncHeaderOffset, 200));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncHeaderOffset).catch(() => {});
+
   loadData({ manual: false });
   scheduleSync();
   // hemat baterai & bandwidth: jeda saat tab tidak terlihat, sinkron saat kembali aktif

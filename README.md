@@ -82,6 +82,12 @@ const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                    
 - Sync manual (tombol Sync) + otomatis tiap 5 menit, dijeda otomatis saat tab tidak aktif, ada *backoff* saat gagal
 - Notifikasi ringan (toast) untuk sukses/gagal sync — dashboard tidak pernah tertutup overlay karena gangguan jaringan
 
+## 🧰 Panel Filter & Kontrol (v1.6.0)
+- **Mobile/tablet (<1024 px):** panel dibuka sebagai **laci penuh yang menempel tepat di bawah header** (+ backdrop, tombol X, Esc, klik luar untuk menutup, fokus kembali ke tombol Filter). Isi laci punya area scroll sendiri sehingga tidak pernah tertutup header.
+- **Desktop (≥1024 px):** panel jadi **kolom kiri sticky** dengan tinggi maksimum mengikuti viewport.
+- Tinggi header diukur otomatis (`--header-h`) dan dipakai panel + tab bar, jadi offset tetap pas walau tinggi header berubah (ticker terisi, tombol Install muncul, zoom, atau lebar layar berbeda).
+- Kepala laci menampilkan ringkasan langsung, mis. *"1 filter aktif • 1.352 dari 12.396 records"*.
+
 ## ⚡ Performa & Stabilitas (v1.5.0)
 Hasil uji A/B (Chrome headless, throttling CPU 4x, median 3 putaran, `tools/`):
 

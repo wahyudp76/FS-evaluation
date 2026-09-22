@@ -84,42 +84,98 @@
         .tab-panel{animation:tabIn .22s ease}
         @keyframes tabIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
         @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+        /* ===== Offset header (diukur runtime oleh app.js; fallback 112px) ===== */
+        :root { --header-h: 112px; }
+
+        /* ===== Panel Filter =====
+           Mobile/tablet : laci (sheet) penuh DI BAWAH header -> tidak pernah tertutup header
+           Desktop       : kolom kiri sticky, selalu rapi di bawah header               */
+        #filterBackdrop {
+            position: fixed; left: 0; right: 0; top: var(--header-h); bottom: 0;
+            z-index: 55; background: rgba(15, 23, 42, .38); backdrop-filter: blur(2px);
+            opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility .2s ease;
+        }
+        #filterBackdrop.is-open { opacity: 1; visibility: visible; }
+
+        @media (max-width: 1023.98px) {
+            body.filter-open { overflow: hidden; }
+            #filterPanel.filter-sheet {
+                position: fixed; left: 0; right: 0; top: var(--header-h); bottom: 0;
+                z-index: 60; display: flex; flex-direction: column; background: #fff;
+                border-top: 1px solid #e2e8f0; border-top-left-radius: 20px; border-top-right-radius: 20px;
+                box-shadow: 0 -24px 48px -28px rgba(15, 23, 42, .45);
+                transform: translateY(16px); opacity: 0; visibility: hidden; pointer-events: none;
+                transition: transform .24s cubic-bezier(.22, .61, .36, 1), opacity .2s ease, visibility .24s ease;
+            }
+            #filterPanel.filter-sheet.is-open { transform: none; opacity: 1; visibility: visible; pointer-events: auto; }
+            #filterPanel.filter-sheet .filter-sheet-head {
+                display: flex; align-items: center; justify-content: space-between; gap: 12px;
+                flex: 0 0 auto; padding: 14px 16px; background: #fff;
+                border-bottom: 1px solid #f1f5f9; border-top-left-radius: 20px; border-top-right-radius: 20px;
+            }
+            #filterPanel.filter-sheet .filter-sheet-body {
+                flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+                padding: 16px 16px calc(28px + env(safe-area-inset-bottom, 0px));
+            }
+        }
+
+        @media (min-width: 1024px) {
+            #filterPanel {
+                position: sticky; top: calc(var(--header-h) + 16px);
+                max-height: calc(100vh - var(--header-h) - 32px);
+                max-height: calc(100dvh - var(--header-h) - 32px);
+                overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; scrollbar-gutter: stable;
+            }
+            #filterPanel::-webkit-scrollbar { width: 8px; }
+            #filterPanel::-webkit-scrollbar-track { background: transparent; }
+            #filterPanel::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+            #filterPanel::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+            #filterPanel { overscroll-behavior: auto; }
+            /* tab bar ikut turun saat halaman digeser -> tidak menyelip di bawah header */
+            nav[aria-label="Navigasi tab dashboard"] { top: calc(var(--header-h) + 16px); }
+            .filter-sheet-head { display: none !important; }
+        }
+
+        /* Lapisan atas selalu di atas laci filter */
+        #loadingOverlay { z-index: 80 !important; }
+        #toastHost { z-index: 90 !important; }
     </style>
 </head>
 <body class="bg-[#fcfdfc] text-slate-800 font-sans antialiased selection:bg-emerald-100 selection:text-emerald-900">
     <!-- Top Navigation -->
     <header class="sticky top-0 z-40 border-b border-slate-200/70 bg-white/80 glass">
         <div class="mx-auto max-w-[1600px] px-6 lg:px-8">
-            <div class="flex min-h-[68px] items-center justify-between gap-3 py-2 sm:py-0">
-                <div class="flex min-w-0 items-center gap-3 sm:gap-5">
+            <div class="flex min-h-[60px] items-center justify-between gap-2 py-2 sm:min-h-[68px] sm:gap-3 sm:py-0">
+                <div class="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-5">
                     <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-soft">
                         <img src="./assets/logo-white-192.png" alt="Logo PG2 Irrigation" width="26" height="26" class="h-[26px] w-[26px] object-contain drop-shadow-sm" onerror="this.replaceWith(Object.assign(document.createElement('i'),{className:'h-5 w-5',dataset:{lucide:'droplets'}}))">
                     </div>
-                    <div>
-                        <h1 class="text-[13px] font-semibold leading-tight tracking-tight text-slate-900 sm:text-[15px]">PG2 Irrigation Evaluation</h1>
-                        <div class="flex items-center gap-2 text-[12px] text-slate-500">
-                            <span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
-                                <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> ZPAS637 LIVE
+                    <div class="min-w-0 flex-1">
+                        <h1 class="truncate text-[13px] font-semibold leading-tight tracking-tight text-slate-900 sm:text-[15px]">PG2 Irrigation Evaluation</h1>
+                        <div class="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] text-slate-500 sm:text-[12px]">
+                            <span class="inline-flex min-w-0 items-center gap-1.5 truncate rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
+                                <span class="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"></span><span class="truncate">ZPAS637 LIVE</span>
                             </span>
                             <span class="hidden sm:inline">•</span>
-                            <span id="lastSync" class="hidden sm:inline">Syncing...</span>
+                            <span id="lastSync" class="hidden min-w-0 truncate sm:inline">Syncing...</span>
                         </div>
                     </div>
                 </div>
-                <div class="flex flex-shrink-0 items-center gap-2 sm:gap-2.5">
-                    <div class="hidden md:flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-mono text-slate-600">
+                <div class="flex flex-shrink-0 items-center gap-1.5 sm:gap-2.5">
+                    <div class="hidden items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-mono text-slate-600 xl:flex">
                         <i data-lucide="link-2" class="h-3 w-3"></i>
                         <span class="truncate max-w-[180px]">1mhXxr7cf...45o</span>
                         <span class="h-1 w-1 rounded-full bg-emerald-500"></span>
                     </div>
-                    <button id="btnInstallPWA" class="hidden items-center gap-2 rounded-full bg-emerald-600 px-3 py-2 text-[12px] font-medium text-white shadow-soft transition hover:bg-emerald-700 sm:px-4 sm:text-[13px]">
+                    <button id="btnInstallPWA" type="button" aria-label="Pasang aplikasi" title="Pasang aplikasi" class="hidden items-center gap-2 rounded-full bg-emerald-600 px-3 py-2 text-[12px] font-medium text-white shadow-soft transition hover:bg-emerald-700 sm:px-4 sm:text-[13px]">
                         <i data-lucide="download" class="h-4 w-4"></i><span class="hidden sm:inline">Install App</span>
                     </button>
-                    <button id="btnSync" class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-[12px] font-medium text-white shadow-soft transition hover:bg-slate-800 sm:px-4 sm:text-[13px]">
-                        <i data-lucide="refresh-cw" class="h-4 w-4"></i> Sync
+                    <button id="btnSync" type="button" aria-label="Sinkronkan data sekarang" title="Sinkronkan data sekarang" class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-[12px] font-medium text-white shadow-soft transition hover:bg-slate-800 sm:px-4 sm:text-[13px]">
+                        <i data-lucide="refresh-cw" class="h-4 w-4"></i><span class="hidden sm:inline">Sync</span>
                     </button>
-                    <button id="btnFilters" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-700 shadow-soft transition hover:bg-slate-50 sm:px-4 lg:hidden">
-                        <i data-lucide="sliders-horizontal" class="h-4 w-4"></i> Filter
+                    <button id="btnFilters" type="button" aria-controls="filterPanel" aria-expanded="false" aria-label="Buka panel filter" title="Filter &amp; kontrol" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-700 shadow-soft transition hover:bg-slate-50 sm:px-4 lg:hidden">
+                        <i data-lucide="sliders-horizontal" class="h-4 w-4"></i><span class="hidden sm:inline">Filter</span>
                     </button>
                     <a href="https://github.com/wahyudp76/FS-evaluation" target="_blank" class="hidden h-9 w-9 sm:inline-flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:text-slate-900 transition">
                         <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
@@ -139,11 +195,26 @@
     <div class="mx-auto max-w-[1600px] px-6 lg:px-8 py-6 lg:py-8">
         <div class="grid grid-cols-12 gap-6">
             <!-- Sidebar Filters - Desktop sticky -->
-            <aside id="filterPanel" class="hidden lg:block col-span-12 lg:col-span-3 lg:sticky lg:top-[104px] lg:h-[calc(100vh-120px)] lg:overflow-y-auto space-y-5">
+            <aside id="filterPanel" class="filter-sheet col-span-12 lg:col-span-3">
+                <!-- Judul laci (hanya mobile/tablet) -->
+                <div class="filter-sheet-head">
+                    <div class="flex min-w-0 items-center gap-2.5">
+                        <span class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100"><i data-lucide="sliders-horizontal" class="h-4 w-4"></i></span>
+                        <div class="min-w-0">
+                            <div class="text-[13px] font-semibold leading-tight text-slate-900">Filter &amp; Kontrol</div>
+                            <div id="filterSheetMeta" class="truncate text-[10px] text-slate-400">Periode, wilayah, jenis engine &amp; pencarian</div>
+                        </div>
+                    </div>
+                    <button id="btnCloseFilters" type="button" aria-label="Tutup panel filter" class="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50">
+                        <i data-lucide="x" class="h-4 w-4"></i>
+                    </button>
+                </div>
+
+                <div class="filter-sheet-body space-y-5">
                 <div class="rounded-[20px] border border-slate-200/70 bg-white p-5 shadow-soft">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-[13px] font-semibold tracking-wide text-slate-900 uppercase">Filters & Controls</h3>
-                        <button id="btnClearFilters" class="text-[11px] font-medium text-emerald-600 hover:text-emerald-700">Reset</button>
+                    <div class="flex items-center justify-between gap-2 mb-4">
+                        <h3 class="hidden text-[13px] font-semibold uppercase tracking-wide text-slate-900 lg:block">Filters &amp; Controls</h3>
+                        <button id="btnClearFilters" class="ml-auto text-[11px] font-medium text-emerald-600 hover:text-emerald-700">Reset</button>
                     </div>
 
                     <!-- Date Range -->
@@ -263,12 +334,14 @@
                         <span id="rowCount" class="text-slate-400">0 records</span>
                     </div>
                 </div>
+                </div><!-- /filter-sheet-body -->
             </aside>
+            <div id="filterBackdrop" aria-hidden="true"></div>
 
             <!-- Main Content -->
             <main class="col-span-12 lg:col-span-9 space-y-6">
                 <!-- Tab Navigation -->
-                <nav class="z-20 -mt-1 rounded-[18px] border border-slate-200/70 bg-white/90 px-1.5 py-2 shadow-soft glass sm:px-2 lg:sticky lg:top-[104px]" aria-label="Navigasi tab dashboard">
+                <nav class="z-20 -mt-1 rounded-[18px] border border-slate-200/70 bg-white/90 px-1.5 py-2 shadow-soft glass sm:px-2 lg:sticky" aria-label="Navigasi tab dashboard">
                     <div role="tablist" aria-label="Tab dashboard" class="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                         <button data-tab="overview" id="tabbtn-overview" role="tab" aria-selected="false" aria-controls="tab-overview" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
                             <i data-lucide="layout-dashboard" class="h-3.5 w-3.5"></i><span>Overview</span>
