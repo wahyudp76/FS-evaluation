@@ -21,6 +21,25 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="PG2 Irrigation">
     <meta name="application-name" content="PG2 Irrigation">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <!-- Mulai unduh data spreadsheet lebih awal: tumpang tindih dengan pemuatan skrip & font.
+         Hasilnya dipakai kembali oleh app.js (tidak ada unduhan ganda). -->
+    <script>
+      (function () {
+        var base = 'https://docs.google.com/spreadsheets/d/1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o/gviz/tq';
+        var opts = { cache: 'no-store' };
+        var grab = function (url) {
+          try {
+            return fetch(url, opts).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); });
+          } catch (e) { return null; }
+        };
+        window.__pgCsvEarly = grab(base + '?tqx=out:csv&sheet=ZPAS637');
+        window.__pgDatesEarly = grab(base + '?tq=' + encodeURIComponent('select A') + '&tqx=out:json&sheet=ZPAS637');
+        if (window.__pgCsvEarly) window.__pgCsvEarly.catch(function () {});
+        if (window.__pgDatesEarly) window.__pgDatesEarly.catch(function () {});
+      })();
+    </script>
+    <link rel="dns-prefetch" href="https://docs.google.com">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -46,10 +65,9 @@
             }
         }
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/lucide@0.454.0/dist/umd/lucide.min.js"></script>
     <style>
         ::-webkit-scrollbar{width:6px;height:6px}
         ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}
@@ -250,21 +268,21 @@
             <!-- Main Content -->
             <main class="col-span-12 lg:col-span-9 space-y-6">
                 <!-- Tab Navigation -->
-                <nav class="z-20 -mt-1 rounded-[18px] border border-slate-200/70 bg-white/90 px-1.5 py-2 shadow-soft glass sm:px-2 lg:sticky lg:top-[104px]">
-                    <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                        <button data-tab="overview" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
+                <nav class="z-20 -mt-1 rounded-[18px] border border-slate-200/70 bg-white/90 px-1.5 py-2 shadow-soft glass sm:px-2 lg:sticky lg:top-[104px]" aria-label="Navigasi tab dashboard">
+                    <div role="tablist" aria-label="Tab dashboard" class="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        <button data-tab="overview" id="tabbtn-overview" role="tab" aria-selected="false" aria-controls="tab-overview" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
                             <i data-lucide="layout-dashboard" class="h-3.5 w-3.5"></i><span>Overview</span>
                         </button>
-                        <button data-tab="wilayah" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
+                        <button data-tab="wilayah" id="tabbtn-wilayah" role="tab" aria-selected="false" aria-controls="tab-wilayah" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
                             <i data-lucide="map-pinned" class="h-3.5 w-3.5"></i><span>Performance Wilayah</span>
                         </button>
-                        <button data-tab="biaya" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
+                        <button data-tab="biaya" id="tabbtn-biaya" role="tab" aria-selected="false" aria-controls="tab-biaya" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
                             <i data-lucide="wallet" class="h-3.5 w-3.5"></i><span>Analisa Biaya</span>
                         </button>
-                        <button data-tab="utilisasi" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
+                        <button data-tab="utilisasi" id="tabbtn-utilisasi" role="tab" aria-selected="false" aria-controls="tab-utilisasi" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
                             <i data-lucide="activity" class="h-3.5 w-3.5"></i><span>Utilisasi & Efisiensi</span>
                         </button>
-                        <button data-tab="data" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
+                        <button data-tab="data" id="tabbtn-data" role="tab" aria-selected="false" aria-controls="tab-data" class="tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium text-slate-600 transition hover:bg-slate-100">
                             <i data-lucide="table-2" class="h-3.5 w-3.5"></i><span>Detail Data Harian</span>
                         </button>
                         <span class="ml-auto hidden flex-shrink-0 items-center gap-1.5 pl-3 pr-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 xl:inline-flex">
@@ -274,7 +292,7 @@
                 </nav>
 
                 <!-- ================= TAB: OVERVIEW ================= -->
-                <div id="tab-overview" class="tab-panel space-y-6">
+                <div id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview" tabindex="-1" class="tab-panel space-y-6">
                 <!-- KPI Grid -->
                 <section>
                     <div class="flex items-center justify-between mb-4">
@@ -365,7 +383,7 @@
                 </div>
 
                 <!-- ================= TAB: PERFORMANCE WILAYAH ================= -->
-                <div id="tab-wilayah" class="tab-panel hidden space-y-6">
+                <div id="tab-wilayah" role="tabpanel" aria-labelledby="tabbtn-wilayah" tabindex="-1" class="tab-panel hidden space-y-6">
                     <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-emerald-50/70 to-white p-5 md:p-6 shadow-soft">
                         <div>
                             <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Performance per Wilayah</h2>
@@ -495,7 +513,7 @@
                 </div>
 
                 <!-- ================= TAB: ANALISA BIAYA ================= -->
-                <div id="tab-biaya" class="tab-panel hidden space-y-6">
+                <div id="tab-biaya" role="tabpanel" aria-labelledby="tabbtn-biaya" tabindex="-1" class="tab-panel hidden space-y-6">
                     <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-amber-50/70 to-white p-5 md:p-6 shadow-soft">
                         <div>
                             <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Analisa Biaya Irigasi</h2>
@@ -631,7 +649,7 @@
                 </div>
 
                 <!-- ================= TAB: UTILISASI & EFISIENSI ================= -->
-                <div id="tab-utilisasi" class="tab-panel hidden space-y-6">
+                <div id="tab-utilisasi" role="tabpanel" aria-labelledby="tabbtn-utilisasi" tabindex="-1" class="tab-panel hidden space-y-6">
                     <!-- Tab intro -->
                     <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-slate-50 to-white p-5 md:p-6 shadow-soft">
                         <div>
@@ -683,7 +701,7 @@
                 </div>
 
                 <!-- ================= TAB: DETAIL DATA HARIAN ================= -->
-                <div id="tab-data" class="tab-panel hidden space-y-6">
+                <div id="tab-data" role="tabpanel" aria-labelledby="tabbtn-data" tabindex="-1" class="tab-panel hidden space-y-6">
                     <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-slate-50 to-white p-5 md:p-6 shadow-soft">
                         <div>
                             <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Detail Data Harian</h2>
@@ -773,7 +791,11 @@
 
     <script type="module" src="./app.js"></script>
     <script>
-        lucide.createIcons();
+        // Ikon digambar setelah library (defer) selesai dimuat
+        (function renderIcons() {
+            if (window.lucide) { window.lucide.createIcons(); }
+            else { window.addEventListener('load', () => window.lucide && window.lucide.createIcons()); }
+        })();
         // PWA Service Worker Registration
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {

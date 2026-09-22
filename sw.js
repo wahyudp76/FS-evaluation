@@ -1,10 +1,12 @@
-// PG2 Irrigation Dashboard - Service Worker for PWA
-const CACHE_NAME = 'pg2-irrigation-v1.4.0';
-const ASSETS_TO_CACHE = [
-  './',
-  './index.html',
-  './app.js',
-  './manifest.json',
+// PG2 Irrigation Dashboard - Service Worker (PWA)
+// v1.5.0 — strategi cache dipisah: app shell (network-first) vs aset statis/vendor (cache-first)
+const VERSION = 'v1.5.0';
+const CACHE_NAME = 'pg2-irrigation-' + VERSION;
+const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
+
+const SHELL = ['./', './index.html', './app.js', './manifest.json'];
+
+const STATIC_ASSETS = [
   './assets/favicon.ico',
   './assets/favicon.svg',
   './assets/favicon-16.png',
@@ -24,73 +26,98 @@ const ASSETS_TO_CACHE = [
   './assets/icon-maskable-512.png'
 ];
 
-// Install - cache static assets
+// Install — precache, tapi jangan gagal total kalau satu file hilang
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    })
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(
+        SHELL.concat(STATIC_ASSETS).map((url) =>
+          cache.add(url).catch((err) => console.warn('[sw] gagal precache', url, err))
+        )
+      )
+    )
   );
   self.skipWaiting();
 });
 
-// Activate - clean old caches
+// Activate — hapus cache versi lama
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
+    caches.keys().then((names) =>
+      Promise.all(names.map((n) => (n === CACHE_NAME || n === RUNTIME_CACHE ? null : caches.delete(n))))
+    )
   );
   self.clients.claim();
 });
 
-// Fetch - Network first for API, Cache first for assets
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+// Simpan respons ke cache (hanya GET + status ok)
+function putInCache(cacheName, request, response) {
+  if (!response || response.status !== 200 || request.method !== 'GET') return response;
+  const clone = response.clone();
+  caches.open(cacheName).then((cache) => cache.put(request, clone)).catch(() => {});
+  return response;
+}
 
-  // Google Sheets API - Network only, no cache
-  if (url.hostname.includes('docs.google.com') || url.hostname.includes('google.com')) {
-    event.respondWith(fetch(event.request));
+// Cache-first + revalidate di belakang (aset statis/ikon/CDN: cepat & tetap segar)
+function staleWhileRevalidate(event, cacheName) {
+  return caches.match(event.request).then((cached) => {
+    const network = fetch(event.request)
+      .then((res) => putInCache(cacheName, event.request, res))
+      .catch(() => null);
+    if (cached) {
+      event.waitUntil(network);
+      return cached;
+    }
+    return network.then((res) => res || (event.request.mode === 'navigate' ? caches.match('./index.html') : Response.error()));
+  });
+}
+
+// Network-first: app shell selalu versi terbaru, fallback ke cache saat offline
+function networkFirst(event, cacheName) {
+  return fetch(event.request)
+    .then((res) => putInCache(cacheName, event.request, res))
+    .catch(() =>
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        if (event.request.mode === 'navigate') return caches.match('./index.html');
+        return Response.error();
+      })
+    );
+}
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch (e) {
     return;
   }
 
-  // For other requests - Cache first, then network
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cached and update in background
-        event.waitUntil(
-          fetch(event.request).then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, networkResponse);
-              });
-            }
-          }).catch(() => {})
-        );
-        return cachedResponse;
-      }
-      // Not in cache, fetch from network
-      return fetch(event.request).then((response) => {
-        if (response && response.status === 200 && event.request.method === 'GET') {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        return response;
-      }).catch(() => {
-        // Offline fallback for HTML
-        if (event.request.headers.get('accept').includes('text/html')) {
-          return caches.match('./index.html');
-        }
-      });
-    })
-  );
+  // Spreadsheet / API Google — selalu jaringan, jangan pernah di-cache di sini
+  // (data sudah ditangani sendiri oleh app.js lewat Cache Storage 'pg2-data-v1')
+  if (url.hostname.endsWith('docs.google.com') || url.hostname.endsWith('google.com') || url.hostname.endsWith('googleusercontent.com')) {
+    return;
+  }
+
+  // Halaman & skrip inti: network-first (update langsung terpakai, offline tetap jalan)
+  if (request.mode === 'navigate' || (url.origin === self.location.origin && /\/(index\.html|app\.js)$/.test(url.pathname))) {
+    event.respondWith(networkFirst(event, CACHE_NAME));
+    return;
+  }
+
+  // Aset statis milik sendiri: cache-first + revalidate
+  if (url.origin === self.location.origin) {
+    event.respondWith(staleWhileRevalidate(event, CACHE_NAME));
+    return;
+  }
+
+  // Font & library CDN (versi sudah dipin): cache-first + revalidate
+  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com' || url.hostname === 'cdn.jsdelivr.net' || url.hostname === 'unpkg.com') {
+    event.respondWith(staleWhileRevalidate(event, RUNTIME_CACHE));
+    return;
+  }
+  // sisanya: biarkan browser menangani
 });

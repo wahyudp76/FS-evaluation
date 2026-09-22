@@ -70,12 +70,44 @@ Tab terakhir yang dibuka tersimpan otomatis (localStorage + hash URL), filter te
 
 ## 🔄 Auto-Sync Logic
 ```js
-const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=ZPAS637`;
+const CSV_URL   = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=ZPAS637`;   // sumber utama (~3,6 MB)
+const DATES_URL = GVIZ_BASE + `?tq=select A&tqx=out:json&sheet=ZPAS637`;                                            // overlay tanggal (~3 KB)
+const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                                                        // cadangan (~9,7 MB)
 ```
 - Frontend fetch langsung ke Google Sheets (sheet harus **Anyone with link can view**)
-- Parsing `google.visualization.Query.setResponse(...)`
-- Fallback ke `.../gviz/tq?tqx=out:csv` dan local `assets/sample-data.csv`
-- Sync manual tombol + interval 5 menit
+- **CSV jadi sumber utama** karena ~46% lebih ringan dari JSON gviz; JSON penuh hanya dipakai bila CSV gagal
+- Unduhan sudah dimulai dari `<head>` (`window.__pgCsvEarly`) sehingga tumpang tindih dengan pemuatan skrip
+- **Cache Storage `pg2-data-v1`**: kunjungan berikutnya tampil instan dari cache, lalu diperbarui di belakang
+- Fallback berlapis: cache → CSV live → JSON gviz → `assets/sample-data.csv` (offline)
+- Sync manual (tombol Sync) + otomatis tiap 5 menit, dijeda otomatis saat tab tidak aktif, ada *backoff* saat gagal
+- Notifikasi ringan (toast) untuk sukses/gagal sync — dashboard tidak pernah tertutup overlay karena gangguan jaringan
+
+## ⚡ Performa & Stabilitas (v1.5.0)
+Hasil uji A/B (Chrome headless, throttling CPU 4x, median 3 putaran, `tools/`):
+
+| Metrik | Sebelum | Sesudah | Perubahan |
+|---|---|---|---|
+| Data siap dipakai | 8.681 ms | 4.673 ms | **-46%** |
+| Pindah tab pertama (dingin) | 1.759 ms | 813 ms | **-54%** |
+| Pindah tab (hangat) | 1.110 ms | 313 ms | **-72%** |
+| Ubah filter tanggal | 1.204 ms | 136 ms | **-89%** |
+| Respons kotak pencarian | 559 ms | 501 ms | -10% |
+| Task CPU saat load | 7.575 ms | 6.267 ms | -17% |
+
+Yang membuatnya lebih cepat:
+1. **Data**: CSV 3,56 MB menggantikan JSON 9,73 MB + unduhan dimulai lebih awal.
+2. **Parsing**: parser CSV/angka satu lintasan tanpa regex (`toNumFast`), agregasi satu pass per grup.
+3. **Render bertahap**: hanya tab yang sedang dilihat yang dirender; tab lain disiapkan `requestIdleCallback`.
+4. **Memoization** per-versi data (`applyFilters()` menaikkan `dataVersion`) untuk KPI, agregasi, statistik wilayah.
+5. **Chart hemat**: animasi otomatis nonaktif untuk >60 titik, `devicePixelRatio` dibatasi 2.
+6. **Input**: pencarian di-*debounce* 200-220 ms; tab bisa dinavigasi lewat keyboard (←/→/Home/End).
+
+Perbaikan bug & ketahanan:
+- Sorting "Performance per Wilayah" tidak lagi salah urut, filter tanggal kini memakai waktu lokal (bukan UTC)
+- Escape HTML untuk nilai dari spreadsheet (anti-XML injection), pencarian tabel tetap bisa menemukan angka
+- Mode offline: data terakhir tetap tampil dari cache; spreadsheet gagal → otomatis pakai data contoh + toast peringatan
+- Uji stabilitas: 25 klik tab cepat, 25 perubahan filter, pengetikan cepat, 2x sync bersamaan → 0 error, heap stabil
+- Export CSV tanpa dependensi papaparse (papaparse dihapus dari halaman → 1 request lebih sedikit)
 
 ## 📁 Struktur Repo
 ```
@@ -137,7 +169,7 @@ Logo: tetes air + sprinkler irigasi (brand emerald `#10A05C`).
 ## 📈 Roadmap
 - [ ] Tambah sheet target vs realisasi
 - [ ] Alert Telegram jika utilization <60%
-- [ ] PWA offline support
+- [x] PWA offline support (app shell + data cache, sw v1.5.0)
 - [ ] Multi-sheet (ZPAS638, etc)
 
 ## 📄 Lisensi

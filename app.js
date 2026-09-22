@@ -3,8 +3,18 @@
 // Updated: Luas Cek column removed (now 34 cols), dynamic label-based parsing
 const SPREADSHEET_ID = '1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o';
 const SHEET_NAME = 'ZPAS637';
-const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=${SHEET_NAME}`;
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${SHEET_NAME}`;
+const GVIZ_BASE = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq`;
+// CSV = sumber data utama (payload ~46% lebih kecil dari JSON gviz)
+const CSV_URL = `${GVIZ_BASE}?tqx=out:csv&sheet=${SHEET_NAME}`;
+// Query kecil khusus kolom tanggal: hanya ~3 KB terkompresi, memberi tanggal + tahun yang akurat
+const DATES_URL = `${GVIZ_BASE}?tq=${encodeURIComponent('select A')}&tqx=out:json&sheet=${SHEET_NAME}`;
+// JSON penuh dipakai hanya sebagai fallback bila CSV bermasalah
+const GVIZ_URL = `${GVIZ_BASE}?tqx=out:json&sheet=${SHEET_NAME}`;
+const SAMPLE_URL = './assets/sample-data.csv';
+const DATA_CACHE = 'pg2-data-v1';
+const META_KEY = 'pg2-meta-v1';
+const AUTO_SYNC_MS = 5 * 60 * 1000;
+const REQ_TIMEOUT_MS = 25000;
 
 // State
 let rawData = [];
@@ -21,6 +31,16 @@ let biayaGran = 'monthly'; // granularity for biaya period table
 let biayaSort = 'totalBiaya'; // sort for biaya wilayah table
 let currentTab = 'overview'; // active tab
 const TAB_IDS = ['overview','wilayah','biaya','utilisasi','data'];
+// --- performa & stabilitas ---
+let dataVersion = 0;                 // naik setiap filteredData berubah -> invalidasi memo
+const memoStore = new Map();
+let dirtyTabs = new Set(TAB_IDS);    // tab yang perlu render ulang
+let lastMeta = null;                 // {sig, ts, rows}
+let syncTimer = null, syncFailures = 0, isSyncing = false;
+let dataSource = 'live';             // live | cache | sample
+let filtersUIReady = false;
+let appliedSig = null;                // sidik jari payload yang sedang tampil (hindari render ganda)
+let wasOffline = false;               // agar event 'online' bawaan browser tidak memicu sync ganda
 let filters = {
   start: null,
   end: null,
@@ -53,13 +73,59 @@ function parseGvizDate(v) {
   }
   return null;
 }
+// Intl.NumberFormat mahal (~0,1 ms per instansiasi). Simpan per jumlah desimal.
+const _nfCache = new Map();
+function _nf(decimals) {
+  let f = _nfCache.get(decimals);
+  if (!f) { f = new Intl.NumberFormat('id-ID', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }); _nfCache.set(decimals, f); }
+  return f;
+}
+const _nfIntFmt = new Intl.NumberFormat('id-ID');
 function formatNumber(n, decimals = 2) {
   if (n == null || isNaN(n)) return '-';
-  return new Intl.NumberFormat('id-ID', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
+  return _nf(decimals).format(n);
 }
 function formatInt(n) {
   if (n == null || isNaN(n)) return '-';
-  return new Intl.NumberFormat('id-ID').format(Math.round(n));
+  return _nfIntFmt.format(Math.round(n));
+}
+// Debounce untuk input pencarian agar tidak re-render tiap ketikan
+function debounce(fn, wait = 220) {
+  let t = null;
+  return function (...args) {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => { t = null; fn.apply(this, args); }, wait);
+  };
+}
+// Escape nilai dari spreadsheet sebelum dimasukkan ke innerHTML
+const _escMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function esc(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).replace(/[&<>"']/g, c => _escMap[c]);
+}
+// Ikon: panggil sekali per frame (dulu bisa 3-4x dalam satu alur render)
+let _iconHandle = null;
+function refreshIcons() {
+  if (!window.lucide) return;
+  if (_iconHandle !== null) return;
+  const raf = window.requestAnimationFrame || function (cb) { return setTimeout(cb, 16); };
+  _iconHandle = raf(() => {
+    _iconHandle = null;
+    try { window.lucide.createIcons(); } catch (e) {}
+  });
+}
+// Bungkus render agar satu error tidak mematikan seluruh dashboard
+function safeRender(name, fn) {
+  try { return fn(); } catch (e) { console.error('[render:' + name + ']', e); }
+}
+// requestIdleCallback dengan fallback
+const idle = window.requestIdleCallback || function (cb) { return setTimeout(() => cb({ timeRemaining: () => 0 }), 1); };
+// Tanggal lokal dari string 'YYYY-MM-DD' (hindari pergeseran zona waktu UTC)
+function parseLocalDate(str) {
+  if (!str) return null;
+  const [y, m, d] = String(str).split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
 }
 function formatDate(d) {
   if (!d) return '-';
@@ -86,297 +152,507 @@ function getMonthLabel(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-// Fetch & Parse - dynamic label based (resilient to column removal like Luas Cek)
-async function fetchSheetData() {
-  try {
-    const res = await fetch(GVIZ_URL, { cache: 'no-store' });
-    if (!res.ok) throw new Error('GVIZ fetch failed');
-    const text = await res.text();
-    const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]+)\)/);
-    if (!match) throw new Error('Invalid GVIZ response');
-    const data = JSON.parse(match[1]);
-    const cols = data.table.cols.map(c => c.label);
-    const colIndex = {};
-    cols.forEach((label, idx) => { colIndex[label] = idx; });
-    // Helper to get value by label
-    const getByLabel = (c, label) => {
-      const idx = colIndex[label];
-      if (idx === undefined || !c[idx]) return null;
-      return c[idx].v;
-    };
-    const getFByLabel = (c, label) => {
-      const idx = colIndex[label];
-      if (idx === undefined || !c[idx]) return null;
-      return c[idx].f;
-    };
+// ============================================================
+// LAPISAN DATA
+// - CSV sebagai sumber utama (lebih ringan dari JSON gviz)
+// - Query kecil khusus kolom tanggal untuk tahun yang akurat
+// - Cache Storage: muat instan saat kunjungan berikutnya
+// ============================================================
 
-    const rows = data.table.rows;
-    const parsed = rows.map(r => {
-      const c = r.c;
-      const dateRaw = getByLabel(c, 'Date');
-      const dateF = getFByLabel(c, 'Date');
-      const date = parseGvizDate(dateRaw) || parseGvizDate(dateF);
-      // Dynamic getters
-      const getNum = (label) => {
-        const v = getByLabel(c, label);
-        const n = Number(v);
-        return isNaN(n) ? 0 : n;
-      };
-      const getStr = (label) => {
-        const v = getByLabel(c, label);
-        return v ? String(v).trim() : '';
-      };
-      // Luas Cek may be removed - handle gracefully
-      const luasCek = colIndex['Luas Cek'] !== undefined ? getNum('Luas Cek') : 0;
-
-      return {
-        date,
-        dateLabel: dateF || formatDate(date),
-        wilayah: getStr('Wilayah'),
-        lokasi: getStr('Lokasi'),
-        engine: getStr('Engine'),
-        irigator: getStr('Irigator'),
-        jenisIrigator: getStr('Jenis Irigator'),
-        planTime: getNum('Plan Time'),
-        luasSiram: getNum('Luas Siram'),
-        luasCek: luasCek, // kept for backward compatibility, 0 if removed
-        kecepatan: getNum('Kecepatan Rata-rata'),
-        tebalSiram: getNum('Tebal Siram'),
-        prepareTime: getNum('Prepare Time'),
-        operatingTime: getNum('Operating Time'),
-        waitingTime: getNum('Waiting Time'),
-        repair: getNum('Repair'),
-        downTime: getNum('Down Time'),
-        standby: getNum('Standby'),
-        offTime: getNum('Off Time'),
-        totOperTime: getNum('Tot. Oper. Time'),
-        totalAvail: getNum('Total Avail'),
-        totalTime: getNum('Total Time'),
-        availability: getNum('% Availability'),
-        utilization: getNum('% Utilization'),
-        air: getNum('Air'),
-        solarTerpakai: getNum('Solar Terpakai (ltr)'),
-        biayaSolar: getNum('Biaya Solar (Std)'),
-        biayaUpah: getNum('Biaya Upah'),
-        biayaAlat: getNum('Biaya Alat'),
-        biayaTotal: getNum('Biaya Total'),
-        rpPerHa: getNum('Rp/Ha'),
-        haPerHari: getNum('Ha/Hari'),
-        haPerJam: getNum('Ha/Jam'),
-        solarPerJam: getNum('Solar Ltr/jam'),
-        solarPerHa: getNum('Solar Ltr/Ha'),
-        jenisEngine: getStr('Jenis Engine'),
-      };
-    }).filter(r => r.date && !isNaN(r.date));
-    return parsed;
-  } catch (e) {
-    console.warn('GVIZ JSON failed, trying CSV', e);
-    try {
-      const res = await fetch(CSV_URL, { cache: 'no-store' });
-      if (!res.ok) throw new Error('CSV fetch failed');
-      const csvText = await res.text();
-      return parseCSVText(csvText);
-    } catch (e2) {
-      console.error('CSV fallback failed', e2);
-      try {
-        const res = await fetch('./assets/sample-data.csv');
-        if (res.ok) {
-          const txt = await res.text();
-          return parseCSVText(txt);
-        }
-      } catch {}
-      throw e2;
+// CSV parser satu lintasan (RFC4180: kutip ganda + escape "")
+function parseCSVFast(text) {
+  const rows = [];
+  let field = '', row = [], inQ = false;
+  const n = text.length;
+  for (let i = 0; i < n; i++) {
+    const c = text.charCodeAt(i);
+    if (inQ) {
+      if (c === 34) {                       // '"'
+        if (text.charCodeAt(i + 1) === 34) { field += '"'; i++; }
+        else inQ = false;
+      } else field += text[i];
+      continue;
     }
+    if (c === 34) { inQ = true; continue; }
+    if (c === 44) { row.push(field); field = ''; continue; }   // ','
+    if (c === 13) continue;                                    // CR
+    if (c === 10) { row.push(field); rows.push(row); row = []; field = ''; continue; }
+    field += text[i];
   }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
 }
 
-function parseCSVText(csvText) {
-  const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-  const data = result.data.map(row => {
-    let date = null;
-    const dateStr = row['Date'] || row['date'];
-    if (dateStr) {
-      const months = { 'Jan':0,'Feb':1,'Mar':2,'Apr':3,'Mei':4,'Jun':5,'Jul':6,'Ags':7,'Agu':7,'Sep':8,'Okt':9,'Nov':10,'Des':11,
-                       'Januari':0,'Februari':1,'Maret':2,'April':3,'Mei':4,'Juni':5,'Juli':6,'Agustus':7,'September':8,'Oktober':9,'November':10,'Desember':11 };
-      const parts = dateStr.split('-');
-      if (parts.length >=2) {
-        const day = parseInt(parts[0]);
-        const monStr = parts[1];
-        const mon = months[monStr] ?? months[monStr.substring(0,3)] ?? 4;
-        const year = parts[2] ? parseInt(parts[2]) : 2026;
-        if (!isNaN(day)) date = new Date(year, mon, day);
-      } else {
-        date = new Date(dateStr);
-      }
+// Angka gaya id-ID: "Rp2.332.240" -> 2332240 ; "2,05" -> 2.05 ; "1.234,5" -> 1234.5
+// Dibuat manual (tanpa regex/replace/parseFloat) karena dipanggil >400.000x saat load.
+function toNumFast(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return v;
+  const n = v.length;
+  if (n === 0) return 0;
+  let i = 0;
+  // lewati awalan "Rp"
+  if (v.charCodeAt(0) === 82 /* R */ && v.charCodeAt(1) === 112 /* p */) i = 2;
+  let sign = 1;
+  let c = v.charCodeAt(i);
+  if (c === 45) { sign = -1; i++; }        // '-'
+  else if (c === 43) { i++; }              // '+'
+  let int = 0, frac = 0, scale = 0, sawDigit = false, sawDec = false;
+  for (; i < n; i++) {
+    c = v.charCodeAt(i);
+    if (c >= 48 && c <= 57) {
+      sawDigit = true;
+      const dgt = c - 48;
+      if (sawDec) { scale++; frac = frac + dgt / Math.pow(10, scale); }
+      else int = int * 10 + dgt;
+    } else if (c === 44) {                 // ',' = pemisah desimal (id-ID)
+      if (!sawDec) sawDec = true;
+    } else if (c === 46) {                 // '.' = pemisah ribuan -> diabaikan
+      continue;
+    } else if (c === 32) {                 // spasi -> diabaikan
+      continue;
+    } else {
+      // karakter lain (mis. '%', 'Ha') -> berhenti membaca angka
+      break;
     }
-    const num = (k) => {
-      let v = row[k];
-      if (v == null || v === '') return 0;
-      if (typeof v === 'string') {
-        v = v.replace(/Rp|\./g,'').replace(',','.').trim();
-      }
-      const n = parseFloat(v);
-      return isNaN(n) ? 0 : n;
-    };
-    const str = (k) => row[k] ? String(row[k]).trim() : '';
-    return {
+  }
+  if (!sawDigit) return 0;
+  return sign * (int + frac);
+}
+
+// Tanggal dari query kolom A: "Date(2026,4,29)"
+function parseDatesJSON(text) {
+  const m = text.match(/setResponse\(([\s\S]+)\)/);
+  if (!m) return null;
+  const j = JSON.parse(m[1]);
+  const out = new Array(j.table.rows.length);
+  const rows = j.table.rows;
+  for (let i = 0; i < rows.length; i++) {
+    const c = rows[i].c && rows[i].c[0];
+    out[i] = c && c.v ? parseGvizDate(c.v) : null;
+  }
+  return out;
+}
+
+// Tanggal cadangan bila kolom A tidak tersedia: "29-Mei" (tanpa tahun)
+const _months = { 'Jan':0,'Feb':1,'Mar':2,'Apr':3,'Mei':4,'Jun':5,'Jul':6,'Ags':7,'Agu':7,'Sep':8,'Okt':9,'Nov':10,'Des':11,
+                  'Januari':0,'Februari':1,'Maret':2,'April':3,'Juni':5,'Juli':6,'Agustus':7,'September':8,'Oktober':9,'November':10,'Desember':11 };
+function parseShortDate(str, fallbackYear) {
+  if (!str) return null;
+  const p = String(str).split('-');
+  if (p.length >= 2) {
+    const d = parseInt(p[0], 10);
+    const mon = _months[p[1]] !== undefined ? _months[p[1]] : _months[String(p[1]).substring(0, 3)];
+    if (!isNaN(d) && mon !== undefined) return new Date(fallbackYear, mon, d);
+  }
+  const dt = new Date(str);
+  return isNaN(dt) ? null : dt;
+}
+
+// Susun objek baris dari CSV + overlay tanggal akurat
+function buildRows(csvText, datesText) {
+  const t0 = performance.now();
+  const rows = parseCSVFast(csvText);
+  if (rows.length < 2) throw new Error('CSV kosong / format tidak dikenal');
+  const header = rows[0].map(h => h.trim());
+  const idx = {};
+  for (let i = 0; i < header.length; i++) idx[header[i]] = i;
+  const need = (label) => { if (idx[label] === undefined) console.warn('Kolom tidak ditemukan:', label); };
+
+  // tahun cadangan dari data tanggal yang sudah ada (agar filter tahun tetap waras)
+  let fallbackYear = 2026;
+  try { const y = localStorage.getItem('pg2-year'); if (y) fallbackYear = parseInt(y, 10) || 2026; } catch (e) {}
+
+  let dates = null;
+  if (datesText) { try { dates = parseDatesJSON(datesText); } catch (e) { console.warn('parse tanggal gagal', e); } }
+  if (dates && dates.length !== rows.length - 1) {
+    console.warn('Jumlah baris tanggal (' + dates.length + ') tidak sama dengan CSV (' + (rows.length - 1) + ') -> pakai tanggal CSV');
+    dates = null;
+  }
+
+  const I = (label) => idx[label];
+  const cDate = I('Date'), cWil = I('Wilayah'), cLok = I('Lokasi'), cEng = I('Engine'), cIri = I('Irigator'),
+        cJIri = I('Jenis Irigator'), cPlan = I('Plan Time'), cLuas = I('Luas Siram'), cKec = I('Kecepatan Rata-rata'),
+        cTebal = I('Tebal Siram'), cPrep = I('Prepare Time'), cOper = I('Operating Time'), cWait = I('Waiting Time'),
+        cRep = I('Repair'), cDown = I('Down Time'), cStand = I('Standby'), cOff = I('Off Time'), cTotOper = I('Tot. Oper. Time'),
+        cTotAvail = I('Total Avail'), cTotTime = I('Total Time'), cAvail = I('% Availability'), cUtil = I('% Utilization'),
+        cAir = I('Air'), cSolar = I('Solar Terpakai (ltr)'), cBSolar = I('Biaya Solar (Std)'), cBUpah = I('Biaya Upah'),
+        cBAlat = I('Biaya Alat'), cBTotal = I('Biaya Total'), cRpHa = I('Rp/Ha'), cHaHari = I('Ha/Hari'),
+        cHaJam = I('Ha/Jam'), cSolarJam = I('Solar Ltr/jam'), cSolarHa = I('Solar Ltr/Ha'), cJEng = I('Jenis Engine');
+  need('Date'); need('Wilayah'); need('Luas Siram'); need('Biaya Total');
+
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length < 3) continue;
+    const rawDate = cDate !== undefined ? row[cDate] : '';
+    const date = (dates && dates[r - 1]) || parseShortDate(rawDate, fallbackYear);
+    if (!date || isNaN(date)) continue;
+    const g = (i) => (i === undefined || i < 0 || row[i] === undefined ? '' : row[i]);
+    const num = (i) => (i === undefined || i < 0 ? 0 : toNumFast(row[i]));
+    const wilayah = g(cWil).trim(), engine = g(cEng).trim(), irigator = g(cIri).trim(), lokasi = g(cLok).trim();
+    const yr = date.getFullYear(), mo = date.getMonth();
+    const d = {
       date,
-      dateLabel: dateStr,
-      wilayah: str('Wilayah'),
-      lokasi: str('Lokasi'),
-      engine: str('Engine'),
-      irigator: str('Irigator'),
-      jenisIrigator: str('Jenis Irigator'),
-      planTime: num('Plan Time'),
-      luasSiram: num('Luas Siram'),
-      luasCek: num('Luas Cek'), // will be 0 if column removed
-      kecepatan: num('Kecepatan Rata-rata'),
-      tebalSiram: num('Tebal Siram'),
-      prepareTime: num('Prepare Time'),
-      operatingTime: num('Operating Time'),
-      waitingTime: num('Waiting Time'),
-      repair: num('Repair'),
-      downTime: num('Down Time'),
-      standby: num('Standby'),
-      offTime: num('Off Time'),
-      totOperTime: num('Tot. Oper. Time'),
-      totalAvail: num('Total Avail'),
-      totalTime: num('Total Time'),
-      availability: num('% Availability'),
-      utilization: num('% Utilization'),
-      air: num('Air'),
-      solarTerpakai: num('Solar Terpakai (ltr)'),
-      biayaSolar: num('Biaya Solar (Std)'),
-      biayaUpah: num('Biaya Upah'),
-      biayaAlat: num('Biaya Alat'),
-      biayaTotal: num('Biaya Total'),
-      rpPerHa: num('Rp/Ha'),
-      haPerHari: num('Ha/Hari'),
-      haPerJam: num('Ha/Jam'),
-      solarPerJam: num('Solar Ltr/jam'),
-      solarPerHa: num('Solar Ltr/Ha'),
-      jenisEngine: str('Jenis Engine'),
+      dateLabel: rawDate,
+      wilayah, lokasi, engine, irigator,
+      jenisIrigator: g(cJIri).trim(),
+      planTime: num(cPlan), luasSiram: num(cLuas), luasCek: 0,
+      kecepatan: num(cKec), tebalSiram: num(cTebal),
+      prepareTime: num(cPrep), operatingTime: num(cOper), waitingTime: num(cWait),
+      repair: num(cRep), downTime: num(cDown), standby: num(cStand), offTime: num(cOff),
+      totOperTime: num(cTotOper), totalAvail: num(cTotAvail), totalTime: num(cTotTime),
+      availability: num(cAvail), utilization: num(cUtil), air: num(cAir),
+      solarTerpakai: num(cSolar),
+      biayaSolar: num(cBSolar), biayaUpah: num(cBUpah), biayaAlat: num(cBAlat), biayaTotal: num(cBTotal),
+      rpPerHa: num(cRpHa), haPerHari: num(cHaHari), haPerJam: num(cHaJam),
+      solarPerJam: num(cSolarJam), solarPerHa: num(cSolarHa),
+      jenisEngine: g(cJEng).trim(),
+      _y: yr, _m: mo,
+      _s: ''   // indeks pencarian, diisi di bawah
     };
-  }).filter(r => r.date && !isNaN(r.date));
-  return data;
+    d._s = (lokasi + ' ' + engine + ' ' + irigator + ' ' + wilayah + ' ' + d.jenisIrigator + ' ' + d.jenisEngine + ' ' +
+            formatDateISO(date) + ' ' + rawDate).toLowerCase();
+    out.push(d);
+  }
+
+  if (out.length) {
+    try { localStorage.setItem('pg2-year', String(out[out.length - 1]._y)); } catch (e) {}
+  }
+  console.debug('[data] CSV', rows.length - 1, 'baris ->', out.length, 'dipakai dalam', Math.round(performance.now() - t0), 'ms');
+  return out;
+}
+
+// Parser JSON gviz penuh (fallback) - satu lintasan, tanpa closure per baris
+function parseGvizJSON(text) {
+  const m = text.match(/setResponse\(([\s\S]+)\)/);
+  if (!m) throw new Error('Respons gviz tidak valid');
+  const data = JSON.parse(m[1]);
+  const cols = data.table.cols.map(c => c.label);
+  const idx = {};
+  for (let i = 0; i < cols.length; i++) idx[cols[i]] = i;
+  const rows = data.table.rows;
+  const out = [];
+  for (let r = 0; r < rows.length; r++) {
+    const c = rows[r].c; if (!c) continue;
+    const val = (label) => { const i = idx[label]; return i === undefined || !c[i] ? null : c[i].v; };
+    const str = (label) => { const v = val(label); return v ? String(v).trim() : ''; };
+    const num = (label) => { const n = Number(val(label)); return isNaN(n) ? 0 : n; };
+    const date = parseGvizDate(val('Date')) || parseGvizDate(c[idx['Date']] && c[idx['Date']].f);
+    if (!date || isNaN(date)) continue;
+    const d = {
+      date, dateLabel: '',
+      wilayah: str('Wilayah'), lokasi: str('Lokasi'), engine: str('Engine'), irigator: str('Irigator'),
+      jenisIrigator: str('Jenis Irigator'),
+      planTime: num('Plan Time'), luasSiram: num('Luas Siram'),
+      luasCek: idx['Luas Cek'] !== undefined ? num('Luas Cek') : 0,
+      kecepatan: num('Kecepatan Rata-rata'), tebalSiram: num('Tebal Siram'),
+      prepareTime: num('Prepare Time'), operatingTime: num('Operating Time'), waitingTime: num('Waiting Time'),
+      repair: num('Repair'), downTime: num('Down Time'), standby: num('Standby'), offTime: num('Off Time'),
+      totOperTime: num('Tot. Oper. Time'), totalAvail: num('Total Avail'), totalTime: num('Total Time'),
+      availability: num('% Availability'), utilization: num('% Utilization'), air: num('Air'),
+      solarTerpakai: num('Solar Terpakai (ltr)'),
+      biayaSolar: num('Biaya Solar (Std)'), biayaUpah: num('Biaya Upah'), biayaAlat: num('Biaya Alat'),
+      biayaTotal: num('Biaya Total'), rpPerHa: num('Rp/Ha'), haPerHari: num('Ha/Hari'), haPerJam: num('Ha/Jam'),
+      solarPerJam: num('Solar Ltr/jam'), solarPerHa: num('Solar Ltr/Ha'), jenisEngine: str('Jenis Engine'),
+      _y: date.getFullYear(), _m: date.getMonth(), _s: ''
+    };
+    d._s = (d.lokasi + ' ' + d.engine + ' ' + d.irigator + ' ' + d.wilayah + ' ' +
+            formatDateISO(date) + ' ' + str('Date')).toLowerCase();
+    out.push(d);
+  }
+  return out;
+}
+
+// Batas waktu untuk janji fetch (supaya unduhan awal yang menggantung tidak memblokir dashboard)
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout ' + (label || ''))), ms))
+  ]);
+}
+
+// --- fetch dengan timeout + retry ---
+async function fetchText(url, timeoutMs = REQ_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.text();
+  } finally { clearTimeout(tid); }
+}
+
+// --- Cache Storage untuk payload mentah (muat instan di kunjungan berikutnya) ---
+async function cacheGet(key) {
+  try { const c = await caches.open(DATA_CACHE); const r = await c.match(key); return r ? await r.text() : null; } catch (e) { return null; }
+}
+async function cachePut(key, text) {
+  if (!text) return;
+  try {
+    const c = await caches.open(DATA_CACHE);
+    await c.put(new Request(key), new Response(text, { headers: { 'content-type': 'text/plain' } }));
+  } catch (e) { console.debug('[cache] gagal simpan', e && e.message); }
+}
+function readMeta() {
+  try { const m = JSON.parse(localStorage.getItem(META_KEY) || 'null'); return (m && m.sig) ? m : null; } catch (e) { return null; }
+}
+function writeMeta(meta) { try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {} }
+// Sidik jari ringan: panjang + sampel karakter (cukup untuk mendeteksi perubahan isi)
+function fingerprint(text) {
+  let h = 2166136261;
+  const step = Math.max(1, Math.floor(text.length / 2048));
+  for (let i = 0; i < text.length; i += step) { h ^= text.charCodeAt(i); h = (h * 16777619) >>> 0; }
+  return text.length + ':' + h.toString(36);
+}
+
+// Ambil payload (CSV + tanggal) - CSV utama, JSON penuh bila gagal
+async function fetchPayload({ preferCache = false } = {}) {
+  if (preferCache) {
+    const [csv, dates] = await Promise.all([cacheGet(CSV_URL), cacheGet(DATES_URL)]);
+    if (csv && csv.length > 1000) {
+      const meta = readMeta();
+      return { csv, dates, sig: meta ? meta.sig : fingerprint(csv), ts: meta ? meta.ts : Date.now(), fromCache: true };
+    }
+  }
+  // paralel: CSV (sumber utama) + kolom tanggal (~3 KB).
+  // Kalau index.html sudah memulai unduhan lebih awal, hasilnya dipakai ulang di sini.
+  let csv = null, dates = null;
+  const earlyCsv = window.__pgCsvEarly, earlyDates = window.__pgDatesEarly;
+  if (earlyCsv || earlyDates) {
+    const [c, d] = await Promise.all([
+      earlyCsv ? withTimeout(earlyCsv, REQ_TIMEOUT_MS, 'csv').catch(() => null) : Promise.resolve(null),
+      earlyDates ? withTimeout(earlyDates, REQ_TIMEOUT_MS, 'dates').catch(() => null) : Promise.resolve(null)
+    ]);
+    csv = c; dates = d;
+    window.__pgCsvEarly = null; window.__pgDatesEarly = null;   // lepas teks besar dari memori
+  }
+  if (!csv || !dates) {
+    // lengkapi/ulangi bagian yang belum berhasil (juga menutup kasus unduhan awal gagal)
+    const retries = await Promise.allSettled([
+      csv ? Promise.resolve(csv) : fetchText(CSV_URL),
+      dates ? Promise.resolve(dates) : fetchText(DATES_URL)
+    ]);
+    if (!csv && retries[0].status === 'fulfilled') csv = retries[0].value;
+    if (!dates && retries[1].status === 'fulfilled') dates = retries[1].value;
+  }
+  const ts = Date.now();
+  if (csv && csv.length > 1000) {
+    return { csv, dates, sig: fingerprint(csv), ts, fromCache: false };
+  }
+  // CSV bermasalah -> baru ambil JSON gviz penuh (jauh lebih besar, hanya sebagai cadangan)
+  console.warn('[data] CSV gagal, memakai fallback JSON gviz');
+  const json = await fetchText(GVIZ_URL);
+  if (json) return { csv: null, dates, json, sig: fingerprint(json), ts, fromCache: false };
+  throw new Error('Semua sumber data gagal dimuat');
+}
+
+// Kompatibilitas: parser lama (dipakai harness/testing) kini memakai parser cepat buildRows()
+function parseCSVText(csvText, datesText) { return buildRows(csvText, datesText); }
+
+// Kolom angka yang bisa dicari di kotak pencarian tabel (perilaku lama dipertahankan)
+const NUM_SEARCH_FIELDS = ['luasSiram','solarTerpakai','biayaTotal','luasSiram','solarPerHa','solarPerJam','kecepatan','tebalSiram','utilization','availability','rpPerHa','operatingTime'];
+function rowNumericMatch(d, q) {
+  for (let i = 0; i < NUM_SEARCH_FIELDS.length; i++) {
+    const v = d[NUM_SEARCH_FIELDS[i]];
+    if (v && String(v).indexOf(q) !== -1) return true;
+  }
+  return false;
 }
 
 // Filtering
 function applyFilters() {
-  let data = [...rawData];
-  if (filters.start) data = data.filter(d => d.date >= filters.start);
-  if (filters.end) {
-    const end = new Date(filters.end);
-    end.setHours(23,59,59,999);
-    data = data.filter(d => d.date <= end);
+  // Satu lintasan untuk semua kondisi (jauh lebih cepat dari berantai .filter())
+  const t0 = performance.now();
+  const startMs = filters.start ? filters.start.getTime() : null;
+  const endMs = filters.end ? (filters.end.getTime() + 86399999) : null;
+  const fMonths = filters.months, fWilayah = filters.wilayah;
+  const y = (filters.year !== 'all') ? parseInt(filters.year, 10) : null;
+  const fEngine = filters.jenisEngine;
+  const q1 = filters.search ? filters.search.toLowerCase() : null;
+  const q2 = filters.tableSearch ? filters.tableSearch.toLowerCase() : null;
+
+  const out = [];
+  for (let i = 0; i < rawData.length; i++) {
+    const d = rawData[i];
+    const t = d.date.getTime();
+    if (startMs !== null && t < startMs) continue;
+    if (endMs !== null && t > endMs) continue;
+    if (fMonths.size && !fMonths.has(d._m)) continue;
+    if (y !== null && !isNaN(y) && d._y !== y) continue;
+    if (fWilayah.size && !fWilayah.has(d.wilayah)) continue;
+    if (fEngine !== 'all' && d.jenisEngine !== fEngine) continue;
+    if (q1 && d._s.indexOf(q1) === -1) continue;
+    if (q2 && d._s.indexOf(q2) === -1 && !rowNumericMatch(d, q2)) continue;
+    out.push(d);
   }
-  if (filters.months.size > 0) data = data.filter(d => filters.months.has(d.date.getMonth()));
-  if (filters.year !== 'all') {
-    const y = parseInt(filters.year);
-    if (!isNaN(y)) data = data.filter(d => d.date.getFullYear() === y);
-  }
-  if (filters.wilayah.size > 0) data = data.filter(d => filters.wilayah.has(d.wilayah));
-  if (filters.jenisEngine !== 'all') data = data.filter(d => d.jenisEngine === filters.jenisEngine);
-  if (filters.search) {
-    const q = filters.search.toLowerCase();
-    data = data.filter(d => d.engine.toLowerCase().includes(q) || d.irigator.toLowerCase().includes(q) || d.lokasi.toLowerCase().includes(q) || d.wilayah.toLowerCase().includes(q));
-  }
-  if (filters.tableSearch) {
-    const q = filters.tableSearch.toLowerCase();
-    data = data.filter(d => Object.values(d).some(v => String(v).toLowerCase().includes(q)));
-  }
-  filteredData = data;
-  filteredData.sort((a,b) => a.date - b.date);
+  out.sort((a, b) => a.date - b.date);
+  filteredData = out;
+  // filter berubah -> semua hasil turunan (agregasi, statistik, KPI) dihitung ulang
+  dataVersion++;
+  if (memoStore.size > 400) memoStore.clear();
+  dirtyTabs = new Set(TAB_IDS);
+  console.debug('[filter]', rawData.length, '->', out.length, 'baris dalam', Math.round(performance.now() - t0), 'ms');
+}
+
+// Cache hasil turunan per-versi data (memoization)
+function memo(key, fn) {
+  const k = key + '@' + dataVersion;
+  let v = memoStore.get(k);
+  if (v === undefined) { v = fn(); memoStore.set(k, v); }
+  return v;
 }
 
 function getAggregated(gran) {
+  return memo('agg:' + gran, () => getAggregatedRaw(gran));
+}
+function getAggregatedRaw(gran) {
+  // Satu lintasan: kelompokkan + akumulasi semua metrik sekaligus
   const groups = {};
-  filteredData.forEach(d => {
+  const keysInOrder = [];
+  for (let i = 0; i < filteredData.length; i++) {
+    const d = filteredData[i];
     let key;
     if (gran === 'daily') key = formatDateISO(d.date);
     else if (gran === 'weekly') key = getWeekLabel(d.date);
-    else if (gran === 'monthly') key = getMonthLabel(d.date);
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(d);
-  });
-  const sortedKeys = Object.keys(groups).sort();
-  const result = sortedKeys.map(k => {
-    const arr = groups[k];
-    const sum = (field) => arr.reduce((s,x)=>s+(x[field]||0),0);
-    const avg = (field) => arr.length ? sum(field)/arr.length : 0;
-    return {
-      key: k,
-      label: k,
-      date: arr[0].date,
-      count: arr.length,
-      totalLuasSiram: sum('luasSiram'),
-      totalSolar: sum('solarTerpakai'),
-      avgSolarPerJam: avg('solarPerJam'),
-      avgSolarPerHa: avg('solarPerHa'),
-      avgOperating: avg('operatingTime'),
-      avgPrepare: avg('prepareTime'),
-      avgWaiting: avg('waitingTime'),
-      totalOperating: sum('operatingTime'),
-      avgKecepatan: avg('kecepatan'),
-      avgTebal: avg('tebalSiram'),
-      avgAvailability: avg('availability'),
-      avgUtilization: avg('utilization'),
-      avgHaPerJam: avg('haPerJam'),
-      avgHaPerHari: avg('haPerHari'),
-      totalBiaya: sum('biayaTotal'),
-      avgRpPerHa: avg('rpPerHa'),
-      avgPlan: avg('planTime'),
+    else key = getMonthLabel(d.date);
+    let g = groups[key];
+    if (!g) {
+      g = groups[key] = {
+        key, label: key, date: d.date, count: 0,
+        luasSiram: 0, solarTerpakai: 0, solarPerJam: 0, solarPerHa: 0, operatingTime: 0,
+        prepareTime: 0, waitingTime: 0, kecepatan: 0, tebalSiram: 0, availability: 0,
+        utilization: 0, haPerJam: 0, haPerHari: 0, biayaTotal: 0, rpPerHa: 0, planTime: 0
+      };
+      keysInOrder.push(key);
+    }
+    g.count++;
+    g.luasSiram += d.luasSiram || 0;
+    g.solarTerpakai += d.solarTerpakai || 0;
+    g.solarPerJam += d.solarPerJam || 0;
+    g.solarPerHa += d.solarPerHa || 0;
+    g.operatingTime += d.operatingTime || 0;
+    g.prepareTime += d.prepareTime || 0;
+    g.waitingTime += d.waitingTime || 0;
+    g.kecepatan += d.kecepatan || 0;
+    g.tebalSiram += d.tebalSiram || 0;
+    g.availability += d.availability || 0;
+    g.utilization += d.utilization || 0;
+    g.haPerJam += d.haPerJam || 0;
+    g.haPerHari += d.haPerHari || 0;
+    g.biayaTotal += d.biayaTotal || 0;
+    g.rpPerHa += d.rpPerHa || 0;
+    g.planTime += d.planTime || 0;
+  }
+  keysInOrder.sort();   // label 'YYYY-MM' / 'YYYY-Www' / 'YYYY-MM-DD' -> urut otomatis benar
+  const result = new Array(keysInOrder.length);
+  for (let i = 0; i < keysInOrder.length; i++) {
+    const g = groups[keysInOrder[i]];
+    const n = g.count || 1;
+    result[i] = {
+      key: g.key,
+      label: g.label,
+      date: g.date,
+      count: g.count,
+      totalLuasSiram: g.luasSiram,
+      totalSolar: g.solarTerpakai,
+      avgSolarPerJam: g.solarPerJam / n,
+      avgSolarPerHa: g.solarPerHa / n,
+      avgOperating: g.operatingTime / n,
+      avgPrepare: g.prepareTime / n,
+      avgWaiting: g.waitingTime / n,
+      totalOperating: g.operatingTime,
+      avgKecepatan: g.kecepatan / n,
+      avgTebal: g.tebalSiram / n,
+      avgAvailability: g.availability / n,
+      avgUtilization: g.utilization / n,
+      avgHaPerJam: g.haPerJam / n,
+      avgHaPerHari: g.haPerHari / n,
+      totalBiaya: g.biayaTotal,
+      avgRpPerHa: g.rpPerHa / n,
+      avgPlan: g.planTime / n,
     };
-  });
+  }
   return result;
 }
 
-// NEW: Detailed stats per wilayah - fokus pemakaian & hasil rata-rata
 function getWilayahStats() {
+  return memo('wil:' + wilayahSort, () => getWilayahStatsRaw());
+}
+function getWilayahStatsRaw() {
+  // Satu lintasan: akumulasi semua field yang dibutuhkan per wilayah (tanpa reduce berulang)
   const groups = {};
-  filteredData.forEach(d => {
-    if (!groups[d.wilayah]) groups[d.wilayah] = [];
-    groups[d.wilayah].push(d);
-  });
-  const stats = Object.keys(groups).map(w => {
-    const arr = groups[w];
-    const sum = (f) => arr.reduce((s,x)=>s+(x[f]||0),0);
-    const avg = (f) => arr.length ? sum(f)/arr.length : 0;
-    return {
-      wilayah: w,
-      count: arr.length,
-      totalLuas: sum('luasSiram'),
-      avgLuas: avg('luasSiram'),
-      totalSolar: sum('solarTerpakai'),
-      avgSolar: avg('solarTerpakai'),
-      avgHaPerJam: avg('haPerJam'),
-      avgHaPerHari: avg('haPerHari'),
-      avgSolarPerHa: avg('solarPerHa'),
-      avgSolarPerJam: avg('solarPerJam'),
-      avgOperating: avg('operatingTime'),
-      avgPrepare: avg('prepareTime'),
-      avgWaiting: avg('waitingTime'),
-      avgKecepatan: avg('kecepatan'),
-      avgTebal: avg('tebalSiram'),
-      avgAvailability: avg('availability'),
-      avgUtilization: avg('utilization'),
-      avgRpPerHa: avg('rpPerHa'),
-      totalBiaya: sum('biayaTotal'),
-      totalAir: sum('air'),
-      // BIAYA: rincian pemakaian biaya selama irigasi per wilayah
-      biayaSolar: sum('biayaSolar'),
-      biayaUpah: sum('biayaUpah'),
-      biayaAlat: sum('biayaAlat'),
-      totalOperating: sum('operatingTime'),
-      // perhitungan rasio biaya (bukan rata-rata baris, agar lebih akurat)
-      rpPerHa: sum('luasSiram') ? sum('biayaTotal')/sum('luasSiram') : 0,
-      rpPerJam: sum('operatingTime') ? sum('biayaTotal')/sum('operatingTime') : 0,
-      rpPerLiter: sum('solarTerpakai') ? sum('biayaTotal')/sum('solarTerpakai') : 0,
-      avgBiayaPerRec: arr.length ? sum('biayaTotal')/arr.length : 0,
-      // efisiensi score: higher Ha/Jam and lower Ltr/Ha is better
-      efisiensiScore: avg('haPerJam') / (avg('solarPerHa') || 1) * 100,
+  for (let i = 0; i < filteredData.length; i++) {
+    const d = filteredData[i];
+    let g = groups[d.wilayah];
+    if (!g) g = groups[d.wilayah] = {
+      wilayah: d.wilayah, count: 0,
+      luasSiram: 0, solarTerpakai: 0, haPerJam: 0, haPerHari: 0, solarPerHa: 0, solarPerJam: 0,
+      operatingTime: 0, prepareTime: 0, waitingTime: 0, kecepatan: 0, tebalSiram: 0,
+      availability: 0, utilization: 0, rpPerHa: 0, biayaTotal: 0, air: 0,
+      biayaSolar: 0, biayaUpah: 0, biayaAlat: 0
     };
-  });
+    g.count++;
+    g.luasSiram += d.luasSiram || 0;
+    g.solarTerpakai += d.solarTerpakai || 0;
+    g.haPerJam += d.haPerJam || 0;
+    g.haPerHari += d.haPerHari || 0;
+    g.solarPerHa += d.solarPerHa || 0;
+    g.solarPerJam += d.solarPerJam || 0;
+    g.operatingTime += d.operatingTime || 0;
+    g.prepareTime += d.prepareTime || 0;
+    g.waitingTime += d.waitingTime || 0;
+    g.kecepatan += d.kecepatan || 0;
+    g.tebalSiram += d.tebalSiram || 0;
+    g.availability += d.availability || 0;
+    g.utilization += d.utilization || 0;
+    g.rpPerHa += d.rpPerHa || 0;
+    g.biayaTotal += d.biayaTotal || 0;
+    g.air += d.air || 0;
+    g.biayaSolar += d.biayaSolar || 0;
+    g.biayaUpah += d.biayaUpah || 0;
+    g.biayaAlat += d.biayaAlat || 0;
+  }
+  const stats = [];
+  for (const w in groups) {
+    const g = groups[w];
+    const n = g.count || 1;
+    const avgHaPerJam = g.haPerJam / n, avgSolarPerHa = g.solarPerHa / n;
+    stats.push({
+      wilayah: g.wilayah,
+      count: g.count,
+      totalLuas: g.luasSiram,
+      avgLuas: g.luasSiram / n,
+      totalSolar: g.solarTerpakai,
+      avgSolar: g.solarTerpakai / n,
+      avgHaPerJam,
+      avgHaPerHari: g.haPerHari / n,
+      avgSolarPerHa,
+      avgSolarPerJam: g.solarPerJam / n,
+      avgOperating: g.operatingTime / n,
+      avgPrepare: g.prepareTime / n,
+      avgWaiting: g.waitingTime / n,
+      avgKecepatan: g.kecepatan / n,
+      avgTebal: g.tebalSiram / n,
+      avgAvailability: g.availability / n,
+      avgUtilization: g.utilization / n,
+      avgRpPerHa: g.rpPerHa / n,
+      totalBiaya: g.biayaTotal,
+      totalAir: g.air,
+      // BIAYA: rincian pemakaian biaya selama irigasi per wilayah
+      biayaSolar: g.biayaSolar,
+      biayaUpah: g.biayaUpah,
+      biayaAlat: g.biayaAlat,
+      totalOperating: g.operatingTime,
+      // perhitungan rasio biaya (bukan rata-rata baris, agar lebih akurat)
+      rpPerHa: g.luasSiram ? g.biayaTotal / g.luasSiram : 0,
+      rpPerJam: g.operatingTime ? g.biayaTotal / g.operatingTime : 0,
+      rpPerLiter: g.solarTerpakai ? g.biayaTotal / g.solarTerpakai : 0,
+      avgBiayaPerRec: g.biayaTotal / n,
+      // efisiensi score: higher Ha/Jam and lower Ltr/Ha is better
+      efisiensiScore: avgHaPerJam / (avgSolarPerHa || 1) * 100,
+    });
+  }
   // sort by selected wilayahSort
   stats.sort((a,b)=>{
     if (wilayahSort==='totalLuas') return b.totalLuas - a.totalLuas;
@@ -385,7 +661,7 @@ function getWilayahStats() {
     if (wilayahSort==='totalSolar') return b.totalSolar - a.totalSolar;
     if (wilayahSort==='avgUtil') return b.avgUtilization - a.avgUtilization;
     if (wilayahSort==='avgRpPerHa') return a.avgRpPerHa - b.avgRpPerHa; // lower is better
-    return b.totalLuas - b.totalLuas === 0 ? 0 : b.totalLuas - a.totalLuas;
+    return b.totalLuas - a.totalLuas;
   });
   return stats;
 }
@@ -393,6 +669,9 @@ function getWilayahStats() {
 // ===== ANALISA BIAYA IRIGASI =====
 // Total biaya, biaya solar/upah/alat, Rp/Ha & Rp/Jam - total maupun per wilayah
 function getBiayaWilayahStats() {
+  return memo('biaya:' + biayaSort, () => getBiayaWilayahStatsRaw());
+}
+function getBiayaWilayahStatsRaw() {
   const groups = {};
   filteredData.forEach(d => {
     if (!groups[d.wilayah]) groups[d.wilayah] = {
@@ -466,6 +745,9 @@ function getBiayaWilayahStats() {
 
 // Biaya per periode (harian/mingguan/bulanan) - total wilayah
 function getBiayaPeriodStats() {
+  return memo('bperiod:' + biayaGran, () => getBiayaPeriodStatsRaw());
+}
+function getBiayaPeriodStatsRaw() {
   if (biayaGran === 'all') {
     const { totals } = getBiayaWilayahStats();
     return [Object.assign({ label: 'Seluruh Periode', key: 'all', date: null }, totals)];
@@ -540,7 +822,7 @@ function renderBiaya() {
     else badge = '<span class="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200">Mahal</span>';
     return `
       <tr class="hover:bg-amber-50/40 transition">
-        <td class="px-4 py-2.5 whitespace-nowrap"><span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-amber-500"></span><span class="font-semibold text-slate-900">${x.wilayah}</span></span></td>
+        <td class="px-4 py-2.5 whitespace-nowrap"><span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-amber-500"></span><span class="font-semibold text-slate-900">${esc(x.wilayah)}</span></span></td>
         <td class="px-4 py-2.5 whitespace-nowrap text-center"><span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium">${formatInt(x.count)}</span></td>
         <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(x.luas,2)}</td>
         <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(x.biayaSolar)}<span class="ml-1 text-[9px] text-slate-400">${formatNumber(x.pctSolar,0)}%</span></td>
@@ -710,7 +992,7 @@ function renderBiaya() {
   if (pbody) {
     pbody.innerHTML = periodRows.map(r=>`
       <tr class="hover:bg-amber-50/40 transition">
-        <td class="px-4 py-2.5 whitespace-nowrap font-medium text-slate-900">${r.label}</td>
+        <td class="px-4 py-2.5 whitespace-nowrap font-medium text-slate-900">${esc(r.label)}</td>
         <td class="px-4 py-2.5 whitespace-nowrap text-center text-slate-500">${formatInt(r.count)}</td>
         <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(r.luas,2)}</td>
         <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(r.biayaSolar)}</td>
@@ -757,7 +1039,7 @@ function renderBiaya() {
     ins.innerHTML = insights.map(t=>`<div class="flex gap-2 rounded-xl border border-slate-200/70 bg-white px-3 py-2.5"><span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500"></span><span class="leading-relaxed">${t}</span></div>`).join('');
   }
 
-  if (window.lucide) window.lucide.createIcons();
+  refreshIcons();
 }
 
 
@@ -800,7 +1082,7 @@ function renderWilayahDetail() {
       else effBadge = '<span class="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200">Boros</span>';
       return `
         <tr class="hover:bg-slate-50/80 transition">
-          <td class="px-4 py-2.5 whitespace-nowrap"><span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-emerald-500"></span><span class="font-semibold text-slate-900">${s.wilayah}</span></span></td>
+          <td class="px-4 py-2.5 whitespace-nowrap"><span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-emerald-500"></span><span class="font-semibold text-slate-900">${esc(s.wilayah)}</span></span></td>
           <td class="px-4 py-2.5 whitespace-nowrap text-center"><span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium">${s.count}</span></td>
           <td class="px-4 py-2.5 whitespace-nowrap text-right font-bold text-emerald-700">${formatNumber(s.totalLuas,2)}</td>
           <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(s.avgLuas,2)}</td>
@@ -883,35 +1165,52 @@ function renderWilayahDetail() {
 }
 
 function calculateKPIs() {
+  return memo('kpi', calculateKPIsRaw);
+}
+function calculateKPIsRaw() {
   const data = filteredData;
-  if (data.length === 0) return null;
-  const sum = (f) => data.reduce((s,x)=>s+(x[f]||0),0);
-  const avg = (f) => data.length ? sum(f)/data.length : 0;
+  const n = data.length;
+  if (n === 0) return null;
+  // satu lintasan untuk semua akumulasi
+  let luas = 0, solar = 0, oper = 0, solarJam = 0, solarHa = 0, kec = 0, tebal = 0, avail = 0, util = 0,
+      biaya = 0, biayaSolar = 0, biayaUpah = 0, biayaAlat = 0, rpHaSum = 0, haHari = 0, haJam = 0,
+      plan = 0, prep = 0, wait = 0, air = 0;
+  for (let i = 0; i < n; i++) {
+    const d = data[i];
+    luas += d.luasSiram || 0; solar += d.solarTerpakai || 0; oper += d.operatingTime || 0;
+    solarJam += d.solarPerJam || 0; solarHa += d.solarPerHa || 0; kec += d.kecepatan || 0;
+    tebal += d.tebalSiram || 0; avail += d.availability || 0; util += d.utilization || 0;
+    biaya += d.biayaTotal || 0; biayaSolar += d.biayaSolar || 0; biayaUpah += d.biayaUpah || 0;
+    biayaAlat += d.biayaAlat || 0; rpHaSum += d.rpPerHa || 0; haHari += d.haPerHari || 0;
+    haJam += d.haPerJam || 0; plan += d.planTime || 0; prep += d.prepareTime || 0;
+    wait += d.waitingTime || 0; air += d.air || 0;
+  }
+  const avg = (tot) => tot / n;
   return {
-    totalLuasSiram: sum('luasSiram'),
-    totalSolar: sum('solarTerpakai'),
-    avgOperating: avg('operatingTime'),
-    avgSolarPerJam: avg('solarPerJam'),
-    avgSolarPerHa: avg('solarPerHa'),
-    avgKecepatan: avg('kecepatan'),
-    avgTebal: avg('tebalSiram'),
-    avgAvailability: avg('availability'),
-    avgUtilization: avg('utilization'),
-    totalBiaya: sum('biayaTotal'),
-    totalBiayaSolar: sum('biayaSolar'),
-    totalBiayaUpah: sum('biayaUpah'),
-    totalBiayaAlat: sum('biayaAlat'),
-    avgRpPerHa: avg('rpPerHa'),
-    rpPerHaOps: sum('luasSiram') ? sum('biayaTotal')/sum('luasSiram') : 0,
-    rpPerJamOps: sum('operatingTime') ? sum('biayaTotal')/sum('operatingTime') : 0,
-    rpPerLiterSolar: sum('solarTerpakai') ? sum('biayaTotal')/sum('solarTerpakai') : 0,
-    avgHaPerHari: avg('haPerHari'),
-    avgHaPerJam: avg('haPerJam'),
-    avgPlan: avg('planTime'),
-    avgPrepare: avg('prepareTime'),
-    avgWaiting: avg('waitingTime'),
-    totalRecords: data.length,
-    totalAir: sum('air'),
+    totalLuasSiram: luas,
+    totalSolar: solar,
+    avgOperating: avg(oper),
+    avgSolarPerJam: avg(solarJam),
+    avgSolarPerHa: avg(solarHa),
+    avgKecepatan: avg(kec),
+    avgTebal: avg(tebal),
+    avgAvailability: avg(avail),
+    avgUtilization: avg(util),
+    totalBiaya: biaya,
+    totalBiayaSolar: biayaSolar,
+    totalBiayaUpah: biayaUpah,
+    totalBiayaAlat: biayaAlat,
+    avgRpPerHa: avg(rpHaSum),
+    rpPerHaOps: luas ? biaya / luas : 0,
+    rpPerJamOps: oper ? biaya / oper : 0,
+    rpPerLiterSolar: solar ? biaya / solar : 0,
+    avgHaPerHari: avg(haHari),
+    avgHaPerJam: avg(haJam),
+    avgPlan: avg(plan),
+    avgPrepare: avg(prep),
+    avgWaiting: avg(wait),
+    totalRecords: n,
+    totalAir: air,
   };
 }
 
@@ -967,22 +1266,8 @@ function renderKPIs() {
       <div class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-50 text-slate-500"><i data-lucide="${c.icon}" class="h-4 w-4"></i></div>
     </div>
   `).join('');
-  if (window.lucide) lucide.createIcons();
-  // Header ticker ringkas (selalu terlihat di semua tab)
-  const ticker = $('#headerTicker');
-  if (ticker) {
-    const items = [
-      { l:'Luas Siram', v:`${formatNumber(kpi.totalLuasSiram,1)} Ha`, c:'text-emerald-600' },
-      { l:'Solar', v:`${formatInt(kpi.totalSolar)} L`, c:'text-amber-600' },
-      { l:'Total Biaya', v:formatRupiahShort(kpi.totalBiaya), c:'text-slate-900' },
-      { l:'Rp/Ha', v:`Rp ${formatInt(kpi.rpPerHaOps)}`, c:'text-slate-900' },
-      { l:'Ha/Jam', v:formatNumber(kpi.avgHaPerJam,3), c:'text-emerald-600' },
-      { l:'Ltr/Ha', v:formatNumber(kpi.avgSolarPerHa,1), c:'text-amber-600' },
-      { l:'Util', v:`${formatNumber(kpi.avgUtilization,1)}%`, c:'text-slate-900' },
-      { l:'Avail', v:`${formatNumber(kpi.avgAvailability,1)}%`, c:'text-slate-900' }
-    ];
-    ticker.innerHTML = items.map(i=>`<span class="inline-flex items-center gap-1.5"><span class="text-[10px] uppercase tracking-wider text-slate-400">${i.l}</span><span class="font-semibold ${i.c}">${i.v}</span></span>`).join('<span class="h-3 w-px flex-shrink-0 bg-slate-200"></span>');
-  }
+  refreshIcons();
+  updateTicker();
   $('#solarTotal').textContent = formatInt(kpi.totalSolar);
   $('#solarAvg').textContent = formatNumber(kpi.avgSolarPerJam,2);
   $('#avgPrepare').textContent = formatNumber(kpi.avgPrepare,2)+'h';
@@ -990,6 +1275,25 @@ function renderKPIs() {
   $('#avgWaiting').textContent = formatNumber(kpi.avgWaiting,2)+'h';
   $('#avgKec').textContent = formatNumber(kpi.avgKecepatan,1);
   $('#avgTebal').textContent = formatNumber(kpi.avgTebal,1);
+}
+
+// Ticker header: ringkas, selalu tampil di semua tab
+function updateTicker() {
+  const ticker = $('#headerTicker');
+  if (!ticker) return;
+  const kpi = calculateKPIs();
+  if (!kpi) return;
+  const items = [
+    { l:'Luas Siram', v:`${formatNumber(kpi.totalLuasSiram,1)} Ha`, c:'text-emerald-600' },
+    { l:'Solar', v:`${formatInt(kpi.totalSolar)} L`, c:'text-amber-600' },
+    { l:'Total Biaya', v:formatRupiahShort(kpi.totalBiaya), c:'text-slate-900' },
+    { l:'Rp/Ha', v:`Rp ${formatInt(kpi.rpPerHaOps)}`, c:'text-slate-900' },
+    { l:'Ha/Jam', v:formatNumber(kpi.avgHaPerJam,3), c:'text-emerald-600' },
+    { l:'Ltr/Ha', v:formatNumber(kpi.avgSolarPerHa,1), c:'text-amber-600' },
+    { l:'Util', v:`${formatNumber(kpi.avgUtilization,1)}%`, c:'text-slate-900' },
+    { l:'Avail', v:`${formatNumber(kpi.avgAvailability,1)}%`, c:'text-slate-900' }
+  ];
+  ticker.innerHTML = items.map(i=>`<span class="inline-flex items-center gap-1.5"><span class="text-[10px] uppercase tracking-wider text-slate-400">${i.l}</span><span class="font-semibold ${i.c}">${i.v}</span></span>`).join('<span class="h-3 w-px flex-shrink-0 bg-slate-200"></span>');
 }
 
 // ===== OVERVIEW: ringkasan garis besar semua wilayah =====
@@ -1012,7 +1316,7 @@ function renderOverviewWilayah() {
     return `
       <div class="group rounded-xl border border-slate-200 bg-slate-50/40 p-3 transition hover:border-emerald-300 hover:bg-white">
         <div class="flex items-center justify-between">
-          <span class="text-[11px] font-bold text-slate-900">${x.wilayah}</span>
+          <span class="text-[11px] font-bold text-slate-900">${esc(x.wilayah)}</span>
           <span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200">${formatInt(x.count)} rec</span>
         </div>
         <div class="mt-2 text-[17px] font-bold tracking-tight text-slate-900">${formatNumber(x.totalLuas,1)} <span class="text-[10px] font-medium text-slate-400">Ha</span></div>
@@ -1028,6 +1332,17 @@ function renderOverviewWilayah() {
   }).join('');
 }
 
+// Render isi satu tab saja (dipakai oleh updateAll & activateTab)
+function renderTab(tab) {
+  if (!rawData.length) return;
+  if (tab === 'overview') { safeRender('kpi', renderKPIs); safeRender('overviewWilayah', renderOverviewWilayah); safeRender('charts-ovw', () => renderCharts('overview')); }
+  else if (tab === 'wilayah') { safeRender('charts-wil', () => renderCharts('wilayah')); safeRender('wilayahDetail', renderWilayahDetail); }
+  else if (tab === 'biaya') { safeRender('biaya', renderBiaya); }
+  else if (tab === 'utilisasi') { safeRender('charts-util', () => renderCharts('utilisasi')); }
+  else if (tab === 'data') { safeRender('table', renderTable); }
+  dirtyTabs.delete(tab);
+}
+
 // ===== TAB NAVIGATION =====
 function activateTab(tab, skipScroll) {
   if (TAB_IDS.indexOf(tab) === -1) tab = 'overview';
@@ -1036,6 +1351,8 @@ function activateTab(tab, skipScroll) {
     const on = b.dataset.tab === tab;
     b.className = 'tab-btn inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium transition ' +
       (on ? 'bg-slate-900 text-white shadow-soft' : 'text-slate-600 hover:bg-slate-100');
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    b.setAttribute('tabindex', on ? '0' : '-1');
     if (on && b.scrollIntoView) {
       try { b.scrollIntoView({ block:'nearest', inline:'center', behavior:'smooth' }); } catch(e) {}
     }
@@ -1047,16 +1364,11 @@ function activateTab(tab, skipScroll) {
   if (!rawData.length) return;
   const raf = (window.requestAnimationFrame || function(cb){ setTimeout(cb,16); });
   raf(()=>{
-    try {
-      if (tab === 'overview') { renderKPIs(); renderOverviewWilayah(); renderCharts(); }
-      else if (tab === 'wilayah') { renderCharts(); renderWilayahDetail(); }
-      else if (tab === 'biaya') { renderBiaya(); }
-      else if (tab === 'utilisasi') { renderCharts(); }
-      else if (tab === 'data') { renderTable(); }
-    } catch(e) { console.error('tab render error', e); }
-    // resize semua chart agar kanvas yang baru tampil dihitung ulang
-    Object.keys(charts).forEach(k=>{ try { charts[k].resize(); } catch(e) {} });
-    if (window.lucide) window.lucide.createIcons();
+    renderTab(tab);
+    // resize hanya chart milik tab aktif (chart di panel tersembunyi berukuran 0)
+    const panel = document.getElementById('tab-' + tab);
+    if (panel) panel.querySelectorAll('canvas').forEach(cv => { const ch = charts[cv.id]; if (ch) { try { ch.resize(); } catch(e) {} } });
+    refreshIcons();
     if (!skipScroll) {
       const nav = document.querySelector('nav.sticky');
       const y = nav ? nav.getBoundingClientRect().top + window.pageYOffset - 90 : 0;
@@ -1066,10 +1378,21 @@ function activateTab(tab, skipScroll) {
 }
 
 function initTabNav() {
-  $$('.tab-btn').forEach(b=>{
+  const btns = Array.from($$('.tab-btn'));
+  btns.forEach(b=>{
     if (b.dataset.bound) return;
     b.dataset.bound = '1';
     b.addEventListener('click', ()=> activateTab(b.dataset.tab));
+    // Navigasi keyboard: panah kiri/kanan, Home/End (standar tab ARIA)
+    b.addEventListener('keydown', (e)=>{
+      const i = btns.indexOf(b);
+      let next = null;
+      if (e.key === 'ArrowRight') next = btns[(i + 1) % btns.length];
+      else if (e.key === 'ArrowLeft') next = btns[(i - 1 + btns.length) % btns.length];
+      else if (e.key === 'Home') next = btns[0];
+      else if (e.key === 'End') next = btns[btns.length - 1];
+      if (next) { e.preventDefault(); activateTab(next.dataset.tab, true); next.focus(); }
+    });
   });
   let saved = '';
   try { saved = (location.hash||'').replace('#','') || localStorage.getItem('pg2-tab') || ''; } catch(e) { saved = ''; }
@@ -1091,10 +1414,18 @@ function ensureChart(id, config) {
   }
 }
 
-function renderCharts() {
+// Peta chart -> tab pemiliknya, agar hanya chart pada tab aktif yang dirender
+const CHART_TAB_OF = {
+  chartSolar:'overview', chartLuas:'overview', chartJam:'overview', chartKecepatan:'overview',
+  chartEfisiensi:'overview', chartWilayah:'wilayah', chartWilayahEff:'wilayah', chartWilayahCompare:'wilayah',
+  chartJenisEngine:'utilisasi', chartAvail:'utilisasi', chartScatter:'utilisasi'
+};
+function renderCharts(tab) {
+  const want = (id) => !tab || !CHART_TAB_OF[id] || CHART_TAB_OF[id] === tab;
+
   const agg = getAggregated(granularity);
   const labels = agg.map(a=>a.label);
-  ensureChart('chartSolar', {
+  if (want('chartSolar')) ensureChart('chartSolar', {
     type: 'bar',
     data: {
       labels,
@@ -1116,7 +1447,7 @@ function renderCharts() {
   });
 
   // Luas Siram - now single dataset (Luas Cek removed)
-  ensureChart('chartLuas', {
+  if (want('chartLuas')) ensureChart('chartLuas', {
     type: 'bar',
     data: {
       labels,
@@ -1131,7 +1462,7 @@ function renderCharts() {
     }
   });
 
-  ensureChart('chartJam', {
+  if (want('chartJam')) ensureChart('chartJam', {
     type: 'bar',
     data: {
       labels,
@@ -1148,7 +1479,7 @@ function renderCharts() {
     }
   });
 
-  ensureChart('chartKecepatan', {
+  if (want('chartKecepatan')) ensureChart('chartKecepatan', {
     type: 'line',
     data: {
       labels,
@@ -1165,7 +1496,7 @@ function renderCharts() {
     }
   });
 
-  ensureChart('chartEfisiensi', {
+  if (want('chartEfisiensi')) ensureChart('chartEfisiensi', {
     type: 'line',
     data: {
       labels,
@@ -1226,7 +1557,7 @@ function renderCharts() {
   const wilayahLabel = wm.label;
   const wilayahColor = wm.color;
 
-  ensureChart('chartWilayah', {
+  if (want('chartWilayah')) ensureChart('chartWilayah', {
     type: 'bar',
     data: {
       labels: wilayahLabels,
@@ -1261,7 +1592,7 @@ function renderCharts() {
   const jenisLabels = Object.keys(jenisGroups);
   const jenisValues = jenisLabels.map(k=>jenisGroups[k]);
   const colors = ['#10b981','#3b82f6','#f59e0b','#8b5cf6','#06b6d4','#ef4444','#64748b'];
-  ensureChart('chartJenisEngine', {
+  if (want('chartJenisEngine')) ensureChart('chartJenisEngine', {
     type: 'doughnut',
     data: {
       labels: jenisLabels,
@@ -1274,7 +1605,7 @@ function renderCharts() {
   });
   $('#jenisEngineLegend').innerHTML = jenisLabels.map((l,i)=>{
     const pct = jenisValues[i]/ (jenisValues.reduce((a,b)=>a+b,0) ||1) *100;
-    return `<div class="flex items-center justify-between text-[11px]"><div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full" style="background:${colors[i%colors.length]}"></span><span class="font-medium text-slate-700">${l}</span></div><span class="font-mono text-slate-500">${formatNumber(pct,1)}%</span></div>`;
+    return `<div class="flex items-center justify-between text-[11px]"><div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full" style="background:${colors[i%colors.length]}"></span><span class="font-medium text-slate-700">${esc(l)}</span></div><span class="font-mono text-slate-500">${formatNumber(pct,1)}%</span></div>`;
   }).join('');
 
   const engineMap = {};
@@ -1287,18 +1618,18 @@ function renderCharts() {
   const topIrigator = Object.entries(irigatorMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
   $('#topEngine').innerHTML = topEngine.map(([k,v],i)=>`
     <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2.5"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">${i+1}</span><span class="text-[12px] font-medium text-slate-800 font-mono">${k}</span></div>
+      <div class="flex items-center gap-2.5"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">${i+1}</span><span class="text-[12px] font-medium text-slate-800 font-mono">${esc(k)}</span></div>
       <span class="text-[12px] font-semibold text-slate-900">${formatNumber(v,2)} Ha</span>
     </div>
   `).join('') || '<div class="text-[11px] text-slate-400">No data</div>';
   $('#topIrigator').innerHTML = topIrigator.map(([k,v],i)=>`
     <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2.5"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">${i+1}</span><span class="text-[12px] font-medium text-slate-800 font-mono">${k}</span></div>
+      <div class="flex items-center gap-2.5"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">${i+1}</span><span class="text-[12px] font-medium text-slate-800 font-mono">${esc(k)}</span></div>
       <span class="text-[12px] font-semibold text-slate-900">${formatNumber(v,2)} Ha</span>
     </div>
   `).join('') || '<div class="text-[11px] text-slate-400">No data</div>';
 
-  ensureChart('chartAvail', {
+  if (want('chartAvail')) ensureChart('chartAvail', {
     type: 'line',
     data: {
       labels,
@@ -1318,7 +1649,7 @@ function renderCharts() {
   const scatterData = filteredData.slice(0,800).map(d=>({ x:d.haPerJam, y:d.solarPerHa, wilayah:d.wilayah }));
   const wilayahColorMap = {};
   wilayahLabels.forEach((w,i)=>wilayahColorMap[w]=colors[i%colors.length]);
-  ensureChart('chartScatter', {
+  if (want('chartScatter')) ensureChart('chartScatter', {
     type: 'scatter',
     data: {
       datasets: Object.keys(wilayahColorMap).map(w=>{
@@ -1339,8 +1670,15 @@ function renderInsights() {
   const container = $('#insights');
   if (!kpi) { container.innerHTML = '<div class="text-slate-400">Tidak ada data</div>'; return; }
   const agg = getAggregated(granularity);
-  const worstSolar = [...filteredData].sort((a,b)=>b.solarPerHa - a.solarPerHa).slice(0,1)[0];
-  const bestEff = [...filteredData].sort((a,b)=>b.haPerJam - a.haPerJam).slice(0,1)[0];
+  const { worstSolar, bestEff } = memo('insightExtremes', () => {
+    let w = null, b = null;
+    for (let i = 0; i < filteredData.length; i++) {
+      const d = filteredData[i];
+      if (!w || d.solarPerHa > w.solarPerHa) w = d;
+      if (!b || d.haPerJam > b.haPerJam) b = d;
+    }
+    return { worstSolar: w, bestEff: b };
+  });
   const insights = [];
   insights.push(`Total <b>${formatNumber(kpi.totalLuasSiram,1)} Ha</b> disiram dengan <b>${formatInt(kpi.totalSolar)} L</b> solar dalam ${kpi.totalRecords} aktivitas.`);
   if (kpi.avgUtilization < 70) insights.push(`Utilisasi rendah <b>${formatNumber(kpi.avgUtilization,1)}%</b> - cek waiting & downtime.`);
@@ -1404,13 +1742,21 @@ function renderTable() {
 
 function updateAll() {
   applyFilters();
-  renderKPIs();
-  renderCharts();
-  renderBiaya();
-  renderOverviewWilayah();
-  renderInsights();
-  renderTable();
+  updateTicker();
+  safeRender('insights', renderInsights);
+  renderTab(currentTab);          // hanya tab yang sedang dilihat
   $('#rowCount').textContent = `${formatInt(filteredData.length)} / ${formatInt(rawData.length)} records`;
+  scheduleIdlePrefetch();         // sisanya disiapkan saat browser menganggur
+}
+
+// Siapkan tab lain di waktu luang agar perpindahan tab terasa instan
+let _idlePrefetchHandle = null;
+function scheduleIdlePrefetch() {
+  if (_idlePrefetchHandle) { if (window.cancelIdleCallback) cancelIdleCallback(_idlePrefetchHandle); }
+  _idlePrefetchHandle = idle(() => {
+    _idlePrefetchHandle = null;
+    TAB_IDS.forEach(t => { if (t !== currentTab && dirtyTabs.has(t)) renderTab(t); });
+  }, { timeout: 2500 });
 }
 
 function initFiltersUI() {
@@ -1421,13 +1767,19 @@ function initFiltersUI() {
   $('#filterEnd').value = formatDateISO(maxDate);
   filters.start = minDate;
   filters.end = maxDate;
-  const wilayahSet = [...new Set(rawData.map(d=>d.wilayah))].sort();
+  // Satu lintasan: kumpulkan nama wilayah + jumlah recordnya (dulu filter() per wilayah)
+  const wilayahCount = {};
+  for (let i = 0; i < rawData.length; i++) {
+    const w = rawData[i].wilayah;
+    wilayahCount[w] = (wilayahCount[w] || 0) + 1;
+  }
+  const wilayahSet = Object.keys(wilayahCount).sort();
   const wilayahContainer = $('#wilayahCheckboxes');
   wilayahContainer.innerHTML = wilayahSet.map(w=>`
     <label class="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white cursor-pointer transition">
-      <input type="checkbox" value="${w}" class="wilayah-cb h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
-      <span class="text-[12px] font-medium text-slate-700">${w}</span>
-      <span class="ml-auto text-[10px] font-mono text-slate-400">${rawData.filter(d=>d.wilayah===w).length}</span>
+      <input type="checkbox" value="${esc(w)}" class="wilayah-cb h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+      <span class="text-[12px] font-medium text-slate-700">${esc(w)}</span>
+      <span class="ml-auto text-[10px] font-mono text-slate-400">${formatInt(wilayahCount[w])}</span>
     </label>
   `).join('');
   wilayahContainer.querySelectorAll('.wilayah-cb').forEach(cb=>{
@@ -1592,8 +1944,8 @@ function initFiltersUI() {
     });
   }
   renderMonthChips();
-  $('#filterStart').addEventListener('change', e=>{ filters.start = e.target.value ? new Date(e.target.value) : null; currentPage=1; updateAll(); });
-  $('#filterEnd').addEventListener('change', e=>{ filters.end = e.target.value ? new Date(e.target.value) : null; currentPage=1; updateAll(); });
+  $('#filterStart').addEventListener('change', e=>{ filters.start = parseLocalDate(e.target.value); currentPage=1; updateAll(); });
+  $('#filterEnd').addEventListener('change', e=>{ filters.end = parseLocalDate(e.target.value); currentPage=1; updateAll(); });
   // Kembalikan periode tanggal ke seluruh rentang data (pengganti tombol 7H/30H/90H)
   const btnRangeAll = $('#btnRangeAll');
   if (btnRangeAll) {
@@ -1616,9 +1968,20 @@ function initFiltersUI() {
       updateAll();
     });
   });
-  $('#filterSearch').addEventListener('input', e=>{ filters.search = e.target.value; currentPage=1; updateAll(); });
+  // Debounce: tidak re-render tiap ketikan (hemat CPU di mobile)
+  const onFilterSearch = debounce(e=>{ filters.search = e.target.value.trim(); currentPage=1; updateAll(); }, 220);
+  $('#filterSearch').addEventListener('input', onFilterSearch);
+  $('#filterSearch').addEventListener('search', onFilterSearch);
   $('#filterJenisEngine').addEventListener('change', e=>{ filters.jenisEngine = e.target.value; currentPage=1; updateAll(); });
-  $('#tableSearch').addEventListener('input', e=>{ filters.tableSearch = e.target.value; currentPage=1; renderTable(); });
+  const onTableSearch = debounce(e=>{
+    const v = e.target.value.trim();
+    // hindari filter 1 huruf (menghasilkan ribuan baris & re-render berat)
+    filters.tableSearch = (v.length === 1) ? '' : v;
+    currentPage = 1;
+    renderTable();
+  }, 200);
+  $('#tableSearch').addEventListener('input', onTableSearch);
+  $('#tableSearch').addEventListener('search', onTableSearch);
   $('#btnClearFilters').addEventListener('click', ()=>{
     filters.wilayah.clear(); filters.months.clear(); filters.year='all'; filters.jenisEngine='all'; filters.search=''; filters.tableSearch='';
     $$('.wilayah-cb').forEach(cb=>cb.checked=false);
@@ -1653,22 +2016,14 @@ function initFiltersUI() {
     });
   });
   $('#btnExport').addEventListener('click', ()=>{
-    const csv = Papa.unparse(filteredData.map(d=>({
-      Date: formatDateISO(d.date), Wilayah: d.wilayah, Lokasi: d.lokasi, Engine: d.engine, Irigator: d.irigator,
-      'Jenis Engine': d.jenisEngine, 'Luas Siram': d.luasSiram, 'Operating Time': d.operatingTime,
-      'Solar L': d.solarTerpakai, 'Ltr/Jam': d.solarPerJam, 'Ha/Jam': d.haPerJam, 'Kecepatan': d.kecepatan,
-      'Tebal Siram': d.tebalSiram, 'Availability': d.availability, 'Utilization': d.utilization
-    })));
-    const blob = new Blob([csv], {type:'text/csv'});
+    const csv = buildExportCSV(filteredData);
+    const blob = new Blob(['\ufeff' + csv], {type:'text/csv;charset=utf-8;'});
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download=`PG2-ZPAS637-${formatDateISO(new Date())}.csv`; a.click();
-    URL.revokeObjectURL(url);
+    const a = document.createElement('a'); a.href=url; a.download=`PG2-ZPAS637-${formatDateISO(new Date())}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
   });
-  $('#btnSync').addEventListener('click', async ()=>{
-    $('#btnSync').innerHTML = '<i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i> Syncing';
-    lucide.createIcons(); await loadData(true);
-    $('#btnSync').innerHTML = '<i data-lucide="refresh-cw" class="h-4 w-4"></i> Sync'; lucide.createIcons();
-  });
+  $('#btnSync').addEventListener('click', ()=>{ loadData({ manual: true }); });
   $('#btnFilters').addEventListener('click', ()=>{
     const panel = $('#filterPanel');
     panel.classList.toggle('hidden'); panel.classList.toggle('fixed'); panel.classList.toggle('inset-0');
@@ -1676,26 +2031,183 @@ function initFiltersUI() {
   });
 }
 
-async function loadData(isManual=false) {
+// Export CSV internal (pengganti papaparse): escape kutip ganda & pemisah
+const EXPORT_COLS = [
+  ['Date', d=>formatDateISO(d.date)], ['Wilayah', d=>d.wilayah], ['Lokasi', d=>d.lokasi],
+  ['Engine', d=>d.engine], ['Irigator', d=>d.irigator], ['Jenis Engine', d=>d.jenisEngine],
+  ['Jenis Irigator', d=>d.jenisIrigator], ['Plan Time', d=>d.planTime], ['Luas Siram', d=>d.luasSiram],
+  ['Operating Time', d=>d.operatingTime], ['Prepare Time', d=>d.prepareTime], ['Waiting Time', d=>d.waitingTime],
+  ['Solar L', d=>d.solarTerpakai], ['Ltr/Jam', d=>d.solarPerJam], ['Ltr/Ha', d=>d.solarPerHa],
+  ['Ha/Jam', d=>d.haPerJam], ['Kecepatan', d=>d.kecepatan], ['Tebal Siram', d=>d.tebalSiram],
+  ['Availability', d=>d.availability], ['Utilization', d=>d.utilization],
+  ['Biaya Solar', d=>d.biayaSolar], ['Biaya Upah', d=>d.biayaUpah], ['Biaya Alat', d=>d.biayaAlat],
+  ['Biaya Total', d=>d.biayaTotal], ['Rp/Ha', d=>d.rpPerHa]
+];
+function csvCell(v) {
+  const s = (v === null || v === undefined) ? '' : String(v);
+  return (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1 || s.indexOf(';') !== -1)
+    ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function buildExportCSV(rows) {
+  const parts = [EXPORT_COLS.map(c=>csvCell(c[0])).join(',')];
+  for (let i = 0; i < rows.length; i++) {
+    const d = rows[i], line = new Array(EXPORT_COLS.length);
+    for (let j = 0; j < EXPORT_COLS.length; j++) line[j] = csvCell(EXPORT_COLS[j][1](d));
+    parts.push(line.join(','));
+  }
+  return parts.join('\r\n');
+}
+
+// Notifikasi ringan (tidak menutupi dashboard seperti overlay error)
+function showToast(message, type = 'info', ms = 6000) {
+  let host = $('#toastHost');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toastHost';
+    host.className = 'fixed bottom-4 right-4 z-[60] flex w-[min(92vw,380px)] flex-col gap-2';
+    document.body.appendChild(host);
+  }
+  const styles = {
+    info:    { bg:'bg-slate-900',  icon:'info' },
+    success: { bg:'bg-emerald-600',icon:'check-circle-2' },
+    warn:    { bg:'bg-amber-500',  icon:'alert-triangle' },
+    error:   { bg:'bg-red-600',    icon:'alert-octagon' }
+  }[type] || { bg:'bg-slate-900', icon:'info' };
+  const el = document.createElement('div');
+  el.className = `${styles.bg} flex items-start gap-2.5 rounded-2xl px-4 py-3 text-[12px] font-medium text-white shadow-soft-lg opacity-0 transition-opacity duration-300`;
+  el.innerHTML = `<i data-lucide="${styles.icon}" class="mt-0.5 h-4 w-4 flex-shrink-0"></i><span class="leading-relaxed">${esc(message)}</span>`;
+  host.appendChild(el);
+  refreshIcons();
+  requestAnimationFrame(()=>{ el.style.opacity = '1'; });
+  setTimeout(()=>{ el.style.opacity = '0'; setTimeout(()=> el.remove(), 350); }, ms);
+}
+
+function setSyncLabel(ts, fromCache) {
+  const el = $('#lastSync'); if (!el) return;
+  const jam = new Date(ts).toLocaleTimeString('id-ID');
+  const src = fromCache ? 'cache' : (dataSource === 'sample' ? 'contoh' : 'live');
+  el.textContent = `Sync ${jam} • ${formatInt(rawData.length)} records • ${src}`;
+}
+
+// Terapkan payload ke dashboard: parse (sekali) + filter + render tab aktif
+function applyPayload(payload, { fromCache = false } = {}) {
+  const t0 = performance.now();
+  let rows;
+  if (payload.csv) { rows = buildRows(payload.csv, payload.dates); payload.csv = null; payload.dates = null; }
+  else { rows = parseGvizJSON(payload.json); payload.json = null; }
+  if (!rows.length) throw new Error('Tidak ada baris data yang bisa dibaca');
+  rawData = rows;
+  appliedSig = payload.sig;
+  if (!filtersUIReady) { initFiltersUI(); initTabNav(); filtersUIReady = true; }
+  lastMeta = { sig: payload.sig, ts: payload.ts, rows: rows.length };
+  writeMeta(lastMeta);
+  applyFilters();
+  updateTicker();
+  safeRender('insights', renderInsights);
+  renderTab(currentTab);
+  $('#rowCount').textContent = `${formatInt(filteredData.length)} / ${formatInt(rawData.length)} records`;
+  setSyncLabel(payload.ts, fromCache);
+  console.debug('[data] siap dalam', Math.round(performance.now() - t0), 'ms (', fromCache ? 'cache' : 'jaringan', ')');
+}
+
+async function loadData(opts = {}) {
+  const { manual = false, silent = false } = (typeof opts === 'boolean') ? { manual: opts } : opts;
+  if (isSyncing) {                     // hindari dua unduhan spreadsheet bersamaan
+    if (manual) showToast('Sinkronisasi sedang berjalan…', 'info', 2500);
+    return;
+  }
+  isSyncing = true;
+  const first = rawData.length === 0;
+  const overlay = $('#loadingOverlay');
+  if (first && !silent) overlay.style.display = 'flex';
+  if (manual) {
+    const btn = $('#btnSync');
+    if (btn) { btn.innerHTML = '<i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i> Syncing'; refreshIcons(); }
+  }
   try {
-    if (!isManual) $('#loadingOverlay').style.display='flex';
-    const data = await fetchSheetData();
-    rawData = data;
-    if (!isManual) initFiltersUI();
-    applyFilters(); renderKPIs(); renderCharts(); renderBiaya(); renderOverviewWilayah(); renderInsights(); renderTable();
-    if (!isManual) initTabNav();
-    activateTab(currentTab, true);
-    $('#lastSync').textContent = `Sync ${new Date().toLocaleTimeString('id-ID')} • ${formatInt(rawData.length)} records`;
-    $('#rowCount').textContent = `${formatInt(filteredData.length)} / ${formatInt(rawData.length)} records`;
-    $('#loadingOverlay').style.display='none';
+    // Mulai unduhan dari jaringan lebih dulu, lalu baca cache secara paralel:
+    // mana pun yang siap duluan langsung dipakai (tidak saling menunggu).
+    const netPromise = fetchPayload();
+    if (first) {
+      try {
+        const tCache = performance.now();
+        const cached = await fetchPayload({ preferCache: true });
+        console.debug('[data] cache dibaca dalam', Math.round(performance.now() - tCache), 'ms');
+        // hanya dipakai kalau memang belum ada data tampil (jangan menimpa data jaringan yang lebih baru)
+        if (cached && cached.fromCache && rawData.length === 0) {
+          applyPayload(cached, { fromCache: true });
+          overlay.style.display = 'none';
+        }
+      } catch (e) { console.debug('cache tidak tersedia', e); }
+    }
+    // 2) Data terbaru dari spreadsheet
+    const payload = await netPromise;
+    const changed = payload.sig !== appliedSig;
+    if (changed) {
+      dataSource = 'live';
+      // simpan mentah untuk kunjungan berikutnya (sebelum teksnya dilepas dari memori)
+      if (payload.csv) { cachePut(CSV_URL, payload.csv); if (payload.dates) cachePut(DATES_URL, payload.dates); }
+      applyPayload(payload);
+      if (!first && !silent) showToast(`Data diperbarui — ${formatInt(rawData.length)} records`, 'success');
+    } else {
+      setSyncLabel(Date.now(), false);
+      if (manual) showToast('Data sudah terbaru', 'info', 3000);
+    }
+    syncFailures = 0;
   } catch (e) {
-    console.error(e);
-    $('#loadingOverlay').innerHTML = `<div class="text-center p-6"><div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600"><i data-lucide="alert-triangle" class="h-6 w-6"></i></div><div class="mt-4 text-[13px] font-medium text-slate-900">Gagal memuat data</div><div class="mt-1 text-[11px] text-slate-500 max-w-[320px]">${e.message}</div><button onclick="location.reload()" class="mt-4 rounded-full bg-slate-900 px-4 py-2 text-[12px] font-medium text-white">Reload</button></div>`;
-    lucide.createIcons();
+    console.error('[sync]', e);
+    syncFailures++;
+    if (first) {
+      // belum ada data sama sekali -> coba file contoh lokal
+      try {
+        const txt = await fetchText(SAMPLE_URL);
+        dataSource = 'sample';
+        applyPayload({ csv: txt, dates: null, sig: 'sample', ts: Date.now() }, { fromCache: true });
+        showToast('Live sync gagal — memakai data contoh (offline)', 'warn', 9000);
+        syncFailures = 0;
+      } catch (e2) {
+        overlay.innerHTML = `<div class="text-center p-6 max-w-[420px]"><div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600"><i data-lucide="alert-triangle" class="h-6 w-6"></i></div><div class="mt-4 text-[13px] font-medium text-slate-900">Gagal memuat data</div><div class="mt-1 text-[11px] text-slate-500">${esc(e.message || 'Tidak dapat menghubungi Google Sheets')}</div><button id="btnRetryLoad" class="mt-4 rounded-full bg-slate-900 px-4 py-2 text-[12px] font-medium text-white">Coba lagi</button></div>`;
+        refreshIcons();
+        const rb = $('#btnRetryLoad');
+        if (rb) rb.addEventListener('click', () => loadData({ manual: true }));
+      }
+    } else {
+      // sudah ada data tampil -> jangan tutupi dashboard, cukup beri tahu
+      showToast(`Sinkron gagal (${esc(e.message || 'jaringan')}) — mencoba lagi otomatis`, 'warn', 7000);
+      scheduleSync(true);
+    }
+  } finally {
+    isSyncing = false;
+    if (overlay) overlay.style.display = 'none';
+    if (manual) {
+      const btn = $('#btnSync');
+      if (btn) { btn.innerHTML = '<i data-lucide="refresh-cw" class="h-4 w-4"></i> Sync'; refreshIcons(); }
+    }
   }
 }
 
-document.addEventListener('DOMContentLoaded', ()=>{
-  loadData(false);
-  setInterval(()=>loadData(true), 5*60*1000);
+// Penjadwalan sync: normal 5 menit, atau backoff progresif saat gagal
+function scheduleSync(isRetry = false) {
+  if (syncTimer) clearTimeout(syncTimer);
+  const delay = isRetry ? Math.min(30000 * Math.pow(2, Math.max(0, syncFailures - 1)), AUTO_SYNC_MS) : AUTO_SYNC_MS;
+  syncTimer = setTimeout(() => { if (document.visibilityState === 'visible' || isRetry) loadData({ silent: true }); else scheduleSync(); }, delay);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadData({ manual: false });
+  scheduleSync();
+  // hemat baterai & bandwidth: jeda saat tab tidak terlihat, sinkron saat kembali aktif
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      const meta = readMeta();
+      if (meta && Date.now() - meta.ts > AUTO_SYNC_MS - 30000) loadData({ silent: true });
+    }
+  });
+  window.addEventListener('online', () => {
+    if (!wasOffline) return;            // browser kadang memicu 'online' saat halaman baru dibuka
+    wasOffline = false;
+    showToast('Kembali online — menyinkronkan data', 'info', 4000);
+    loadData({ silent: true });
+  });
+  window.addEventListener('offline', () => { wasOffline = true; showToast('Koneksi terputus — menampilkan data terakhir', 'warn', 6000); });
 });
