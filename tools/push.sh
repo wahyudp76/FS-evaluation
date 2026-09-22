@@ -27,7 +27,7 @@ else
 fi
 
 echo "==> salin file dari workspace"
-for f in index.html app.js sw.js manifest.json README.md DEPLOY.md; do
+for f in index.html app.js sw.js manifest.json README.md DEPLOY.md LAPORAN-PERBAIKAN-v1.5.0.md; do
   [ -f "$SRC/$f" ] && cp "$SRC/$f" "$REPO/$f"
 done
 rm -rf "$REPO/assets" "$REPO/tools" "$REPO/.github"
