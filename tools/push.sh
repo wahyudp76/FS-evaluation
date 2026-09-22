@@ -30,13 +30,15 @@ echo "==> salin file dari workspace"
 for f in index.html app.js sw.js manifest.json README.md DEPLOY.md; do
   [ -f "$SRC/$f" ] && cp "$SRC/$f" "$REPO/$f"
 done
+# semua file laporan (LAPORAN-*.md) di root workspace
 for f in "$SRC"/LAPORAN-*.md; do
-  [ -f "$SRC/$f" ] && cp "$SRC/$f" "$REPO/$f"
+  [ -f "$f" ] && cp "$f" "$REPO/$(basename "$f")"
 done
 rm -rf "$REPO/assets" "$REPO/tools" "$REPO/.github"
 cp -r "$SRC/assets" "$REPO/assets"
 cp -r "$SRC/tools" "$REPO/tools"
 cp -r "$SRC/.github" "$REPO/.github"
+echo "    file laporan:"; ls -1 "$REPO"/LAPORAN-*.md 2>/dev/null | sed 's#.*/#      #' || echo "      (tidak ada)"
 
 git -C "$REPO" config user.email "wahyudp76@users.noreply.github.com"
 git -C "$REPO" config user.name "PG2 Dashboard Bot"
