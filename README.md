@@ -102,9 +102,9 @@ const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                    
 | **Overview** | KPI utama, ringkasan 8 wilayah, chart solar / luas (angka pada batang tampil untuk tampilan **Mingguan & Bulanan**; pada **Harian** angka disembunyikan otomatis karena batang terlalu rapat dan diberi keterangan), chart jam / kecepatan / efisiensi |
 | **Performance Wilayah** | Perbandingan metrik antar afdeling dengan **angka ditulis langsung pada tiap batang** (18 metrik: luas, solar, biaya, Rp/Ha, Ha/Jam, Ltr/Ha, util, kecepatan, tebal, dll.), tabel detail wilayah, bubble & compare |
 | **Analisa Biaya** | Biaya solar/upah/alat per wilayah (stacked — tanpa angka), komposisi, tren, serta **biaya per periode dengan angka batang** |
-| **Waktu & Utilisasi** | **Rincian seluruh kolom waktu** (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + **Air** dalam 12 kartu dengan **3 mode tampilan: Rata-rata / Aktivitas (bawaan), Rata-rata / Hari, atau Total** — kartu & tabel & chart komposisi ikut mode; tabel per wilayah punya kolom **Hari**, plus chart komposisi waktu per bulan, air vs luas vs solar, availability/utilization |
+| **Waktu & Utilisasi** | **Rincian seluruh kolom waktu** (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + **Air** dalam 12 kartu dengan **3 mode tampilan: Rata-rata / Aktivitas (bawaan), Rata-rata / Hari, atau Total** — kartu & tabel & chart komposisi ikut mode; tabel per wilayah punya kolom **Hari**, plus **chart Performa Waktu per Wilayah**: batang horizontal berlabel angka, 15 metrik + 6 tombol cepat, mengikuti mode rata-rata/total), chart komposisi waktu per bulan, air vs luas vs solar, availability/utilization |
 | **Index Solar** *(baru)* | Chart penyimpangan dengan **angka deviasi (+7,13 / −8,19 L/jam)** pada tiap batang; pemakaian solar per engine vs **kalibrasi**: L/jam aktual, deviasi, selisih (L), verdict Hemat/Boros, penanda **Solar 0 L** & **Anomali** (>5× kalibrasi), rekap per wilayah & jenis engine, scatter aktual vs kalibrasi, tabel per engine + filter/urut/paginasi/pencarian |
-| **Detail Data Harian** | Tabel **34 kolom A–AH** (bisa digeser horizontal, kolom tanggal beku), sort klik header, paginasi, export CSV 34 kolom |
+| **Detail Data Harian** | Tabel **34 kolom A–AH** (bisa digeser horizontal, **kolom tanggal & kolom wilayah beku**), sort klik header, paginasi, export CSV 34 kolom |
 
 ### Mode tampilan waktu (v1.8.0)
 Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rincian Waktu Alat" (tab Waktu & Utilisasi):
@@ -119,6 +119,11 @@ Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rinci
 - Setiap kartu tetap menampilkan angka pendukung: total, per aktivitas, dan per hari sekaligus — jadi tidak perlu bolak-balik mengganti mode untuk membandingkan.
 - Kolom **L/Ha, % Avail, % Util** tetap berupa rasio (tidak dibagi).
 - Chart "Air, Luas Siram & Solar per Bulan" sengaja tetap akumulasi bulanan (diberi keterangan di bawah judul).
+
+### Kolom beku & chart Performa Waktu (v1.8.1)
+- **Kolom Wilayah beku** pada tabel *Rincian Waktu per Wilayah* (tab Waktu & Utilisasi): saat tabel digeser horizontal untuk melihat kolom waktu berikutnya, kolom **Wilayah** tetap menempel di kiri (latar solid, garis pemisah + bayangan) — berlaku juga untuk baris kepala dan baris kaki rata-rata. Tabel memakai `border-collapse: separate` agar `sticky` berfungsi benar di Chrome.
+- **Chart "Performa Waktu per Wilayah"** (gaya sama dengan tab Performance Wilayah): batang horizontal terurut, **angka pada tiap batang**, bisa diganti lewat dropdown **Metrik** (15 metrik: seluruh kolom waktu, Air Terpakai, L/Ha, % Availability, % Utilization) atau **6 tombol cepat** (Jam Operasi, Waiting Time, Air Terpakai, Total Avail, % Utilization, L/Ha).
+- Chart ini **mengikuti mode tampilan waktu**: pada mode Rata-rata/Aktivitas & Rata-rata/Hari nilai jam/air dibagi sesuai mode per wilayah (judul sumbu ikut berubah), sedangkan L/Ha, % Avail, % Util tetap rasio (ada keterangan di bawah chart). Keterangan juga menyebut wilayah dengan nilai tertinggi.
 
 ### Aturan label angka pada batang (v1.7.2)
 - **Chart bar single** → angka ditulis pada batang: Overview (Luas, Solar), Analisa Biaya (biaya per periode), Index Solar (deviasi per engine), Performance Wilayah (18 metrik + chart pembanding).

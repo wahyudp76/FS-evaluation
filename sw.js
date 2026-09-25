@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.8.0 — strategi cache dipisah: app shell (network-first) vs aset statis/vendor (cache-first)
-const VERSION = 'v1.8.0';
+// v1.8.1 — kolom Wilayah beku (sticky) + chart bar Performa Waktu per Wilayah
+const VERSION = 'v1.8.1';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 

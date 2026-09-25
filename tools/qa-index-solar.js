@@ -93,6 +93,58 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   check('waktu: mode Rata-rata / Hari memakai jam/hari di kartu, tabel, chart', /jam\/hari/.test(mHari.kartu1) && /jam\/hari/.test(mHari.head) && mHari.sumbuY === 'Jam/hari' && /HARI/.test(mHari.foot), mHari.sumbuY + ' | ' + mHari.foot);
   check('waktu: keterangan ikut berubah di ketiga tempat', /HARI/.test(mHari.catatanTabel) && /per HARI/.test(mHari.catatanChart) && /HARI/.test(mHari.catatanKartu), mHari.catatanKartu.slice(0, 60));
 
+  // ---- chart bar "Performa Waktu per Wilayah" + kolom Wilayah beku ----
+  await page.evaluate(() => document.querySelector('[data-waktu="avgAkt"]').click());
+  await new Promise(r => setTimeout(r, 1000));
+  const chartWaktu = await page.evaluate(() => {
+    const c = window.Chart.getChart(document.getElementById('chartWaktuWilayah'));
+    if (!c) return null;
+    return {
+      n: c.data.labels.length,
+      labels: c.data.labels.slice(0, 3),
+      nilai: c.data.datasets[0].data.slice(0, 3).map(v => Math.round(v * 100) / 100),
+      urutTurun: c.data.datasets[0].data.every((v, i, a) => i === 0 || a[i - 1] >= v),
+      satuan: c.data.datasets[0].label,
+      sumbuX: c.options.scales.x.title ? c.options.scales.x.title.text : '',
+      chip: Array.from(document.querySelectorAll('#waktuMetricChips [data-waktu-metric]')).filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.textContent),
+      opsi: Array.from(document.querySelectorAll('#waktuMetric option')).map(o => o.value)
+    };
+  });
+  check('waktu: chart bar per wilayah terisi 8 batang & terurut', !!chartWaktu && chartWaktu.n === 8 && chartWaktu.urutTurun, JSON.stringify(chartWaktu && chartWaktu.labels) + ' ' + JSON.stringify(chartWaktu && chartWaktu.nilai));
+  check('waktu: chart memakai satuan mode & label sumbu', !!chartWaktu && /jam\/akt/.test(chartWaktu.satuan) && chartWaktu.sumbuX === 'jam/akt', chartWaktu && chartWaktu.satuan + ' | ' + chartWaktu.sumbuX);
+  check('waktu: pemilih metrik lengkap (15) + chip cepat aktif', !!chartWaktu && chartWaktu.opsi.length === 15 && chartWaktu.chip.length === 1 && chartWaktu.chip[0] === 'Jam Operasi', chartWaktu && chartWaktu.opsi.length + ' metrik, aktif=' + chartWaktu.chip.join(','));
+
+  await page.evaluate(() => document.querySelector('[data-waktu-metric="util"]').click());
+  await new Promise(r => setTimeout(r, 1100));
+  const chartUtil = await page.evaluate(() => {
+    const c = window.Chart.getChart(document.getElementById('chartWaktuWilayah'));
+    return { satuan: c.data.datasets[0].label, sumbuX: c.options.scales.x.title.text, tertinggi: c.data.labels[0], nilai: Math.round(c.data.datasets[0].data[0] * 10) / 10, note: document.getElementById('chartWaktuWilayahNote').textContent };
+  });
+  check('waktu: ganti metrik ke % Utilization mengubah data & satuan', /Utilization/.test(chartUtil.satuan) && chartUtil.sumbuX === '%' && chartUtil.nilai > 70 && chartUtil.nilai <= 100, JSON.stringify(chartUtil));
+  await page.evaluate(() => document.querySelector('[data-waktu-metric="operating"]').click());
+  await new Promise(r => setTimeout(r, 900));
+
+  const sticky = await page.evaluate(() => {
+    const wrap = document.querySelector('#waktuWilayahBody').closest('.overflow-x-auto');
+    const th = document.querySelector('#waktuWilayahHead th:first-child');
+    const td = document.querySelector('#waktuWilayahBody tr td:first-child');
+    const tf = document.querySelector('#waktuWilayahFoot tr td:first-child');
+    const cs = (el) => getComputedStyle(el);
+    const kiri = (el) => Math.round(el.getBoundingClientRect().left);
+    const sebelum = kiri(td);
+    wrap.scrollLeft = 700;
+    const hasil = {
+      thPos: cs(th).position, tdPos: cs(td).position, tfPos: cs(tf).position,
+      sebelum, sesudah: kiri(td), headerSesudah: kiri(th), kakiSesudah: kiri(tf),
+      borderCollapse: cs(document.querySelector('#waktuWilayahBody').closest('table')).borderCollapse,
+      scrollLeft: wrap.scrollLeft
+    };
+    wrap.scrollLeft = 0;
+    return hasil;
+  });
+  check('waktu: kolom Wilayah beku (sticky) di thead, tbody, tfoot', sticky.thPos === 'sticky' && sticky.tdPos === 'sticky' && sticky.tfPos === 'sticky' && sticky.borderCollapse === 'separate', JSON.stringify(sticky));
+  check('waktu: posisi kolom Wilayah tidak bergeser saat tabel digeser', sticky.scrollLeft > 300 && sticky.sebelum === sticky.sesudah && sticky.sesudah === sticky.headerSesudah && sticky.sesudah === sticky.kakiSesudah, `scrollLeft ${sticky.scrollLeft}, x ${sticky.sebelum} -> ${sticky.sesudah}`);
+
   // kembali ke bawaan supaya uji lain tidak terpengaruh
   await page.evaluate(() => document.querySelector('[data-waktu="avgAkt"]').click());
   await new Promise(r => setTimeout(r, 1000));

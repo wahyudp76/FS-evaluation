@@ -108,11 +108,28 @@ Permintaan: tampilkan **angka rata-rata**, bukan hanya total, pada tab Waktu & U
 - Angka penting: 12.730 aktivitas • 116 hari operasi • Σ Operating 180.934,8 jam → **14,21 jam/aktivitas** atau **1.559,78 jam/hari**.
 - Rasio (L/Ha, % Avail, % Util) tetap tidak dibagi.
 
+## 3f. Kolom Wilayah beku & chart Performa Waktu (v1.8.1)
+
+Permintaan: (1) kolom **Wilayah** pada tabel *Rincian Waktu per Wilayah* dibekukan agar tetap terlihat saat tabel digeser, (2) ditambahkan **chart bar gaya Performance Wilayah** untuk waktu & utilization.
+
+**1. Kolom Wilayah beku (sticky)**
+- Kolom pertama tabel (sel header, seluruh baris data, dan baris kaki rata-rata) diberi `position: sticky; left: 0` sehingga tetap menempel di kiri saat tabel digeser horizontal (tabel berisi 19 kolom dan lebih lebar dari layar).
+- Agar batasnya jelas: garis pemisah kanan (`border-right`) + bayangan halus pada kolom beku, serta latar solid putih agar angka di belakangnya tidak tembus.
+- Catatan teknis: Tailwind memakai `border-collapse: collapse`, dan pada mode itu `sticky` pada sel tabel tidak dapat diandalkan di Chrome. Tabel ini karena itu memakai `border-collapse: separate; border-spacing: 0` (kelas `wide-table`), tanpa mengubah tampilan garis tabel.
+- Hasil uji: pada `scrollLeft = 700` posisi kolom Wilayah tetap di **x = 408 px** (sebelum digeser 408 px) untuk sel header, sel data, dan sel kaki — bukti tangkapan layar `dokumentasi-v1.7.0/15-kolom-wilayah-beku.png`.
+
+**2. Chart baru "Performa Waktu per Wilayah"**
+- Diletakkan tepat di atas tabel *Rincian Waktu per Wilayah* (tab Waktu & Utilisasi), gaya sama dengan chart Performance Wilayah: batang horizontal, diurutkan dari terbesar, **angka ditulis pada tiap batang**, tooltip berisi rincian.
+- **15 metrik** bisa dipilih lewat dropdown **Metrik**: Jam Operasi (bawaan), Plan Time, Prepare, Waiting, Repair, Down, Standby, Off Time, Tot. Oper., Total Avail, Total Time, Air Terpakai, L/Ha (efisiensi), % Availability, % Utilization — ditambah **6 tombol cepat**: Jam Operasi, Waiting Time, Air Terpakai, Total Avail, % Utilization, L/Ha.
+- **Mengikuti mode tampilan waktu**: pada mode Rata-rata/Aktivitas dan Rata-rata/Hari nilai jam & air dibagi sesuai mode wilayahnya (judul sumbu berubah: `jam/akt`, `jam/hari`, `jam`), sedangkan rasio L/Ha, % Avail, % Util tidak dibagi — diberi keterangan "Rasio per wilayah (tidak mengikuti mode rata-rata/total)".
+- Keterangan di bawah chart menyebut wilayah tertinggi, mis. *"Nilai = rata-rata jam/akt per wilayah (dibagi data wilayah itu sendiri). Tertinggi: AW11 — 15,68 jam/akt."*
+- Contoh hasil (mode bawaan): Jam Operasi **AW11 15,7 → AW09 13,2 jam/aktivitas**; % Utilization **AW15 85,2 → AW10 78,4 %**.
+
 ## 4. Hasil uji (Chrome headless, lokal)
 
 | Skrip | Hasil |
 |---|---|
-| `tools/qa-index-solar.js` | **31/31 lulus** (7 pemeriksaan baru untuk mode rata-rata/total) — 6 tab, semua 23 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail 34 kolom, export CSV 34 kolom × 12.730 baris, 0 error |
+| `tools/qa-index-solar.js` | **37/37 lulus** (7 pemeriksaan mode rata-rata/total + **5 pemeriksaan baru v1.8.1**: chart Performa Waktu terisi 8 batang & terurut, satuan mengikuti mode & label sumbu, pemilih 15 metrik + chip cepat, ganti metrik ke % Utilization mengubah data, kolom Wilayah `sticky` di thead/tbody/tfoot & posisinya tidak bergeser saat tabel digeser `scrollLeft=700`) — 6 tab, semua 24 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail 34 kolom, export CSV 34 kolom × 12.730 baris, 0 error |
 | `tools/qa-bar-labels.js` (baru) | **10/10 lulus** — 6 chart single berlabel, 4 chart stacked tanpa label, bukti piksel, aturan harian/bulanan/mingguan |
 | `tools/qa.js` (regresi, kini dinamis) | **42/42 lulus** — filter tanggal/bulan/wilayah, pencarian teks & angka, paginasi, sort, granularitas, biaya, export, sync, offline, fallback |
 | `tools/layout-test.js` | **24/24 lulus** — laci filter mobile tetap menempel di bawah header, sticky desktop, resize, Esc/backdrop, fokus |
@@ -128,5 +145,5 @@ Permintaan: tampilkan **angka rata-rata**, bukan hanya total, pada tab Waktu & U
 
 ## 6. Status rilis
 
-- Service worker dinaikkan ke **v1.7.0** (cache aset lama dibersihkan otomatis).
+- Service worker dinaikkan ke **v1.8.1** (cache aset lama dibersihkan otomatis).
 - Push ke `wahyudp76/FS-evaluation` → GitHub Actions → <https://wahyudp76.github.io/FS-evaluation/>

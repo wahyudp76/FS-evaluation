@@ -26,6 +26,7 @@ let granularity = 'daily';
 // Mode tampilan waktu pada tab "Waktu & Utilisasi": rata-rata per aktivitas (bawaan),
 // rata-rata per hari, atau total. Dipakai kartu, tabel per wilayah, dan chart komposisi.
 let waktuMode = 'avgAkt';
+let waktuMetric = 'operating';
 const WAKTU_MODES = {
   avgAkt: { id:'avgAkt', label:'Rata-rata / Aktivitas', satJam:'jam/aktivitas', satAir:'L/aktivitas', satPendek:'jam/akt',  nilai:g => g.count || 1 },
   avgHari:{ id:'avgHari',label:'Rata-rata / Hari',      satJam:'jam/hari',      satAir:'L/hari',      satPendek:'jam/hari', nilai:g => g.hari || 1 },
@@ -1848,9 +1849,129 @@ function renderWaktuWilayahTable() {
   }
 }
 
+// ===== Chart bar "Performa Waktu per Wilayah" (gaya sama dengan tab Performance Wilayah) =====
+// jam: ikut mode (per aktivitas / per hari / total) • rasio (L/Ha, %Avail, %Util) tetap
+const WAKTU_METRIC = {
+  operating:  { label:'Jam Operasi',        k:'operating',  tipe:'jam',  ich:'activity',     warna:'rgba(59,130,246,0.85)',  color:'#1d4ed8' },
+  plan:       { label:'Plan Time',          k:'plan',       tipe:'jam',  ich:'calendar-clock',warna:'rgba(100,116,139,0.85)', color:'#475569' },
+  prepare:    { label:'Prepare Time',       k:'prepare',    tipe:'jam',  ich:'wrench',       warna:'rgba(148,163,184,0.85)', color:'#475569' },
+  waiting:    { label:'Waiting Time',       k:'waiting',    tipe:'jam',  ich:'hourglass',    warna:'rgba(245,158,11,0.85)',  color:'#b45309' },
+  repair:     { label:'Repair',             k:'repair',     tipe:'jam',  ich:'hammer',       warna:'rgba(239,68,68,0.8)',    color:'#b91c1c' },
+  down:       { label:'Down Time',          k:'down',       tipe:'jam',  ich:'alert-octagon', warna:'rgba(220,38,38,0.75)',  color:'#991b1b' },
+  standby:    { label:'Standby',            k:'standby',    tipe:'jam',  ich:'pause-circle', warna:'rgba(139,92,246,0.8)',   color:'#6d28d9' },
+  off:        { label:'Off Time',           k:'off',        tipe:'jam',  ich:'moon',         warna:'rgba(203,213,225,0.95)', color:'#475569' },
+  totOper:    { label:'Tot. Oper. Time',    k:'totOper',    tipe:'jam',  ich:'timer',        warna:'rgba(37,99,235,0.8)',     color:'#1e40af' },
+  totalAvail: { label:'Total Avail',        k:'totalAvail', tipe:'jam',  ich:'shield-check', warna:'rgba(16,185,129,0.8)',   color:'#047857' },
+  totalTime:  { label:'Total Time',         k:'totalTime',  tipe:'jam',  ich:'clock',        warna:'rgba(71,85,105,0.8)',    color:'#334155' },
+  air:        { label:'Air Terpakai',       k:'air',        tipe:'air',  ich:'droplets',     warna:'rgba(14,165,233,0.85)',  color:'#0369a1' },
+  literPerHa: { label:'L/Ha (efisiensi)',   k:'literPerHa',tipe:'rasio',ich:'gauge',        warna:'rgba(239,68,68,0.7)',    color:'#b91c1c' },
+  avail:      { label:'% Availability',     k:'avgAvail',  tipe:'rasio',ich:'check-circle',  warna:'rgba(16,185,129,0.85)',  color:'#047857' },
+  util:       { label:'% Utilization',      k:'avgUtil',   tipe:'rasio',ich:'trending-up',   warna:'rgba(15,23,42,0.75)',    color:'#0f172a' }
+};
+const WAKTU_METRIC_CEPAT = ['operating', 'waiting', 'air', 'totalAvail', 'util', 'literPerHa'];
+
+function satuanMetrikWaktu(m) {
+  if (m.tipe === 'jam')  return modeWaktu().satPendek;   // jam/akt | jam/hari | jam
+  if (m.tipe === 'air')  return modeWaktu().satAir.replace(/^L/, 'L'); // L/aktivitas | L/hari | L
+  if (m.k === 'literPerHa') return 'L/Ha';
+  return '%';
+}
+
+function renderWaktuWilayahChart() {
+  const cv = document.getElementById('chartWaktuWilayah');
+  if (!cv) return;
+  const rows = getWaktuWilayah();
+  if (!rows.length) { ensureChart('chartWaktuWilayah', { type:'bar', data:{ labels:[], datasets:[] }, options:{ responsive:true, maintainAspectRatio:false } }); return; }
+  const m = WAKTU_METRIC[waktuMetric] || WAKTU_METRIC.operating;
+  const f = (w) => (m.tipe === 'rasio' ? 1 : bagiWaktu(w));
+  const nilai = (w) => (w[m.k] || 0) / f(w);
+  const data = rows.map(w => ({ w, v: nilai(w) })).sort((a, b) => b.v - a.v);
+  const satuan = satuanMetrikWaktu(m);
+  const fmtLabel = m.tipe === 'rasio' ? 'pct1' : (m.tipe === 'air' ? 'int' : 'num1');
+
+  ensureChart('chartWaktuWilayah', {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.w.wilayah),
+      datasets: [{
+        label: m.label + ' (' + satuan + ')',
+        data: data.map(d => d.v),
+        backgroundColor: m.warna,
+        borderRadius: 8,
+        borderSkipped: false
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: 'y',
+      layout: { padding: { right: 64 } },
+      plugins: {
+        legend: { display: false },
+        barLabels: { display: true, fmt: fmtLabel, color: m.color, maxBars: 45 },
+        tooltip: {
+          backgroundColor: '#0f172a', cornerRadius: 12,
+          callbacks: {
+            label: (ctx) => {
+              const d = data[ctx.dataIndex];
+              return `${m.label}: ${m.tipe === 'rasio' ? formatNumber(d.v, 1) + '%' : (m.tipe === 'air' ? formatInt(d.v) + ' L' : formatNumber(d.v, 2) + ' ' + satuan)} • ${formatInt(d.w.count)} rec, ${formatInt(d.w.hari)} hari`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { beginAtZero: true, grace: '18%', grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 } }, title: { display: true, text: satuan, font: { size: 10 } } },
+        y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+
+  // kontrol metrik (dropdown + chip cepat) sekali saja
+  const sel = document.getElementById('waktuMetric');
+  if (sel && !sel.dataset.bound) {
+    sel.dataset.bound = '1';
+    sel.innerHTML = Object.keys(WAKTU_METRIC).map(k => `<option value="${k}">${esc(WAKTU_METRIC[k].label)}</option>`).join('');
+    sel.value = waktuMetric;
+    sel.addEventListener('change', (e) => { waktuMetric = e.target.value; renderWaktuWilayahChart(); });
+  } else if (sel) {
+    sel.value = waktuMetric;
+  }
+  const chips = document.getElementById('waktuMetricChips');
+  if (chips && !chips.dataset.bound) {
+    chips.dataset.bound = '1';
+    chips.innerHTML = WAKTU_METRIC_CEPAT.map(k =>
+      `<button type="button" data-waktu-metric="${k}" class="rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50">${esc(WAKTU_METRIC[k].label)}</button>`).join('');
+    chips.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-waktu-metric]');
+      if (!b) return;
+      waktuMetric = b.dataset.waktuMetric;
+      if (sel) sel.value = waktuMetric;
+      renderWaktuWilayahChart();
+    });
+  }
+  if (chips) {
+    chips.querySelectorAll('[data-waktu-metric]').forEach(b => {
+      const aktif = b.dataset.waktuMetric === waktuMetric;
+      b.className = aktif
+        ? 'rounded-full border border-slate-900 bg-slate-900 px-3 py-1 text-[10px] font-semibold text-white transition'
+        : 'rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50';
+      b.setAttribute('aria-pressed', aktif ? 'true' : 'false');
+    });
+  }
+  const note = document.getElementById('chartWaktuWilayahNote');
+  if (note) {
+    const nilaiTertinggi = data[0];
+    note.textContent = (m.tipe === 'rasio'
+      ? `Rasio per wilayah (tidak mengikuti mode rata-rata/total). `
+      : (waktuMode === 'total' ? `Nilai = total ${modeWaktu().satJam} per wilayah. `
+        : `Nilai = rata-rata ${satuan} per wilayah (dibagi data wilayah itu sendiri). `)) +
+      (nilaiTertinggi ? `Tertinggi: ${nilaiTertinggi.w.wilayah} — ${m.tipe === 'rasio' ? formatNumber(nilaiTertinggi.v, 1) + '%' : (m.tipe === 'air' ? formatInt(nilaiTertinggi.v) + ' L' : formatNumber(nilaiTertinggi.v, 2) + ' ' + satuan)}.` : '');
+  }
+}
+
 function renderUtilisasiTab() {
   safeRender('charts-util', () => renderCharts('utilisasi'));
   safeRender('waktuCards', renderWaktuCards);
+  safeRender('chartWaktuWilayah', renderWaktuWilayahChart);
   safeRender('waktuWilayah', renderWaktuWilayahTable);
 }
 
@@ -1861,12 +1982,13 @@ function bindWaktuModeButtons() {
       waktuMode = btn.dataset.waktu;
       document.querySelectorAll('[data-waktu]').forEach(x => {
         const aktif = x.dataset.waktu === waktuMode;
-        x.classList.toggle('bg-slate-900', aktif);
-        x.classList.toggle('text-white', aktif);
-        x.classList.toggle('text-slate-600', !aktif);
+        x.className = aktif
+          ? 'rounded-full bg-slate-900 px-3 py-1 text-[10px] font-semibold text-white transition'
+          : 'rounded-full px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:bg-white';
         x.setAttribute('aria-pressed', aktif ? 'true' : 'false');
       });
       safeRender('waktuCards', renderWaktuCards);
+      safeRender('chartWaktuWilayah', renderWaktuWilayahChart);
       safeRender('waktuWilayah', renderWaktuWilayahTable);
       safeRender('charts-util', () => renderCharts('utilisasi'));
     };
@@ -2316,7 +2438,7 @@ const CHART_TAB_OF = {
   chartSolar:'overview', chartLuas:'overview', chartJam:'overview', chartKecepatan:'overview',
   chartEfisiensi:'overview', chartWilayah:'wilayah', chartWilayahEff:'wilayah', chartWilayahCompare:'wilayah',
   chartJenisEngine:'utilisasi', chartAvail:'utilisasi', chartScatter:'utilisasi',
-  chartWaktuKomposisi:'utilisasi', chartAir:'utilisasi',
+  chartWaktuKomposisi:'utilisasi', chartAir:'utilisasi', chartWaktuWilayah:'utilisasi',
   chartIndexBoros:'indexsolar', chartIndexHasil:'indexsolar', chartIndexWilayah:'indexsolar', chartIndexScatter:'indexsolar'
 };
 // Keterangan kecil di bawah chart: menjelaskan kapan angka pada batang tampil
