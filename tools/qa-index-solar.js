@@ -59,7 +59,43 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
     judul: (document.querySelector('#tab-utilisasi h2') || {}).textContent
   }));
   check('utilisasi: 12 kartu waktu', waktu.kartu === 12, JSON.stringify(waktu.kartu));
-  check('utilisasi: tabel waktu per wilayah (8 wilayah + baris TOTAL)', waktu.rows === 8 && waktu.foot === 1, `rows ${waktu.rows}, foot ${waktu.foot}`);
+  check('utilisasi: tabel waktu per wilayah (8 wilayah + baris ringkasan)', waktu.rows === 8 && waktu.foot === 1, `rows ${waktu.rows}, foot ${waktu.foot}`);
+
+  // ---- mode rata-rata vs total pada tab Waktu & Utilisasi ----
+  const bacaWaktu = () => page.evaluate(() => {
+    const c = window.Chart.getChart(document.getElementById('chartWaktuKomposisi'));
+    return {
+      kartu1: (document.querySelector('#waktuCards > div') || {}).innerText || '',
+      head: Array.from(document.querySelectorAll('#waktuWilayahHead th')).map(t => t.textContent.trim()).join('|'),
+      foot: (document.querySelector('#waktuWilayahFoot tr td') || {}).textContent || '',
+      selBulan1: c ? c.data.datasets[0].data[1] : null,
+      sumbuY: c ? c.options.scales.y.title.text : '',
+      catatanKartu: (document.getElementById('waktuModeNote') || {}).textContent || '',
+      catatanTabel: (document.getElementById('waktuWilayahNote') || {}).textContent || '',
+      catatanChart: (document.getElementById('chartWaktuNote') || {}).textContent || '',
+      aktif: Array.from(document.querySelectorAll('[data-waktu]')).filter(x => x.getAttribute('aria-pressed') === 'true').map(x => x.dataset.waktu)
+    };
+  });
+  const mDefault = await bacaWaktu();
+  check('waktu: bawaan = rata-rata per aktivitas', /jam\/aktivitas/.test(mDefault.kartu1) && /jam\/akt/.test(mDefault.head) && mDefault.aktif[0] === 'avgAkt', mDefault.kartu1.split('\n')[0] + ' | ' + mDefault.aktif.join(','));
+  check('waktu: kartu tetap menampilkan total & per hari sebagai pendukung', /total /.test(mDefault.kartu1) && /jam\/hari/.test(mDefault.kartu1), mDefault.kartu1.replace(/\n/g, ' | '));
+  check('waktu: tabel & chart ikut mode rata-rata', /AKTIVITAS/.test(mDefault.foot) && mDefault.sumbuY === 'Jam/aktivitas' && /per AKTIVITAS/.test(mDefault.catatanChart), mDefault.foot + ' | ' + mDefault.sumbuY);
+
+  await page.evaluate(() => document.querySelector('[data-waktu="total"]').click());
+  await new Promise(r => setTimeout(r, 1200));
+  const mTotal = await bacaWaktu();
+  check('waktu: mode Total mengembalikan angka akumulasi', mTotal.foot === 'TOTAL' && mTotal.sumbuY === 'Jam' && /225\.424/.test(mTotal.kartu1), mTotal.kartu1.replace(/\n/g, ' | ').slice(0, 90));
+  check('waktu: nilai chart Total jauh lebih besar dari rata-rata', mTotal.selBulan1 > mDefault.selBulan1 * 5, `${mDefault.selBulan1} -> ${mTotal.selBulan1}`);
+
+  await page.evaluate(() => document.querySelector('[data-waktu="avgHari"]').click());
+  await new Promise(r => setTimeout(r, 1200));
+  const mHari = await bacaWaktu();
+  check('waktu: mode Rata-rata / Hari memakai jam/hari di kartu, tabel, chart', /jam\/hari/.test(mHari.kartu1) && /jam\/hari/.test(mHari.head) && mHari.sumbuY === 'Jam/hari' && /HARI/.test(mHari.foot), mHari.sumbuY + ' | ' + mHari.foot);
+  check('waktu: keterangan ikut berubah di ketiga tempat', /HARI/.test(mHari.catatanTabel) && /per HARI/.test(mHari.catatanChart) && /HARI/.test(mHari.catatanKartu), mHari.catatanKartu.slice(0, 60));
+
+  // kembali ke bawaan supaya uji lain tidak terpengaruh
+  await page.evaluate(() => document.querySelector('[data-waktu="avgAkt"]').click());
+  await new Promise(r => setTimeout(r, 1000));
   check('utilisasi: judul tab baru', /Waktu & Utilisasi/.test(waktu.judul || ''), waktu.judul);
 
   // ---- tab Index Solar ----

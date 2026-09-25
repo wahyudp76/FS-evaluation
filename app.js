@@ -23,6 +23,15 @@ let rawData = [];
 let filteredData = [];
 let charts = {};
 let granularity = 'daily';
+// Mode tampilan waktu pada tab "Waktu & Utilisasi": rata-rata per aktivitas (bawaan),
+// rata-rata per hari, atau total. Dipakai kartu, tabel per wilayah, dan chart komposisi.
+let waktuMode = 'avgAkt';
+const WAKTU_MODES = {
+  avgAkt: { id:'avgAkt', label:'Rata-rata / Aktivitas', satJam:'jam/aktivitas', satAir:'L/aktivitas', satPendek:'jam/akt',  nilai:g => g.count || 1 },
+  avgHari:{ id:'avgHari',label:'Rata-rata / Hari',      satJam:'jam/hari',      satAir:'L/hari',      satPendek:'jam/hari', nilai:g => g.hari || 1 },
+  total:  { id:'total',  label:'Total',                 satJam:'jam',           satAir:'L',           satPendek:'jam',      nilai:()=>1 }
+};
+const modeWaktu = () => WAKTU_MODES[waktuMode] || WAKTU_MODES.avgAkt;
 let sortField = 'date';
 let sortDir = 'desc';
 let currentPage = 1;
@@ -836,10 +845,11 @@ function getWaktuBulanan() {
       const key = getMonthLabel(d.date);
       let g = groups[key];
       if (!g) {
-        g = groups[key] = { key, count: 0, plan: 0, prepare: 0, operating: 0, waiting: 0, repair: 0, down: 0, standby: 0, off: 0, totOper: 0, totalAvail: 0, totalTime: 0, air: 0, luas: 0, solar: 0, avail: 0, util: 0 };
+        g = groups[key] = { key, count: 0, plan: 0, prepare: 0, operating: 0, waiting: 0, repair: 0, down: 0, standby: 0, off: 0, totOper: 0, totalAvail: 0, totalTime: 0, air: 0, luas: 0, solar: 0, avail: 0, util: 0, _hari: new Set() };
         keys.push(key);
       }
       g.count++;
+      if (d.date) g._hari.add(d.date.getTime());
       g.plan += d.planTime || 0; g.prepare += d.prepareTime || 0; g.operating += d.operatingTime || 0;
       g.waiting += d.waitingTime || 0; g.repair += d.repair || 0; g.down += d.downTime || 0;
       g.standby += d.standby || 0; g.off += d.offTime || 0; g.totOper += d.totOperTime || 0;
@@ -856,19 +866,27 @@ function getWaktuBulanan() {
         repair: g.repair, down: g.down, standby: g.standby, off: g.off,
         totOper: g.totOper, totalAvail: g.totalAvail, totalTime: g.totalTime,
         air: g.air, luas: g.luas, solar: g.solar,
+        hari: g._hari ? g._hari.size : 0,
         avgAvail: g.avail / n, avgUtil: g.util / n
       };
     });
   });
 }
+// Pembagi nilai waktu sesuai mode aktif untuk satu kelompok (wilayah/bulan/total)
+function bagiWaktu(g) {
+  const f = modeWaktu().nilai(g);
+  return f > 0 ? f : 1;
+}
+
 function getWaktuWilayah() {
   return memo('waktuWilayah', () => {
     const groups = {};
     for (let i = 0; i < filteredData.length; i++) {
       const d = filteredData[i];
       let g = groups[d.wilayah];
-      if (!g) g = groups[d.wilayah] = { wilayah: d.wilayah, count: 0, plan: 0, prepare: 0, operating: 0, waiting: 0, repair: 0, down: 0, standby: 0, off: 0, totOper: 0, totalAvail: 0, totalTime: 0, air: 0, luas: 0, solar: 0, avail: 0, util: 0 };
+      if (!g) g = groups[d.wilayah] = { wilayah: d.wilayah, count: 0, plan: 0, prepare: 0, operating: 0, waiting: 0, repair: 0, down: 0, standby: 0, off: 0, totOper: 0, totalAvail: 0, totalTime: 0, air: 0, luas: 0, solar: 0, avail: 0, util: 0, _hari: new Set() };
       g.count++;
+      if (d.date) g._hari.add(d.date.getTime());
       g.plan += d.planTime || 0; g.prepare += d.prepareTime || 0; g.operating += d.operatingTime || 0;
       g.waiting += d.waitingTime || 0; g.repair += d.repair || 0; g.down += d.downTime || 0;
       g.standby += d.standby || 0; g.off += d.offTime || 0; g.totOper += d.totOperTime || 0;
@@ -880,6 +898,8 @@ function getWaktuWilayah() {
       const g = groups[w], n = g.count || 1;
       g.avgAvail = g.avail / n; g.avgUtil = g.util / n;
       g.literPerHa = g.luas ? g.air / g.luas : 0;
+      g.hari = g._hari ? g._hari.size : 0;
+      delete g._hari;
       return g;
     });
     out.sort((a, b) => b.air - a.air);
@@ -889,15 +909,18 @@ function getWaktuWilayah() {
 // Total waktu pemakaian alat (untuk kartu ringkas) - satu lintasan
 function getWaktuTotal() {
   return memo('waktuTotal', () => {
-    const t = { plan: 0, prepare: 0, operating: 0, waiting: 0, repair: 0, down: 0, standby: 0, off: 0, totOper: 0, totalAvail: 0, totalTime: 0, air: 0, count: 0 };
+    const t = { plan: 0, prepare: 0, operating: 0, waiting: 0, repair: 0, down: 0, standby: 0, off: 0, totOper: 0, totalAvail: 0, totalTime: 0, air: 0, count: 0, hari: 0 };
+    const setHari = new Set();
     for (let i = 0; i < filteredData.length; i++) {
       const d = filteredData[i];
       t.count++;
+      if (d.date) setHari.add(d.date.getTime());
       t.plan += d.planTime || 0; t.prepare += d.prepareTime || 0; t.operating += d.operatingTime || 0;
       t.waiting += d.waitingTime || 0; t.repair += d.repair || 0; t.down += d.downTime || 0;
       t.standby += d.standby || 0; t.off += d.offTime || 0; t.totOper += d.totOperTime || 0;
       t.totalAvail += d.totalAvail || 0; t.totalTime += d.totalTime || 0; t.air += d.air || 0;
     }
+    t.hari = setHari.size;
     return t;
   });
 }
@@ -1694,84 +1717,163 @@ function renderWaktuCards() {
   if (!host) return;
   const t = getWaktuTotal();
   if (!t.count) { host.innerHTML = '<div class="col-span-12 text-center py-6 text-[12px] text-slate-400">Tidak ada data untuk filter ini</div>'; return; }
+  const mode = modeWaktu();
+  const bagi = bagiWaktu(t);
+  const nAkt = t.count || 1, nHari = t.hari || 1;
+
+  // angka pendukung: selalu tampilkan total, per aktivitas, dan per hari sekaligus
+  const angka = (v, isAir, des) => (isAir ? formatInt(v) : formatNumber(v, des)) + (isAir ? ' L' : ' jam');
+  const subUntuk = (total, isAir) => {
+    const bagian = [];
+    if (waktuMode !== 'total') bagian.push('total ' + angka(total, isAir, 1));
+    if (waktuMode !== 'avgAkt') bagian.push(angka(total / nAkt, isAir, isAir ? 0 : 2) + '/aktivitas');
+    if (waktuMode !== 'avgHari') bagian.push(angka(total / nHari, isAir, isAir ? 0 : 2) + '/hari');
+    return bagian.join(' • ');
+  };
+
+  const noteMode = $('#waktuModeNote');
+  if (noteMode) {
+    noteMode.textContent = waktuMode === 'total'
+      ? `Total seluruh kolom waktu pada periode terpilih (${formatInt(t.count)} aktivitas, ${formatInt(t.hari)} hari) & volume air terpakai.`
+      : (waktuMode === 'avgHari'
+        ? `Rata-rata per HARI seluruh kolom waktu (dibagi ${formatInt(t.hari)} hari operasi, dari ${formatInt(t.count)} aktivitas).`
+        : `Rata-rata per AKTIVITAS seluruh kolom waktu (dibagi ${formatInt(t.count)} baris data, mencakup ${formatInt(t.hari)} hari).`);
+  }
+
   host.innerHTML = WAKTU_CARDS.map(c => {
-    const val = t[c.k] || 0;
-    const per = val / t.count;
-    const tampil = c.fmt === 'air' ? formatInt(val) + ' <span class="text-[10px] font-medium text-slate-400">L</span>'
-                                   : formatNumber(val, 1) + ' <span class="text-[10px] font-medium text-slate-400">jam</span>';
-    const sub = c.fmt === 'air' ? `rata-rata ${formatInt(per)} L/aktivitas` : `rata-rata ${formatNumber(per, 2)} jam/aktivitas`;
+    const total = t[c.k] || 0;
+    const isAir = c.fmt === 'air';
+    const nilai = total / bagi;
+    const utama = (isAir ? formatInt(nilai) : formatNumber(nilai, waktuMode === 'total' ? 1 : 2)) +
+      ` <span class="text-[10px] font-medium text-slate-400">${esc(isAir ? mode.satAir : mode.satJam)}</span>`;
     return `
-      <div class="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-soft">
+      <div class="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-soft transition hover:border-slate-300">
         <div class="flex items-center justify-between gap-2">
           <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-${c.color}-50 text-${c.color}-600 ring-1 ring-${c.color}-100"><i data-lucide="${c.icon}" class="h-4 w-4"></i></span>
           <span class="text-[10px] uppercase tracking-wider text-slate-400">${esc(c.desc)}</span>
         </div>
-        <div class="mt-2.5 text-[16px] font-bold leading-tight tracking-tight text-slate-900">${tampil}</div>
+        <div class="mt-2.5 text-[16px] font-bold leading-tight tracking-tight text-slate-900">${utama}</div>
         <div class="mt-0.5 text-[11px] font-medium text-slate-500">${esc(c.label)}</div>
-        <div class="mt-1 text-[10px] text-slate-400">${sub}</div>
+        <div class="mt-1 text-[10px] leading-relaxed text-slate-400">${esc(subUntuk(total, isAir))}</div>
       </div>`;
   }).join('');
   refreshIcons();
 }
+
 function renderWaktuWilayahTable() {
   const tbody = $('#waktuWilayahBody');
   if (!tbody) return;
   const rows = getWaktuWilayah();
   const foot = $('#waktuWilayahFoot');
+  const mode = modeWaktu();
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="17" class="px-4 py-10 text-center text-slate-400">Tidak ada data</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="18" class="px-4 py-10 text-center text-slate-400">Tidak ada data</td></tr>';
     if (foot) foot.innerHTML = '';
     return;
   }
-  const cell = (v, d = 1) => formatNumber(v, d);
-  tbody.innerHTML = rows.map(w => `
+  const d = (v, des = 1) => formatNumber(v, des);
+
+  // judul kolom ikut menyebut satuannya (jam/aktivitas, jam/hari, atau jam)
+  const ths = document.querySelectorAll('#waktuWilayahHead th[data-unit]');
+  ths.forEach(th => {
+    const asli = th.dataset.label || th.textContent.trim();
+    if (!th.dataset.label) th.dataset.label = asli.replace(/\s*\([^)]*\)$/, '');
+    th.textContent = th.dataset.label + ' (' + (th.dataset.unit === 'L' ? mode.satPendek.replace('jam', 'L') : mode.satPendek) + ')';
+  });
+
+  tbody.innerHTML = rows.map(w => {
+    const f = bagiWaktu(w);
+    const jam = k => d(w[k] / f);
+    return `
     <tr class="hover:bg-slate-50/80 transition">
       <td class="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-900">${esc(w.wilayah)}</td>
       <td class="px-3 py-2.5 text-right">${formatInt(w.count)}</td>
-      <td class="px-3 py-2.5 text-right">${cell(w.plan)}</td>
-      <td class="px-3 py-2.5 text-right">${cell(w.prepare)}</td>
-      <td class="px-3 py-2.5 text-right font-medium text-blue-700">${cell(w.operating)}</td>
-      <td class="px-3 py-2.5 text-right">${cell(w.waiting)}</td>
-      <td class="px-3 py-2.5 text-right">${cell(w.repair, 2)}</td>
-      <td class="px-3 py-2.5 text-right">${cell(w.down, 2)}</td>
-      <td class="px-3 py-2.5 text-right">${cell(w.standby)}</td>
-      <td class="px-3 py-2.5 text-right">${cell(w.off)}</td>
-      <td class="px-3 py-2.5 text-right">${cell(w.totOper)}</td>
-      <td class="px-3 py-2.5 text-right">${cell(w.totalAvail)}</td>
-      <td class="px-3 py-2.5 text-right">${cell(w.totalTime)}</td>
-      <td class="px-3 py-2.5 text-right font-medium text-sky-700">${formatInt(w.air)}</td>
+      <td class="px-3 py-2.5 text-right">${formatInt(w.hari)}</td>
+      <td class="px-3 py-2.5 text-right">${jam('plan')}</td>
+      <td class="px-3 py-2.5 text-right">${jam('prepare')}</td>
+      <td class="px-3 py-2.5 text-right font-medium text-blue-700">${jam('operating')}</td>
+      <td class="px-3 py-2.5 text-right">${jam('waiting')}</td>
+      <td class="px-3 py-2.5 text-right">${d(w.repair / f, 2)}</td>
+      <td class="px-3 py-2.5 text-right">${d(w.down / f, 2)}</td>
+      <td class="px-3 py-2.5 text-right">${jam('standby')}</td>
+      <td class="px-3 py-2.5 text-right">${jam('off')}</td>
+      <td class="px-3 py-2.5 text-right">${jam('totOper')}</td>
+      <td class="px-3 py-2.5 text-right">${jam('totalAvail')}</td>
+      <td class="px-3 py-2.5 text-right">${jam('totalTime')}</td>
+      <td class="px-3 py-2.5 text-right font-medium text-sky-700">${w.air ? formatInt(w.air / f) : '0'}</td>
       <td class="px-3 py-2.5 text-right">${formatNumber(w.literPerHa, 0)}</td>
       <td class="px-3 py-2.5 text-right">${formatNumber(w.avgAvail, 1)}%</td>
       <td class="px-3 py-2.5 text-right">${formatNumber(w.avgUtil, 1)}%</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
+
   if (foot) {
     const t = getWaktuTotal();
+    const f = bagiWaktu(t);
+    const jam = k => d(t[k] / f);
+    // baris ringkasan: pada mode rata-rata nilainya rata-rata keseluruhan (bukan penjumlahan kolom)
+    const labelFoot = waktuMode === 'total' ? 'TOTAL' : (waktuMode === 'avgHari' ? 'RATA-RATA / HARI' : 'RATA-RATA / AKTIVITAS');
     foot.innerHTML = `
       <tr class="bg-slate-50 font-semibold text-slate-900">
-        <td class="px-3 py-3 whitespace-nowrap">TOTAL</td>
+        <td class="px-3 py-3 whitespace-nowrap">${labelFoot}</td>
         <td class="px-3 py-3 text-right">${formatInt(t.count)}</td>
-        <td class="px-3 py-3 text-right">${cell(t.plan)}</td>
-        <td class="px-3 py-3 text-right">${cell(t.prepare)}</td>
-        <td class="px-3 py-3 text-right text-blue-700">${cell(t.operating)}</td>
-        <td class="px-3 py-3 text-right">${cell(t.waiting)}</td>
-        <td class="px-3 py-3 text-right">${cell(t.repair, 2)}</td>
-        <td class="px-3 py-3 text-right">${cell(t.down, 2)}</td>
-        <td class="px-3 py-3 text-right">${cell(t.standby)}</td>
-        <td class="px-3 py-3 text-right">${cell(t.off)}</td>
-        <td class="px-3 py-3 text-right">${cell(t.totOper)}</td>
-        <td class="px-3 py-3 text-right">${cell(t.totalAvail)}</td>
-        <td class="px-3 py-3 text-right">${cell(t.totalTime)}</td>
-        <td class="px-3 py-3 text-right text-sky-700">${formatInt(t.air)}</td>
-        <td class="px-3 py-3 text-right">-</td>
+        <td class="px-3 py-3 text-right">${formatInt(t.hari)}</td>
+        <td class="px-3 py-3 text-right">${jam('plan')}</td>
+        <td class="px-3 py-3 text-right">${jam('prepare')}</td>
+        <td class="px-3 py-3 text-right text-blue-700">${jam('operating')}</td>
+        <td class="px-3 py-3 text-right">${jam('waiting')}</td>
+        <td class="px-3 py-3 text-right">${d(t.repair / f, 2)}</td>
+        <td class="px-3 py-3 text-right">${d(t.down / f, 2)}</td>
+        <td class="px-3 py-3 text-right">${jam('standby')}</td>
+        <td class="px-3 py-3 text-right">${jam('off')}</td>
+        <td class="px-3 py-3 text-right">${jam('totOper')}</td>
+        <td class="px-3 py-3 text-right">${jam('totalAvail')}</td>
+        <td class="px-3 py-3 text-right">${jam('totalTime')}</td>
+        <td class="px-3 py-3 text-right text-sky-700">${formatInt(t.air / f)}</td>
+        <td class="px-3 py-3 text-right">${formatNumber(t.air / (rows.reduce((a, w) => a + w.luas, 0) || 1), 0)}</td>
         <td class="px-3 py-3 text-right">-</td>
         <td class="px-3 py-3 text-right">-</td>
       </tr>`;
   }
+
+  // keterangan mode di bawah/judul tabel
+  const note = $('#waktuWilayahNote');
+  if (note) {
+    const nHari = getWaktuTotal().hari;
+    note.textContent = waktuMode === 'total'
+      ? 'Nilai = akumulasi seluruh aktivitas pada periode & filter aktif.'
+      : (waktuMode === 'avgHari'
+        ? `Nilai = rata-rata per HARI (total dibagi ${formatInt(nHari)} hari operasi pada periode ini; kolom Hari per wilayah bisa berbeda). Kolom L/Ha, % Avail, % Util tetap rasio.`
+        : 'Nilai = rata-rata per AKTIVITAS (total dibagi jumlah baris data). Kolom L/Ha, % Avail, % Util tetap rasio.');
+  }
 }
+
 function renderUtilisasiTab() {
   safeRender('charts-util', () => renderCharts('utilisasi'));
   safeRender('waktuCards', renderWaktuCards);
   safeRender('waktuWilayah', renderWaktuWilayahTable);
+}
+
+// Tombol mode waktu (rata-rata/aktivitas, rata-rata/hari, total) pada tab Waktu & Utilisasi
+function bindWaktuModeButtons() {
+  document.querySelectorAll('[data-waktu]').forEach(btn => {
+    const set = () => {
+      waktuMode = btn.dataset.waktu;
+      document.querySelectorAll('[data-waktu]').forEach(x => {
+        const aktif = x.dataset.waktu === waktuMode;
+        x.classList.toggle('bg-slate-900', aktif);
+        x.classList.toggle('text-white', aktif);
+        x.classList.toggle('text-slate-600', !aktif);
+        x.setAttribute('aria-pressed', aktif ? 'true' : 'false');
+      });
+      safeRender('waktuCards', renderWaktuCards);
+      safeRender('waktuWilayah', renderWaktuWilayahTable);
+      safeRender('charts-util', () => renderCharts('utilisasi'));
+    };
+    if (btn.dataset.waktuBound === '1') return;
+    btn.dataset.waktuBound = '1';
+    btn.addEventListener('click', set);
+  });
 }
 
 // ===== TAB INDEX SOLAR =====
@@ -2496,27 +2598,38 @@ function renderCharts(tab) {
   // ===== TAB UTILISASI: komposisi waktu alat (kolom Plan..Off, Tot Oper, Total Avail, Total Time) =====
   if (want('chartWaktuKomposisi')) {
     const wb = getWaktuBulanan();
+    const modeW = modeWaktu();
+    // nilai tiap bulan dibagi sesuai mode (total / rata-rata per aktivitas / rata-rata per hari)
+    const bagiBulan = (w) => bagiWaktu(w);
+    const seri = (k) => wb.map(w => w[k] / bagiBulan(w));
+    const satuanY = modeW.id === 'total' ? 'Jam' : (modeW.id === 'avgHari' ? 'Jam/hari' : 'Jam/aktivitas');
     ensureChart('chartWaktuKomposisi', {
       type: 'bar',
       data: {
         labels: wb.map(w => w.label),
         datasets: [
-          { label:'Operating', data: wb.map(w=>w.operating), backgroundColor:'#3b82f6', stack:'waktu' },
-          { label:'Waiting', data: wb.map(w=>w.waiting), backgroundColor:'#f59e0b', stack:'waktu' },
-          { label:'Prepare', data: wb.map(w=>w.prepare), backgroundColor:'#94a3b8', stack:'waktu' },
-          { label:'Standby', data: wb.map(w=>w.standby), backgroundColor:'#8b5cf6', stack:'waktu' },
-          { label:'Repair', data: wb.map(w=>w.repair), backgroundColor:'#ef4444', stack:'waktu' },
-          { label:'Down Time', data: wb.map(w=>w.down), backgroundColor:'#dc2626', stack:'waktu' },
-          { label:'Off Time', data: wb.map(w=>w.off), backgroundColor:'#cbd5e1', stack:'waktu' }
+          { label:'Operating', data: seri('operating'), backgroundColor:'#3b82f6', stack:'waktu' },
+          { label:'Waiting', data: seri('waiting'), backgroundColor:'#f59e0b', stack:'waktu' },
+          { label:'Prepare', data: seri('prepare'), backgroundColor:'#94a3b8', stack:'waktu' },
+          { label:'Standby', data: seri('standby'), backgroundColor:'#8b5cf6', stack:'waktu' },
+          { label:'Repair', data: seri('repair'), backgroundColor:'#ef4444', stack:'waktu' },
+          { label:'Down Time', data: seri('down'), backgroundColor:'#dc2626', stack:'waktu' },
+          { label:'Off Time', data: seri('off'), backgroundColor:'#cbd5e1', stack:'waktu' }
         ]
       },
       options: {
         responsive:true, maintainAspectRatio:false,
         interaction:{ mode:'index', intersect:false },
-        plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, font:{size:10}, boxWidth:8 }}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12, callbacks:{ label: ctx=> `${ctx.dataset.label}: ${formatNumber(ctx.raw,1)} jam` } } },
-        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{font:{size:9}, maxTicksLimit:10} }, y:{ stacked:true, beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} , title:{display:true,text:'Jam',font:{size:10}}} }
+        plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, font:{size:10}, boxWidth:8 }}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12, callbacks:{ label: ctx=> `${ctx.dataset.label}: ${formatNumber(ctx.raw,1)} ${modeW.satPendek}` } } },
+        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{font:{size:9}, maxTicksLimit:10} }, y:{ stacked:true, beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} , title:{display:true,text:satuanY,font:{size:10}}} }
       }
     });
+    const noteW = $('#chartWaktuNote');
+    if (noteW) noteW.textContent = modeW.id === 'total'
+      ? 'Nilai = total jam setiap bulan.'
+      : (modeW.id === 'avgHari'
+        ? 'Nilai = rata-rata jam per HARI pada setiap bulan.'
+        : 'Nilai = rata-rata jam per AKTIVITAS pada setiap bulan.');
   }
   if (want('chartAir')) {
     const wb = getWaktuBulanan();
@@ -3061,6 +3174,9 @@ function initFiltersUI() {
     filters.start = dates[0]; filters.end = dates[dates.length-1];
     currentPage=1; updateAll(); renderMonthChips();
   });
+  // --- kontrol tab Waktu & Utilisasi (mode rata-rata/total) ---
+  bindWaktuModeButtons();
+
   // --- kontrol tab Index Solar ---
   const idxSearch = $('#indexSearch');
   if (idxSearch && !idxSearch.dataset.bound) {

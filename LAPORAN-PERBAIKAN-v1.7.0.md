@@ -94,11 +94,25 @@ Cara kerja label (semuanya otomatis, tanpa pengaturan manual):
 - **Batas kepadatan**: pada overview, tampilan **Harian** (116 batang) tidak diberi angka otomatis + ada keterangan kecil "Angka pada batang tidak ditampilkan pada tampilan Harian (terlalu rapat) — pilih Mingguan atau Bulanan."
 - **Skrip uji khusus** `tools/qa-bar-labels.js` memverifikasi aturan ini dengan membandingkan hasil render kanvas saat label aktif vs dimatikan (`toDataURL`) sehingga terbukti angkanya benar-benar tergambar — bukan hanya konfigurasi.
 
+## 3e. Mode rata-rata pada tab "Waktu & Utilisasi" (v1.8.0)
+
+Permintaan: tampilkan **angka rata-rata**, bukan hanya total, pada tab Waktu & Utilisasi.
+
+- Ditambahkan pemilih mode di kanan judul **Rincian Waktu Alat**:
+  **Rata-rata / Aktivitas** (bawaan, sesuai permintaan) • **Rata-rata / Hari** • **Total**.
+- Yang ikut berubah saat mode diganti:
+  1. **12 kartu kolom waktu** — nilai utama memakai satuan mode (`jam/aktivitas`, `jam/hari`, `jam`; untuk Air `L/aktivitas`, `L/hari`, `L`), sedangkan baris kecil di bawahnya menampilkan **total • per aktivitas • per hari sekaligus** sebagai pembanding.
+  2. **Tabel Rincian Waktu per Wilayah** — semua kolom waktu dibagi sesuai mode; wilayah dibagi data wilayah itu sendiri (per aktivitas wilayah = total ÷ baris wilayah; per hari wilayah = total ÷ hari operasi wilayah). Ditambahkan kolom **Hari** di samping **Rec** (batch SQL lewat `Set` tanggal per kelompok, tanpa mengubah performa agregasi).
+  3. **Chart Komposisi Waktu per Bulan** — tiap bulan dibagi sesuai mode, judul sumbu ikut berubah (`Jam/aktivitas`, `Jam/hari`, `Jam`).
+- Keterangan otomatis ikut berubah di tiga tempat (header kartu, bawah tabel, bawah chart) sehingga tidak ada keraguan angka mana yang sedang dibaca. Baris bawah tabel berjudul **RATA-RATA / AKTIVITAS**, **RATA-RATA / HARI**, atau **TOTAL** mengikuti mode.
+- Angka penting: 12.730 aktivitas • 116 hari operasi • Σ Operating 180.934,8 jam → **14,21 jam/aktivitas** atau **1.559,78 jam/hari**.
+- Rasio (L/Ha, % Avail, % Util) tetap tidak dibagi.
+
 ## 4. Hasil uji (Chrome headless, lokal)
 
 | Skrip | Hasil |
 |---|---|
-| `tools/qa-index-solar.js` (baru) | **24/24 lulus** — 6 tab, semua 23 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail 34 kolom, export CSV 34 kolom × 12.730 baris, 0 error |
+| `tools/qa-index-solar.js` | **31/31 lulus** (7 pemeriksaan baru untuk mode rata-rata/total) — 6 tab, semua 23 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail 34 kolom, export CSV 34 kolom × 12.730 baris, 0 error |
 | `tools/qa-bar-labels.js` (baru) | **10/10 lulus** — 6 chart single berlabel, 4 chart stacked tanpa label, bukti piksel, aturan harian/bulanan/mingguan |
 | `tools/qa.js` (regresi, kini dinamis) | **42/42 lulus** — filter tanggal/bulan/wilayah, pencarian teks & angka, paginasi, sort, granularitas, biaya, export, sync, offline, fallback |
 | `tools/layout-test.js` | **24/24 lulus** — laci filter mobile tetap menempel di bawah header, sticky desktop, resize, Esc/backdrop, fokus |

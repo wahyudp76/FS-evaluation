@@ -102,9 +102,23 @@ const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                    
 | **Overview** | KPI utama, ringkasan 8 wilayah, chart solar / luas (angka pada batang tampil untuk tampilan **Mingguan & Bulanan**; pada **Harian** angka disembunyikan otomatis karena batang terlalu rapat dan diberi keterangan), chart jam / kecepatan / efisiensi |
 | **Performance Wilayah** | Perbandingan metrik antar afdeling dengan **angka ditulis langsung pada tiap batang** (18 metrik: luas, solar, biaya, Rp/Ha, Ha/Jam, Ltr/Ha, util, kecepatan, tebal, dll.), tabel detail wilayah, bubble & compare |
 | **Analisa Biaya** | Biaya solar/upah/alat per wilayah (stacked — tanpa angka), komposisi, tren, serta **biaya per periode dengan angka batang** |
-| **Waktu & Utilisasi** | **Rincian seluruh kolom waktu** (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + **Air** dalam 12 kartu, komposisi waktu per bulan, air vs luas vs solar, plus tabel waktu+air per wilayah, availability/utilization |
+| **Waktu & Utilisasi** | **Rincian seluruh kolom waktu** (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + **Air** dalam 12 kartu dengan **3 mode tampilan: Rata-rata / Aktivitas (bawaan), Rata-rata / Hari, atau Total** — kartu & tabel & chart komposisi ikut mode; tabel per wilayah punya kolom **Hari**, plus chart komposisi waktu per bulan, air vs luas vs solar, availability/utilization |
 | **Index Solar** *(baru)* | Chart penyimpangan dengan **angka deviasi (+7,13 / −8,19 L/jam)** pada tiap batang; pemakaian solar per engine vs **kalibrasi**: L/jam aktual, deviasi, selisih (L), verdict Hemat/Boros, penanda **Solar 0 L** & **Anomali** (>5× kalibrasi), rekap per wilayah & jenis engine, scatter aktual vs kalibrasi, tabel per engine + filter/urut/paginasi/pencarian |
 | **Detail Data Harian** | Tabel **34 kolom A–AH** (bisa digeser horizontal, kolom tanggal beku), sort klik header, paginasi, export CSV 34 kolom |
+
+### Mode tampilan waktu (v1.8.0)
+Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rincian Waktu Alat" (tab Waktu & Utilisasi):
+
+| Mode | Arti pembagi | Contoh (Plan Time, seluruh periode) |
+|---|---|---|
+| Rata-rata / Aktivitas *(bawaan)* | total ÷ 12.730 baris data | 17,71 jam/aktivitas |
+| Rata-rata / Hari | total ÷ 116 hari operasi | 1.943,31 jam/hari |
+| Total | tanpa pembagi | 225.424,0 jam |
+
+- Berlaku serentak untuk **kartu 12 kolom waktu**, **tabel Rincian Waktu per Wilayah** (wilayah dibagi data wilayah itu sendiri — jumlah hari per wilayah ditampilkan di kolom **Hari**), dan **chart Komposisi Waktu per Bulan** (dibagi per bulan).
+- Setiap kartu tetap menampilkan angka pendukung: total, per aktivitas, dan per hari sekaligus — jadi tidak perlu bolak-balik mengganti mode untuk membandingkan.
+- Kolom **L/Ha, % Avail, % Util** tetap berupa rasio (tidak dibagi).
+- Chart "Air, Luas Siram & Solar per Bulan" sengaja tetap akumulasi bulanan (diberi keterangan di bawah judul).
 
 ### Aturan label angka pada batang (v1.7.2)
 - **Chart bar single** → angka ditulis pada batang: Overview (Luas, Solar), Analisa Biaya (biaya per periode), Index Solar (deviasi per engine), Performance Wilayah (18 metrik + chart pembanding).

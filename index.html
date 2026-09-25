@@ -768,46 +768,57 @@
                     <div class="flex flex-wrap items-start justify-between gap-3">
                         <div>
                             <h3 class="text-[14px] font-semibold text-slate-900 flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-amber-50 text-amber-600"><i data-lucide="hourglass" class="h-3.5 w-3.5"></i></span> Rincian Waktu Alat</h3>
-                            <p class="mt-1 text-[11px] text-slate-500">Akumulasi seluruh kolom waktu pada periode terpilih (jam) &amp; volume air terpakai.</p>
+                            <p id="waktuModeNote" class="mt-1 text-[11px] text-slate-500">Rata-rata per aktivitas seluruh kolom waktu pada periode terpilih (jam) &amp; volume air terpakai.</p>
                         </div>
-                        <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 ring-1 ring-slate-200">Kolom A–AH</span>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <div class="inline-flex flex-wrap rounded-full border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Mode tampilan waktu">
+                                <button type="button" data-waktu="avgAkt" aria-pressed="true" class="rounded-full bg-slate-900 px-3 py-1 text-[10px] font-semibold text-white transition">Rata-rata / Aktivitas</button>
+                                <button type="button" data-waktu="avgHari" aria-pressed="false" class="rounded-full px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:bg-white">Rata-rata / Hari</button>
+                                <button type="button" data-waktu="total" aria-pressed="false" class="rounded-full px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:bg-white">Total</button>
+                            </div>
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 ring-1 ring-slate-200">Kolom A–AH</span>
+                        </div>
                     </div>
                     <div id="waktuCards" class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6"></div>
 
                     <div class="mt-5 grid grid-cols-12 gap-5">
                         <div class="col-span-12 xl:col-span-7">
                             <h4 class="text-[12px] font-semibold text-slate-700 mb-1">Komposisi Waktu per Bulan</h4>
-                            <p class="text-[11px] text-slate-500 mb-3">Tumpukan jam: operating, waiting, prepare, standby, repair, down &amp; off time</p>
+                            <p class="text-[11px] text-slate-500 mb-1">Tumpukan jam: operating, waiting, prepare, standby, repair, down &amp; off time</p>
+                            <p id="chartWaktuNote" class="text-[10px] text-slate-400 mb-3"></p>
                             <div class="relative h-[300px]"><canvas id="chartWaktuKomposisi"></canvas></div>
                         </div>
                         <div class="col-span-12 xl:col-span-5">
                             <h4 class="text-[12px] font-semibold text-slate-700 mb-1">Air, Luas Siram &amp; Solar per Bulan</h4>
-                            <p class="text-[11px] text-slate-500 mb-3">Volume air (m³) dibanding luas siram (Ha) dan solar (ribu L)</p>
+                            <p class="text-[11px] text-slate-500 mb-1">Volume air (m³) dibanding luas siram (Ha) dan solar (ribu L)</p>
+                            <p class="text-[10px] text-slate-400 mb-3">Nilai per bulan (akumulasi bulanan, tidak mengikuti mode rata-rata)</p>
                             <div class="relative h-[300px]"><canvas id="chartAir"></canvas></div>
                         </div>
                     </div>
 
                     <div class="mt-6">
                         <h4 class="text-[12px] font-semibold text-slate-700 mb-1">Rincian Waktu per Wilayah</h4>
-                        <p class="text-[11px] text-slate-500 mb-3">Semua kolom waktu (jam), volume air (L), liter per Ha, serta rata-rata availability &amp; utilization per afdeling</p>
+                        <p class="text-[11px] text-slate-500 mb-1">Semua kolom waktu, volume air, liter per Ha, serta rata-rata availability &amp; utilization per afdeling</p>
+                        <p id="waktuWilayahNote" class="text-[11px] text-slate-500 mb-3"></p>
                         <div class="overflow-x-auto wide-table rounded-xl border border-slate-200">
                             <table class="min-w-full text-[11px] text-slate-600 tabular-nums">
                                 <thead class="bg-slate-50 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                                    <tr>
+                                    <tr id="waktuWilayahHead">
                                         <th class="px-3 py-3 text-left whitespace-nowrap">Wilayah</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">Rec</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Plan</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Prepare</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Operating</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Waiting</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Repair</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Down</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Standby</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Off Time</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Tot. Oper.</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Total Avail</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Total Time</th>
-                                        <th class="px-3 py-3 text-right whitespace-nowrap">Air (L)</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap">Hari</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Plan">Plan</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Prepare">Prepare</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Operating">Operating</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Waiting">Waiting</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Repair">Repair</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Down">Down</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Standby">Standby</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Off Time">Off Time</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Tot. Oper.">Tot. Oper.</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Total Avail">Total Avail</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="jam" data-label="Total Time">Total Time</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="L" data-label="Air">Air</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">L/Ha</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">% Avail</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">% Util</th>
