@@ -2235,8 +2235,10 @@ function renderCharts(tab) {
     if (want('chartIndexBoros')) {
       // 10 penyimpangan terbesar (|deviasi| L/jam) supaya engine Boros & Hemat paling menyimpang
       // sama-sama terlihat - bukan hanya yang selisihnya kecil.
+      // hanya engine dengan pemakaian terukur (solar > 0) supaya batang tidak didominasi
+      // engine yang belum ada catatan solar (selisihnya = -kalibrasi, bukan penyimpangan nyata)
       const top = iv.rows
-        .filter(r => r.aktif && !r.anomali && r.kalibrasi > 0)
+        .filter(r => r.aktif && !r.anomali && r.kalibrasi > 0 && r.solar > 0)
         .sort((a, b) => Math.abs(b.deviasi) - Math.abs(a.deviasi))
         .slice(0, 10)
         .sort((a, b) => Math.abs(a.deviasi) - Math.abs(b.deviasi));
