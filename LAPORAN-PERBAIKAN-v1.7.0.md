@@ -54,6 +54,14 @@ Sebelumnya 5 tab → sekarang **6 tab**, dengan penyesuaian isi:
 
 Tab overview/dll tidak diubah supaya tidak ada regresi; semua filter sidebar (periode, wilayah, bulan, jenis engine, pencarian) kini juga menyaring tab Index Solar.
 
+## 3b. Penyesuaian tampilan setelah uji visual
+
+- **Chart "10 Penyimpangan Terbesar (L/jam)"** — sebelumnya hanya menampilkan selisih positif sehingga seluruh batang berwarna hijau (verdict sheet terlalu longgar). Kini diurutkan berdasarkan **|deviasi L/jam|** dan dibalik urutannya supaya **Boros (merah) dan Hemat (hijau)** tampil mengelompok.
+- **Scatter "Aktual vs Kalibrasi"** — 2 engine anomali (SPC0127, DED0015) yang nilainya ±100× lipat dikeluarkan dari scatter agar sumbu Y tidak rusak; sebagai gantinya muncul catatan *"2 engine anomali tidak ditampilkan (skala terlalu jauh) — lihat filter 'Hanya anomali'"*. Engine tanpa angka kalibrasi (mis. SPE0002) juga tidak diplot; sumbu Y dibatasi otomatis ±15% di atas nilai tertinggi.
+- **Kartu KPI** — "Engine Dievaluasi" kini 131 (semua engine dengan catatan aktivitas), rinciannya dipindah ke baris kecil (25 tanpa catatan solar • 2 anomali • 20 tanpa siram); "Hasil Evaluasi" menampilkan dasar perhitungan dari 104 engine terukur.
+- **Tabel Index Solar** — badge status dibuat `nowrap` agar tidak terpotong dua baris; judul kolom dibaca `Jenis (sheet)` untuk membedakan dari jenis engine pada ZPAS637.
+- **Label tab** disamakan antara tombol dan judul panel: **Waktu & Utilisasi**.
+
 ## 4. Hasil uji (Chrome headless, lokal)
 
 | Skrip | Hasil |

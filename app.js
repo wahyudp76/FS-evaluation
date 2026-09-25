@@ -2298,15 +2298,27 @@ function renderCharts(tab) {
       });
     }
     if (want('chartIndexScatter')) {
-      const grup = { Hemat:[], Boros:[], Anomali:[], Nol:[] };
+      // Anomali dikeluarkan dari scatter (nilainya 100x lipat dan membuat skala tidak terbaca);
+      // anomali tetap tampil di kartu KPI, tabel, dan dapat disaring lewat "Hanya anomali".
+      const grup = { Hemat:[], Boros:[], Nol:[] };
+      let outlier = 0, tanpaKal = 0;
       iv.rows.forEach(r => {
         if (!r.aktif) return;
-        const key = r.anomali ? 'Anomali' : (r.solar === 0 ? 'Nol' : r.justifikasi);
+        if (r.anomali) { outlier++; return; }
+        if (r.kalibrasi <= 0) { tanpaKal++; return; }
+        const key = r.solar === 0 ? 'Nol' : r.justifikasi;
         (grup[key] || grup.Nol).push({ x: r.kalibrasi, y: r.lpjAktual, engine: r.engine });
       });
-      const warna = { Hemat:'#10b981', Boros:'#ef4444', Anomali:'#8b5cf6', Nol:'#cbd5e1' };
+      const warna = { Hemat:'#10b981', Boros:'#ef4444', Nol:'#cbd5e1' };
       let maxV = 20;
-      iv.rows.forEach(r => { if (r.aktif) maxV = Math.max(maxV, r.kalibrasi, Math.min(r.lpjAktual, 60)); });
+      iv.rows.forEach(r => { if (r.aktif && !r.anomali) maxV = Math.max(maxV, r.kalibrasi, r.lpjAktual); });
+      const catatan = $('#chartIndexScatterNote');
+      if (catatan) {
+        const pesan = [];
+        if (outlier) pesan.push(`${outlier} engine anomali tidak ditampilkan (skala terlalu jauh) — lihat filter "Hanya anomali"`);
+        if (tanpaKal) pesan.push(`${tanpaKal} engine tanpa angka kalibrasi di sheet`);
+        catatan.textContent = pesan.length ? '• ' + pesan.join(' • ') : '';
+      }
       ensureChart('chartIndexScatter', {
         type: 'scatter',
         data: { datasets: Object.keys(grup).filter(k=>grup[k].length).map(k => ({
@@ -2316,7 +2328,7 @@ function renderCharts(tab) {
           plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, font:{size:10} }},
             tooltip:{ backgroundColor:'#0f172a', cornerRadius:12, callbacks:{ label: ctx=> ctx.raw.engine ? `${ctx.raw.engine}: kalibrasi ${formatNumber(ctx.parsed.x,1)} L/j, aktual ${formatNumber(ctx.parsed.y,1)} L/j` : 'Garis kalibrasi' } } },
           scales:{ x:{ beginAtZero:true, title:{display:true,text:'Kalibrasi standar (L/jam)',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} },
-                   y:{ beginAtZero:true, title:{display:true,text:'Aktual (L/jam)',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} } } }
+                   y:{ beginAtZero:true, suggestedMax: Math.ceil(maxV * 1.15), title:{display:true,text:'Aktual (L/jam)',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} } } }
       });
     }
   }
