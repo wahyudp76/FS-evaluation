@@ -100,7 +100,7 @@ const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                    
 | Tab | Isi |
 |---|---|
 | **Overview** | KPI utama, ringkasan 8 wilayah, chart solar / luas / jam / kecepatan / efisiensi |
-| **Performance Wilayah** | Perbandingan metrik antar afdeling, tabel detail wilayah, bubble & compare |
+| **Performance Wilayah** | Perbandingan metrik antar afdeling dengan **angka ditulis langsung pada tiap batang** (18 metrik: luas, solar, biaya, Rp/Ha, Ha/Jam, Ltr/Ha, util, kecepatan, tebal, dll.), tabel detail wilayah, bubble & compare |
 | **Analisa Biaya** | Biaya solar/upah/alat per wilayah, komposisi, tren & biaya per periode |
 | **Waktu & Utilisasi** | **Rincian seluruh kolom waktu** (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + **Air** dalam 12 kartu, komposisi waktu per bulan, air vs luas vs solar, plus tabel waktu+air per wilayah, availability/utilization |
 | **Index Solar** *(baru)* | Pemakaian solar per engine vs **kalibrasi**: L/jam aktual, deviasi, selisih (L), verdict Hemat/Boros, penanda **Solar 0 L** & **Anomali** (>5× kalibrasi), rekap per wilayah & jenis engine, scatter aktual vs kalibrasi, tabel per engine + filter/urut/paginasi/pencarian |

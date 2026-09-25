@@ -1478,7 +1478,23 @@ function renderWilayahDetail() {
     options:{
       responsive:true, maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
-      plugins:{ legend:{position:'bottom', labels:{usePointStyle:true,font:{size:10}}}, tooltip:{backgroundColor:'#0f172a',cornerRadius:12} },
+      layout:{ padding:{ top: 34 } },
+      plugins:{
+        legend:{position:'bottom', labels:{usePointStyle:true,font:{size:10}}},
+        barLabels:{
+          display:true,
+          skipZero:true,
+          // tiap batang memakai satuannya sendiri: Ha (kiri) vs Solar L (kanan)
+          // satuan tidak ditulis (sumbu kiri 'Ha', kanan 'Solar L') agar label tidak bertabrakan
+          fmtBySeries:{ y:'num2', y1:'int' },
+          colorBySeries:{ y:'#047857', y1:'#b45309' },
+          // label L ditulis di tengah batang (putih), label Ha di atas batang
+          posBySeries:{ y:'outside', y1:'inside' },
+          rotateBySeries:{ y:true },
+          font:'600 9px Inter, system-ui, -apple-system, sans-serif'
+        },
+        tooltip:{backgroundColor:'#0f172a',cornerRadius:12}
+      },
       scales:{
         x:{ grid:{display:false}, ticks:{font:{size:10}} },
         y:{ beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}, title:{display:true,text:'Ha',font:{size:10}} },
@@ -1914,16 +1930,128 @@ function initTabNav() {
   activateTab(TAB_IDS.indexOf(saved) !== -1 ? saved : 'overview', true);
 }
 
+// ---------------------------------------------------------------- plugin label bar
+// Menuliskan nilai langsung di atas batang (bar vertikal) atau di ujung batang
+// (bar horizontal / indexAxis 'y') supaya angka bisa dibaca tanpa tooltip.
+//
+// PENTING: konfigurasi hanya boleh berisi nilai primitif (string/angka/boolean).
+// Chart.js me-resolve nilai fungsi di dalam options.plugins.* sebagai "scriptable
+// option" dan memanggilnya dengan objek konteks internal (bukan angka), sehingga
+// formatter berbentuk fungsi akan error. Karena itu format dipilih lewat kode teks
+// ('ha', 'l', 'rp', ...) yang dipetakan di BAR_LABEL_FMT.
+const BAR_LABEL_FMT = {
+  ha:   v => formatNumber(v, 2) + ' Ha',
+  l:    v => formatInt(v) + ' L',
+  rp:   v => formatRupiah(v),
+  pct:  v => formatNumber(v, 1) + '%',
+  num1: v => formatNumber(v, 1),
+  num2: v => formatNumber(v, 2),
+  num3: v => formatNumber(v, 3),
+  int:  v => formatInt(v),
+  'ha1': v => formatNumber(v, 1) + ' Ha',
+  'Lint': v => formatInt(Math.round(v)) + ' L'
+};
+
+let barLabelsRegistered = false;
+const BAR_LABELS = {
+  id: 'barLabels',
+  afterDatasetsDraw(chart) {
+    const cfg = chart.$barLabels;                 // objek asli (bukan proxy Chart.js)
+    if (!cfg || cfg.display === false) return;
+    const ctx = chart.ctx;
+    const area = chart.chartArea;
+    const horizontal = chart.options.indexAxis === 'y';
+    ctx.save();
+    ctx.font = cfg.font || '600 10px Inter, system-ui, -apple-system, sans-serif';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = cfg.halo || 'rgba(255,255,255,0.9)';
+    ctx.lineJoin = 'round';
+    chart.data.datasets.forEach((ds, di) => {
+      if (ds.barLabels === false) return;
+      const tipe = ds.type || chart.config.type;
+      if (tipe !== 'bar') return;                 // lewati garis/scatter/bubble
+      const meta = chart.getDatasetMeta(di);
+      if (!meta || meta.hidden) return;
+      const kunci = (cfg.fmtBySeries && ds.yAxisID && cfg.fmtBySeries[ds.yAxisID]) || cfg.fmt || 'num1';
+      const format = BAR_LABEL_FMT[kunci] || BAR_LABEL_FMT.num1;
+      const warna = (cfg.colorBySeries && ds.yAxisID && cfg.colorBySeries[ds.yAxisID]) || cfg.color || '#334155';
+      const posisi = (cfg.posBySeries && ds.yAxisID && cfg.posBySeries[ds.yAxisID]) || 'outside';
+      const rotate = !!(cfg.rotateBySeries ? (ds.yAxisID && cfg.rotateBySeries[ds.yAxisID]) : cfg.rotate);
+      meta.data.forEach((el, i) => {
+        const v = ds.data[i];
+        if (typeof v !== 'number' || !isFinite(v)) return;   // lewati nilai kosong/aneh
+        if (cfg.skipZero && v === 0) return;
+        const teks = format(v);
+        if (!teks) return;
+        const warnaIsi = (cfg.insideColorBySeries && ds.yAxisID && cfg.insideColorBySeries[ds.yAxisID]) || cfg.insideColor || '#ffffff';
+        if (horizontal) {
+          const w = ctx.measureText(teks).width;
+          if (posisi === 'inside' || el.x + 6 + w > area.right - 2) {
+            // tidak cukup ruang di luar batang -> tulis di tengah batang (teks putih)
+            const tengahX = el.base !== undefined ? el.base + (el.x - el.base) / 2 : el.x - w - 6;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = warnaIsi;
+            ctx.fillText(teks, tengahX, el.y);
+          } else {
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = warna;
+            ctx.strokeText(teks, el.x + 6, el.y);
+            ctx.fillText(teks, el.x + 6, el.y);
+          }
+        } else {
+          ctx.textAlign = 'center';
+          const x = Math.max(area.left + 2, Math.min(el.x, area.right - 2));
+          if (posisi === 'inside') {
+            // tengah batang: jauh dari label seri lain yang berada di atas batang
+            const tengahY = el.base !== undefined ? el.y + (el.base - el.y) / 2 : el.y + 10;
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = warnaIsi;
+            ctx.fillText(teks, x, tengahY);
+          } else if (rotate) {
+            // label vertikal (diputar 90°) -> pas untuk batang yang rapat
+            ctx.save();
+            ctx.translate(x, el.y - 5);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = warna;
+            ctx.strokeText(teks, 0, 0);
+            ctx.fillText(teks, 0, 0);
+            ctx.restore();
+          } else {
+            ctx.textBaseline = 'bottom';
+            // stagger: geser naik-turun bergantian supaya label tetangga tidak saling menimpa
+            let y = el.y - 5 - (cfg.stagger ? (i % 2) * cfg.stagger : 0);
+            if (y - 10 < area.top) { ctx.textBaseline = 'top'; ctx.fillStyle = warnaIsi; y = el.y + 5; ctx.fillText(teks, x, y); }
+            else { ctx.fillStyle = warna; ctx.strokeText(teks, x, y); ctx.fillText(teks, x, y); }
+          }
+        }
+      });
+    });
+    ctx.restore();
+  }
+};
+
 function ensureChart(id, config) {
   const ctx = document.getElementById(id);
   if (!ctx) return null;
+  if (!barLabelsRegistered && typeof Chart !== 'undefined' && Chart.register) {
+    Chart.register(BAR_LABELS);
+    barLabelsRegistered = true;
+  }
+  // simpan konfigurasi label bar sebagai objek biasa (hindari proxy scriptable Chart.js)
+  const cfgLabel = config && config.options && config.options.plugins && config.options.plugins.barLabels;
   if (charts[id]) {
     charts[id].data = config.data;
     charts[id].options = config.options;
+    charts[id].$barLabels = cfgLabel || null;
     charts[id].update();
     return charts[id];
   } else {
     const chart = new Chart(ctx, config);
+    chart.$barLabels = cfgLabel || null;
     charts[id] = chart;
     return chart;
   }
@@ -2084,8 +2212,17 @@ function renderCharts(tab) {
     },
     options:{
       responsive:true, maintainAspectRatio:false, indexAxis:'y',
+      layout:{ padding:{ right: wm.fmt==='rp' || wm.fmt==='l' ? 84 : 58 } },
       plugins:{
         legend:{display:false},
+        // angka langsung di ujung batang supaya terbaca tanpa hover
+        // fmt memakai kunci teks (bukan fungsi) + mengikuti satuan metrik terpilih
+        barLabels:{
+          display:true,
+          fmt: wm.fmt,
+          color: wm.fmt==='pct' ? '#0f172a' : '#1e293b',
+          font:'600 10px Inter, system-ui, -apple-system, sans-serif'
+        },
         tooltip:{
           backgroundColor:'#0f172a', cornerRadius:12,
           callbacks:{
@@ -2093,7 +2230,7 @@ function renderCharts(tab) {
           }
         }
       },
-      scales:{ x:{beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}}, y:{grid:{display:false}, ticks:{font:{size:11}}} }
+      scales:{ x:{beginAtZero:true, grace:'18%', grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}}, y:{grid:{display:false}, ticks:{font:{size:11}}} }
     }
   });
 

@@ -62,6 +62,16 @@ Tab overview/dll tidak diubah supaya tidak ada regresi; semua filter sidebar (pe
 - **Tabel Index Solar** — badge status dibuat `nowrap` agar tidak terpotong dua baris; judul kolom dibaca `Jenis (sheet)` untuk membedakan dari jenis engine pada ZPAS637.
 - **Label tab** disamakan antara tombol dan judul panel: **Waktu & Utilisasi**.
 
+## 3c. Label angka pada chart bar tab "Performance Wilayah" (v1.7.1)
+
+Permintaan: angka pada chart bar harus langsung terbaca tanpa hover.
+
+- Ditambahkan plugin Chart.js ringan **`barLabels`** (`app.js`) yang menulis nilai di **ujung batang horizontal** dan **di atas batang vertikal**, dengan garis tepi putih (halo) agar tetap terbaca di atas warna batang. Tidak memakai library tambahan (tanpa CDN baru).
+- **Chart "Performa per Wilayah"** (bar horizontal, 18 pilihan metrik): label mengikuti satuan metrik aktif — `6.742,01 Ha`, `Rp 1.375.640`, `83,1%`, `0,261`, `234.813 L`, dst. Sumbu diberi ruang tambahan (`grace 18%`) supaya label tetap di luar batang; bila tetap tidak muat (mis. batang hampir penuh), label otomatis dipindah ke dalam batang dengan teks putih.
+- **Chart "Pemakaian vs Hasil Rata-rata"** (dua sumbu: Ha & Solar L): label **Ha diputar 90°** di atas batang hijau, label **Solar L ditulis di tengah batang kuning** (putih) — supaya keduanya terbaca meski batangnya rapat; satuan mengikuti judul sumbu.
+- Catatan teknis: konfigurasi plugin **tidak boleh berisi fungsi**, karena Chart.js me-*resolve* nilai fungsi di `options.plugins.*` sebagai *scriptable option* dan memanggilnya dengan objek konteks internal (bukan angka) — penyebab error `Cannot convert object to primitive value`. Format karena itu dipilih lewat kode teks (`ha`, `l`, `rp`, `pct`, `num1`, `num2`, `num3`, `int`) yang dipetakan di `BAR_LABEL_FMT`, dan konfigurasi asli disimpan di `chart.$barLabels`.
+- Plugin bersifat **opt-in per chart** (`options.plugins.barLabels.display`) sehingga chart lain bisa diberi label angka dengan mudah bila diminta.
+
 ## 4. Hasil uji (Chrome headless, lokal)
 
 | Skrip | Hasil |

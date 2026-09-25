@@ -120,6 +120,22 @@ const check = (name, ok, extra = '') => {
   const tRange = Date.now();
   await page.click('#btnRangeAll');
   await new Promise(r => setTimeout(r, 800));
+  // label angka pada chart bar tab Performance Wilayah (plugin barLabels)
+  const barLabels = await page.evaluate(() => {
+    const c = window.Chart.getChart(document.getElementById('chartWilayah'));
+    const c2 = window.Chart.getChart(document.getElementById('chartWilayahCompare'));
+    return {
+      horizontal: !!(c && c.$barLabels && c.$barLabels.display === false ? false : (c && c.$barLabels)),
+      compare: !!(c2 && c2.$barLabels),
+      fmtCompare: c2 && c2.$barLabels ? JSON.stringify(c2.$barLabels.fmtBySeries) : '',
+      pluginAda: !!(window.Chart.registry && window.Chart.registry.plugins.get('barLabels')),
+      hiddenSeries: c2 ? c2.data.datasets.filter(d => d.barLabels === false).length : 0,
+      garisTanpaLabel: c2 ? c2.$barLabels && c2.$barLabels.fmtBySeries && !c2.$barLabels.fmtBySeries.y1 : true
+    };
+  });
+  check('wilayah: plugin barLabels aktif di 2 chart bar', !!(barLabels.horizontal && barLabels.compare && barLabels.pluginAda), JSON.stringify(barLabels));
+  check('wilayah: satuan label mengikuti sumbu (Ha vs L)', /y1/.test(barLabels.fmtCompare || ''), barLabels.fmtCompare);
+
   const rcAll = await page.$eval('#rowCount', el => el.textContent.trim());
   const dRangeAll = Date.now() - tRange;
   check('btnRangeAll mengembalikan semua data', rcAll === TOTAL_STR + ' / ' + TOTAL_STR + ' records', rcAll + ' (' + dRangeAll + ' ms)');
