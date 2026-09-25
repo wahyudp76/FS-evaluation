@@ -88,6 +88,30 @@ const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                    
 - Tinggi header diukur otomatis (`--header-h`) dan dipakai panel + tab bar, jadi offset tetap pas walau tinggi header berubah (ticker terisi, tombol Install muncul, zoom, atau lebar layar berbeda).
 - Kepala laci menampilkan ringkasan langsung, mis. *"1 filter aktif • 1.352 dari 12.396 records"*.
 
+## 🗂️ Struktur Data & Tab (v1.7.0)
+**Sheet ZPAS637** dibaca hanya pada rentang **kolom A–AH (34 kolom)** — kolom bantu AI–AK sengaja diabaikan:
+
+`Date, Wilayah, Lokasi, Engine, Irigator, Jenis Irigator, Plan Time, Luas Siram, Kecepatan Rata-rata, Tebal Siram, Prepare Time, Operating Time, Waiting Time, Repair, Down Time, Standby, Off Time, Tot, Oper, Time, Total Avail, Total Time, % Availability, % Utilization, Air, Solar Terpakai (ltr), Biaya Solar (Std), Biaya Upah, Biaya Alat, Biaya Total, Rp/Ha, Ha/Hari, Ha/Jam, Solar Ltr/jam, Solar Ltr/Ha, Jenis Engine`
+
+**Sheet baru "Index Solar"** (12 kolom, 151 engine) kini dianalisa di dashboard:
+`Kode Engine, Tanggal Siram, Wilayah, Lokasi, Kode Irrigator, Jenis Engine, Pemakaian Solar, Jam Operaton, Liter/jam, Kalibrasi, Justifikasi, Selisih`
+
+### Tab dashboard (6 tab)
+| Tab | Isi |
+|---|---|
+| **Overview** | KPI utama, ringkasan 8 wilayah, chart solar / luas / jam / kecepatan / efisiensi |
+| **Performance Wilayah** | Perbandingan metrik antar afdeling, tabel detail wilayah, bubble & compare |
+| **Analisa Biaya** | Biaya solar/upah/alat per wilayah, komposisi, tren & biaya per periode |
+| **Waktu & Utilisasi** | **Rincian seluruh kolom waktu** (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + **Air** dalam 12 kartu, komposisi waktu per bulan, air vs luas vs solar, plus tabel waktu+air per wilayah, availability/utilization |
+| **Index Solar** *(baru)* | Pemakaian solar per engine vs **kalibrasi**: L/jam aktual, deviasi, selisih (L), verdict Hemat/Boros, penanda **Solar 0 L** & **Anomali** (>5× kalibrasi), rekap per wilayah & jenis engine, scatter aktual vs kalibrasi, tabel per engine + filter/urut/paginasi/pencarian |
+| **Detail Data Harian** | Tabel **34 kolom A–AH** (bisa digeser horizontal, kolom tanggal beku), sort klik header, paginasi, export CSV 34 kolom |
+
+Catatan metodologi Index Solar:
+- `L/jam aktual` dihitung sendiri dari **Pemakaian Solar ÷ Jam Operasi** (kolom "Liter/jam" sheet tidak dipakai) agar konsisten.
+- Engine dengan pemakaian **0 L** dipisah (belum ada catatan solar) dan tidak dihitung Hemat/Boros; selisih & rata-rata hanya dari engine terukur.
+- Pemakaian **>5× kalibrasi** ditandai **Anomali** (mis. SPC0127 46.258 L untuk 2 jam) dan dikecualikan dari rata-rata/total selisih agar tidak merusak kesimpulan.
+- Filter sidebar (periode, wilayah, jenis engine, pencarian) tetap berlaku; kolom `ZPAS637` pada tabel = rekap aktivitas engine yang sama pada periode terpilih.
+
 ## ⚡ Performa & Stabilitas (v1.5.0)
 Hasil uji A/B (Chrome headless, throttling CPU 4x, median 3 putaran, `tools/`):
 

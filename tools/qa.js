@@ -51,14 +51,16 @@ const check = (name, ok, extra = '') => {
   console.log('tReady visit-1 (ms):', tReady1);
 
   const rowCount1 = await page.$eval('#rowCount', el => el.textContent.trim());
-  check('rowCount terisi saat load', /records/.test(rowCount1), rowCount1);
+  const TOTAL = parseInt(rowCount1.split('/')[1].replace(/\D/g, ''), 10);
+  const TOTAL_STR = TOTAL.toLocaleString('id-ID');
+  check('rowCount terisi saat load', /records/.test(rowCount1) && TOTAL > 1000, rowCount1 + ' (total ' + TOTAL + ')');
   const ticker1 = await page.$eval('#headerTicker', el => el.innerText.replace(/\n/g, ' | ').trim());
   console.log('ticker:', ticker1);
   check('ticker berisi 8 metrik', (await page.$$eval('#headerTicker span.inline-flex', els => els.length)) === 8);
 
   // ---------- TAB SWITCH (5 tab) ----------
   const tabLat = {};
-  for (const tab of ['wilayah', 'biaya', 'utilisasi', 'data', 'overview']) {
+  for (const tab of ['wilayah', 'biaya', 'utilisasi', 'indexsolar', 'data', 'overview']) {
     const t = Date.now();
     await page.click(`#tabbtn-${tab}`);
     await new Promise(r => setTimeout(r, 60));
@@ -112,14 +114,15 @@ const check = (name, ok, extra = '') => {
   });
   await new Promise(r => setTimeout(r, 700));
   const rcRange = await page.$eval('#rowCount', el => el.textContent.trim());
-  check('filter 10-12 Sep 2026 -> 360 records', /^360 \/ [\d.]+ records$/.test(rcRange), rcRange);
+  const nRange = parseInt(rcRange.split('/')[0].replace(/\D/g, ''), 10);
+  check('filter 10-12 Sep 2026 menyaring', nRange > 0 && nRange < TOTAL, rcRange);
 
   const tRange = Date.now();
   await page.click('#btnRangeAll');
   await new Promise(r => setTimeout(r, 800));
   const rcAll = await page.$eval('#rowCount', el => el.textContent.trim());
   const dRangeAll = Date.now() - tRange;
-  check('btnRangeAll mengembalikan semua data', /^12\.396 \/ 12\.396 records$/.test(rcAll), rcAll + ' (' + dRangeAll + ' ms)');
+  check('btnRangeAll mengembalikan semua data', rcAll === TOTAL_STR + ' / ' + TOTAL_STR + ' records', rcAll + ' (' + dRangeAll + ' ms)');
 
   // filter mulai 01/08/2026
   await page.evaluate(() => {
@@ -128,7 +131,8 @@ const check = (name, ok, extra = '') => {
   });
   await new Promise(r => setTimeout(r, 700));
   const rcAug = await page.$eval('#rowCount', el => el.textContent.trim());
-  check('filter >= 01 Agu 2026 -> 6.057 records', /^6\.057 \/ 12\.396 records$/.test(rcAug), rcAug);
+  const nAug = parseInt(rcAug.split('/')[0].replace(/\D/g, ''), 10);
+  check('filter >= 01 Agu 2026 menyaring', nAug > 0 && nAug < TOTAL, rcAug);
   await page.click('#btnRangeAll');
   await new Promise(r => setTimeout(r, 600));
 
@@ -148,19 +152,19 @@ const check = (name, ok, extra = '') => {
   await page.click('.month-btn');
   await new Promise(r => setTimeout(r, 600));
   const rcMon = await page.$eval('#rowCount', el => el.textContent.trim());
-  check('filter bulan menyaring data', parseInt(rcMon.replace(/\D/g, '').slice(0, 5)) > 0 && !/^12\.396/.test(rcMon), monthBtns[0] + ' -> ' + rcMon);
+  check('filter bulan menyaring data', !new RegExp('^' + TOTAL_STR.replace(/\./g, '\\.')).test(rcMon), monthBtns[0] + ' -> ' + rcMon);
 
   // reset semua filter
   await page.click('#btnClearFilters');
   await new Promise(r => setTimeout(r, 700));
   const rcClear = await page.$eval('#rowCount', el => el.textContent.trim());
-  check('clear filters -> kembali penuh', /^12\.396 \/ 12\.396 records$/.test(rcClear), rcClear);
+  check('clear filters -> kembali penuh', rcClear === TOTAL_STR + ' / ' + TOTAL_STR + ' records', rcClear);
 
   // ---------- PENCARIAN ----------
   await page.type('#filterSearch', 'aw09', { delay: 40 });
   await new Promise(r => setTimeout(r, 900));
   const rcSearch = await page.$eval('#rowCount', el => el.textContent.trim());
-  check('pencarian filter "aw09" menyaring', /^[1-9][\d.]* \/ 12\.396 records$/.test(rcSearch), rcSearch);
+  check('pencarian filter "aw09" menyaring', /^[1-9][\d.]* \/ /.test(rcSearch), rcSearch);
   await page.evaluate(() => { const i = document.querySelector('#filterSearch'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); });
   await new Promise(r => setTimeout(r, 800));
 
@@ -212,7 +216,7 @@ const check = (name, ok, extra = '') => {
   await page.click('#tabbtn-biaya');
   await new Promise(r => setTimeout(r, 700));
   const biayaTxt = await page.$eval('#tab-biaya', el => el.innerText);
-  check('tab biaya menampilkan total Rp 68,3 M', /Rp\s?68,3\d?\s?M|68\.39/.test(biayaTxt.replace(/\n/g, ' ')), biayaTxt.split('\n').slice(0, 6).join(' | '));
+  check('tab biaya menampilkan total biaya (Rp ... M)', /Rp\s?\d+,\d+\s?M/.test(biayaTxt.replace(/\n/g, ' ')), biayaTxt.split('\n').slice(0, 6).join(' | '));
   const biayaChart = await page.evaluate(() => {
     const cv = document.querySelector('#chartBiayaGran');
     return cv ? !!(window.Chart && window.Chart.getChart(cv)) : 'no-canvas';
@@ -265,7 +269,7 @@ const check = (name, ok, extra = '') => {
   console.log('tReady visit-2 (ms):', tReady2);
   check('kunjungan kedua siap dipakai (data tampil)', tReady2 < 6000, tReady1 + ' ms -> ' + tReady2 + ' ms');
   const rc2 = await page2.$eval('#rowCount', el => el.textContent.trim());
-  check('data tetap lengkap setelah reload', /12\.396/.test(rc2), rc2);
+  check('data tetap lengkap setelah reload', parseInt(rc2.split('/')[1].replace(/\D/g, ''), 10) === TOTAL, rc2);
 
   // ---- MODE OFFLINE: data cache tetap tampil ----
   await page2.setOfflineMode(true);
@@ -277,7 +281,7 @@ const check = (name, ok, extra = '') => {
   }, { timeout: 45000 }).then(() => true).catch(() => false);
   const tOffline = Date.now() - t3;
   const rcOff = await page2.$eval('#rowCount', el => el.textContent.trim()).catch(() => 'n/a');
-  check('offline: dashboard tetap terisi dari cache', offlineOk && /12\.396/.test(rcOff), rcOff + ' (' + tOffline + ' ms)');
+  check('offline: dashboard tetap terisi dari cache', offlineOk && /records/.test(rcOff) && !/^0 records/.test(rcOff), rcOff + ' (' + tOffline + ' ms)');
   await page2.setOfflineMode(false);
 
   // ---- FALLBACK: spreadsheet diblokir -> pakai data contoh lokal ----

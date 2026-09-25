@@ -10,6 +10,8 @@ const CSV_URL = `${GVIZ_BASE}?tqx=out:csv&sheet=${SHEET_NAME}`;
 const DATES_URL = `${GVIZ_BASE}?tq=${encodeURIComponent('select A')}&tqx=out:json&sheet=${SHEET_NAME}`;
 // JSON penuh dipakai hanya sebagai fallback bila CSV bermasalah
 const GVIZ_URL = `${GVIZ_BASE}?tqx=out:json&sheet=${SHEET_NAME}`;
+const INDEX_SHEET = 'Index Solar';
+const INDEX_URL = `${GVIZ_BASE}?tqx=out:csv&sheet=${encodeURIComponent(INDEX_SHEET)}`;
 const SAMPLE_URL = './assets/sample-data.csv';
 const DATA_CACHE = 'pg2-data-v1';
 const META_KEY = 'pg2-meta-v1';
@@ -30,7 +32,7 @@ let wilayahSort = 'totalLuas';
 let biayaGran = 'monthly'; // granularity for biaya period table
 let biayaSort = 'totalBiaya'; // sort for biaya wilayah table
 let currentTab = 'overview'; // active tab
-const TAB_IDS = ['overview','wilayah','biaya','utilisasi','data'];
+const TAB_IDS = ['overview','wilayah','biaya','utilisasi','indexsolar','data'];
 // --- performa & stabilitas ---
 let dataVersion = 0;                 // naik setiap filteredData berubah -> invalidasi memo
 const memoStore = new Map();
@@ -39,6 +41,14 @@ let lastMeta = null;                 // {sig, ts, rows}
 let syncTimer = null, syncFailures = 0, isSyncing = false;
 let dataSource = 'live';             // live | cache | sample
 let filtersUIReady = false;
+// --- sheet "Index Solar" (evaluasi pemakaian solar per engine) ---
+let indexData = [];                  // baris hasil parsing sheet Index Solar
+let indexVersion = 0;                // naik saat indexData berubah
+let indexPage = 1;
+let indexSort = 'selisih';
+let indexSearch = '';
+let indexJust = 'all';               // all | Hemat | Boros | anomali
+let indexPageSize = 12;
 let appliedSig = null;                // sidik jari payload yang sedang tampil (hindari render ganda)
 let wasOffline = false;               // agar event 'online' bawaan browser tidak memicu sync ganda
 let filters = {
@@ -316,7 +326,8 @@ function buildRows(csvText, datesText) {
   const cDate = I('Date'), cWil = I('Wilayah'), cLok = I('Lokasi'), cEng = I('Engine'), cIri = I('Irigator'),
         cJIri = I('Jenis Irigator'), cPlan = I('Plan Time'), cLuas = I('Luas Siram'), cKec = I('Kecepatan Rata-rata'),
         cTebal = I('Tebal Siram'), cPrep = I('Prepare Time'), cOper = I('Operating Time'), cWait = I('Waiting Time'),
-        cRep = I('Repair'), cDown = I('Down Time'), cStand = I('Standby'), cOff = I('Off Time'), cTotOper = I('Tot. Oper. Time'),
+        cRep = I('Repair'), cDown = I('Down Time'), cStand = I('Standby'), cOff = I('Off Time'),
+        cTotOper = (I('Tot, Oper, Time') !== undefined ? I('Tot, Oper, Time') : I('Tot. Oper. Time')),
         cTotAvail = I('Total Avail'), cTotTime = I('Total Time'), cAvail = I('% Availability'), cUtil = I('% Utilization'),
         cAir = I('Air'), cSolar = I('Solar Terpakai (ltr)'), cBSolar = I('Biaya Solar (Std)'), cBUpah = I('Biaya Upah'),
         cBAlat = I('Biaya Alat'), cBTotal = I('Biaya Total'), cRpHa = I('Rp/Ha'), cHaHari = I('Ha/Hari'),
@@ -362,6 +373,108 @@ function buildRows(csvText, datesText) {
     try { localStorage.setItem('pg2-year', String(out[out.length - 1]._y)); } catch (e) {}
   }
   console.debug('[data] CSV', rows.length - 1, 'baris ->', out.length, 'dipakai dalam', Math.round(performance.now() - t0), 'ms');
+  return out;
+}
+
+// ============================================================
+// SHEET "INDEX SOLAR" - evaluasi pemakaian solar per engine
+// Kolom: Kode Engine, Tanggal Siram, Wilayah, Lokasi, Kode Irrigator, Jenis Engine,
+//        Pemakaian Solar, Jam Operaton, Liter/jam, Kalibrasi, Justifikasi, Selisih
+// ============================================================
+const _norm = (h) => String(h || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+function colIndex(headers, candidates) {
+  const map = {};
+  for (let i = 0; i < headers.length; i++) map[_norm(headers[i])] = i;
+  for (let i = 0; i < candidates.length; i++) {
+    const k = _norm(candidates[i]);
+    if (map[k] !== undefined) return map[k];
+  }
+  return -1;
+}
+// "9/21/2026" (bulan/tanggal/tahun gaya sheet) -> "21-Sep" + objek Date
+function parseIndexDate(str, fallbackYear) {
+  const t = String(str || '').trim();
+  if (!t) return { label: '', date: null };
+  const m = t.match(/^\s*(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+  if (m) {
+    let a = parseInt(m[1], 10), b = parseInt(m[2], 10), y = parseInt(m[3], 10);
+    if (y < 100) y += 2000;
+    let day = a, mon = b;
+    if (a > 12) { day = a; mon = b; }          // pasti tanggal/bulan
+    else if (b > 12) { day = b; mon = a; }     // bulan/tanggal
+    else { day = b; mon = a; }                 // gaya default sheet: bulan/tanggal
+    const NAMA = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+    const mon0 = Math.min(11, Math.max(0, mon - 1));
+    return { label: `${day}-${NAMA[mon0]}`, date: new Date(y, mon0, day) };
+  }
+  const fallback = parseShortDate(t, fallbackYear);
+  return { label: t, date: fallback };
+}
+// Buang satuan "Liter" pada kolom Selisih -> angka
+function parseSelisih(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  const t = String(v).replace(/[^0-9,.-]/g, '').trim();
+  return toNumFast(t);
+}
+function parseIndexSolar(csvText) {
+  if (!csvText) return [];
+  const rows = parseCSVFast(csvText);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(h => h.trim());
+  const cEngine = colIndex(headers, ['Kode Engine', 'Engine']);
+  const cDate = colIndex(headers, ['Tanggal Siram', 'Tanggal']);
+  const cWil = colIndex(headers, ['Wilayah']);
+  const cLok = colIndex(headers, ['Lokasi']);
+  const cIri = colIndex(headers, ['Kode Irrigator', 'Irigator']);
+  const cJenis = colIndex(headers, ['Jenis Engine']);
+  const cSolar = colIndex(headers, ['Pemakaian Solar', 'Solar Terpakai']);
+  const cJam = colIndex(headers, ['Jam Operaton', 'Jam Operation', 'Jam Operasi', 'Jam']);
+  const cLpj = colIndex(headers, ['Liter/jam', 'Liter per jam']);
+  const cKal = colIndex(headers, ['Kalibrasi']);
+  const cJust = colIndex(headers, ['Justifikasi']);
+  const cSel = colIndex(headers, ['Selisih']);
+  if (cEngine < 0) { console.warn('[index solar] kolom "Kode Engine" tidak ditemukan'); return []; }
+
+  let fallbackYear = new Date().getFullYear();
+  try { const y = parseInt(localStorage.getItem('pg2-year'), 10); if (y) fallbackYear = y; } catch (e) {}
+
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || !row.length) continue;
+    const g = (i) => (i < 0 || row[i] === undefined ? '' : String(row[i]).trim());
+    const engine = g(cEngine);
+    if (!engine) continue;
+    const solar = toNumFast(g(cSolar));
+    const jam = toNumFast(g(cJam));
+    const kalibrasi = toNumFast(g(cKal));
+    const justifikasiRaw = g(cJust);
+    const wilayah = g(cWil);
+    const tgl = parseIndexDate(g(cDate), fallbackYear);
+    const lpjSheet = toNumFast(g(cLpj));
+    const lpjAktual = jam > 0 ? solar / jam : 0;          // dihitung sendiri agar akurat
+    const aktif = !/tidak/i.test(wilayah) && !/^tid$/i.test(g(cJenis)) && jam > 0;
+    // Anomali: pemakaian jauh di atas kalibrasi (mis. salah input 46.258 L untuk 2 jam)
+    const anomali = aktif && kalibrasi > 0 && lpjAktual > kalibrasi * 5;
+    const justifikasi = /boros/i.test(justifikasiRaw) ? 'Boros' : (/hemat/i.test(justifikasiRaw) ? 'Hemat' : (aktif ? 'Hemat' : 'Tidak Ada Siram'));
+    out.push({
+      engine,
+      tanggalLabel: tgl.label,
+      date: tgl.date,
+      _y: tgl.date ? tgl.date.getFullYear() : 0,
+      _m: tgl.date ? tgl.date.getMonth() : -1,
+      wilayah: aktif ? wilayah : 'Tidak Ada Siram',
+      lokasi: g(cLok),
+      irigator: g(cIri),
+      jenis: g(cJenis) || '-',
+      solar, jam, kalibrasi, lpjSheet, lpjAktual,
+      selisih: parseSelisih(g(cSel)),
+      deviasi: kalibrasi > 0 ? lpjAktual - kalibrasi : 0,
+      justifikasi, aktif, anomali,
+      _s: (engine + ' ' + g(cLok) + ' ' + g(cIri) + ' ' + wilayah + ' ' + g(cJenis) + ' ' + tgl.label).toLowerCase()
+    });
+  }
+  console.debug('[index solar]', out.length, 'engine dibaca (', out.filter(x => x.aktif).length, 'aktif )');
   return out;
 }
 
@@ -451,16 +564,17 @@ function fingerprint(text) {
 // Ambil payload (CSV + tanggal) - CSV utama, JSON penuh bila gagal
 async function fetchPayload({ preferCache = false } = {}) {
   if (preferCache) {
-    const [csv, dates] = await Promise.all([cacheGet(CSV_URL), cacheGet(DATES_URL)]);
+    const [csv, dates, index] = await Promise.all([cacheGet(CSV_URL), cacheGet(DATES_URL), cacheGet(INDEX_URL)]);
     if (csv && csv.length > 1000) {
       const meta = readMeta();
-      return { csv, dates, sig: meta ? meta.sig : fingerprint(csv), ts: meta ? meta.ts : Date.now(), fromCache: true };
+      return { csv, dates, index, sig: meta ? meta.sig : fingerprint(csv), ts: meta ? meta.ts : Date.now(), fromCache: true };
     }
   }
   // paralel: CSV (sumber utama) + kolom tanggal (~3 KB).
   // Kalau index.html sudah memulai unduhan lebih awal, hasilnya dipakai ulang di sini.
-  let csv = null, dates = null;
+  let csv = null, dates = null, index = null;
   const earlyCsv = window.__pgCsvEarly, earlyDates = window.__pgDatesEarly;
+  const indexPromise = fetchText(INDEX_URL).catch(() => null);   // ~13 KB, dijalankan paralel
   if (earlyCsv || earlyDates) {
     const [c, d] = await Promise.all([
       earlyCsv ? withTimeout(earlyCsv, REQ_TIMEOUT_MS, 'csv').catch(() => null) : Promise.resolve(null),
@@ -478,9 +592,10 @@ async function fetchPayload({ preferCache = false } = {}) {
     if (!csv && retries[0].status === 'fulfilled') csv = retries[0].value;
     if (!dates && retries[1].status === 'fulfilled') dates = retries[1].value;
   }
+  index = await indexPromise;
   const ts = Date.now();
   if (csv && csv.length > 1000) {
-    return { csv, dates, sig: fingerprint(csv), ts, fromCache: false };
+    return { csv, dates, index, sig: fingerprint(csv) + '|' + (index ? fingerprint(index) : '-'), ts, fromCache: false };
   }
   // CSV bermasalah -> baru ambil JSON gviz penuh (jauh lebih besar, hanya sebagai cadangan)
   console.warn('[data] CSV gagal, memakai fallback JSON gviz');
@@ -710,6 +825,173 @@ function getWilayahStatsRaw() {
 
 // ===== ANALISA BIAYA IRIGASI =====
 // Total biaya, biaya solar/upah/alat, Rp/Ha & Rp/Jam - total maupun per wilayah
+// ===== WAKTU & KETERSEDIAAN (kolom Plan/Prepare/Operating/Waiting/Repair/Down/Standby/Off/dst.) =====
+// Diringkas per bulan (untuk chart komposisi) dan per wilayah (untuk tabel ringkas)
+function getWaktuBulanan() {
+  return memo('waktuBulanan', () => {
+    const groups = {};
+    const keys = [];
+    for (let i = 0; i < filteredData.length; i++) {
+      const d = filteredData[i];
+      const key = getMonthLabel(d.date);
+      let g = groups[key];
+      if (!g) {
+        g = groups[key] = { key, count: 0, plan: 0, prepare: 0, operating: 0, waiting: 0, repair: 0, down: 0, standby: 0, off: 0, totOper: 0, totalAvail: 0, totalTime: 0, air: 0, luas: 0, solar: 0, avail: 0, util: 0 };
+        keys.push(key);
+      }
+      g.count++;
+      g.plan += d.planTime || 0; g.prepare += d.prepareTime || 0; g.operating += d.operatingTime || 0;
+      g.waiting += d.waitingTime || 0; g.repair += d.repair || 0; g.down += d.downTime || 0;
+      g.standby += d.standby || 0; g.off += d.offTime || 0; g.totOper += d.totOperTime || 0;
+      g.totalAvail += d.totalAvail || 0; g.totalTime += d.totalTime || 0; g.air += d.air || 0;
+      g.luas += d.luasSiram || 0; g.solar += d.solarTerpakai || 0;
+      g.avail += d.availability || 0; g.util += d.utilization || 0;
+    }
+    keys.sort();
+    return keys.map(k => {
+      const g = groups[k], n = g.count || 1;
+      return {
+        key: g.key, label: g.key, count: g.count,
+        plan: g.plan, prepare: g.prepare, operating: g.operating, waiting: g.waiting,
+        repair: g.repair, down: g.down, standby: g.standby, off: g.off,
+        totOper: g.totOper, totalAvail: g.totalAvail, totalTime: g.totalTime,
+        air: g.air, luas: g.luas, solar: g.solar,
+        avgAvail: g.avail / n, avgUtil: g.util / n
+      };
+    });
+  });
+}
+function getWaktuWilayah() {
+  return memo('waktuWilayah', () => {
+    const groups = {};
+    for (let i = 0; i < filteredData.length; i++) {
+      const d = filteredData[i];
+      let g = groups[d.wilayah];
+      if (!g) g = groups[d.wilayah] = { wilayah: d.wilayah, count: 0, plan: 0, prepare: 0, operating: 0, waiting: 0, repair: 0, down: 0, standby: 0, off: 0, totOper: 0, totalAvail: 0, totalTime: 0, air: 0, luas: 0, solar: 0, avail: 0, util: 0 };
+      g.count++;
+      g.plan += d.planTime || 0; g.prepare += d.prepareTime || 0; g.operating += d.operatingTime || 0;
+      g.waiting += d.waitingTime || 0; g.repair += d.repair || 0; g.down += d.downTime || 0;
+      g.standby += d.standby || 0; g.off += d.offTime || 0; g.totOper += d.totOperTime || 0;
+      g.totalAvail += d.totalAvail || 0; g.totalTime += d.totalTime || 0; g.air += d.air || 0;
+      g.luas += d.luasSiram || 0; g.solar += d.solarTerpakai || 0;
+      g.avail += d.availability || 0; g.util += d.utilization || 0;
+    }
+    const out = Object.keys(groups).map(w => {
+      const g = groups[w], n = g.count || 1;
+      g.avgAvail = g.avail / n; g.avgUtil = g.util / n;
+      g.literPerHa = g.luas ? g.air / g.luas : 0;
+      return g;
+    });
+    out.sort((a, b) => b.air - a.air);
+    return out;
+  });
+}
+// Total waktu pemakaian alat (untuk kartu ringkas) - satu lintasan
+function getWaktuTotal() {
+  return memo('waktuTotal', () => {
+    const t = { plan: 0, prepare: 0, operating: 0, waiting: 0, repair: 0, down: 0, standby: 0, off: 0, totOper: 0, totalAvail: 0, totalTime: 0, air: 0, count: 0 };
+    for (let i = 0; i < filteredData.length; i++) {
+      const d = filteredData[i];
+      t.count++;
+      t.plan += d.planTime || 0; t.prepare += d.prepareTime || 0; t.operating += d.operatingTime || 0;
+      t.waiting += d.waitingTime || 0; t.repair += d.repair || 0; t.down += d.downTime || 0;
+      t.standby += d.standby || 0; t.off += d.offTime || 0; t.totOper += d.totOperTime || 0;
+      t.totalAvail += d.totalAvail || 0; t.totalTime += d.totalTime || 0; t.air += d.air || 0;
+    }
+    return t;
+  });
+}
+
+// ===== INDEX SOLAR: agregasi per engine (digabung dengan data ZPAS637) =====
+// Hasil: daftar engine dengan pemakaian solar aktual vs kalibrasi + rekap wilayah/jenis engine
+function getIndexSolarView() {
+  return memo('indexSolar:' + indexJust + ':' + indexSort + ':' + indexSearch, () => {
+    const wFilter = filters.wilayah;
+    const q = indexSearch ? indexSearch.toLowerCase() : null;
+    const rows = [];
+    // ringkasan aktivitas ZPAS637 per engine (mengikuti filter sidebar)
+    const zp = {};
+    for (let i = 0; i < filteredData.length; i++) {
+      const d = filteredData[i];
+      let a = zp[d.engine];
+      if (!a) a = zp[d.engine] = { n: 0, jam: 0, solar: 0, luas: 0 };
+      a.n++; a.jam += d.operatingTime || 0; a.solar += d.solarTerpakai || 0; a.luas += d.luasSiram || 0;
+    }
+    for (let i = 0; i < indexData.length; i++) {
+      const r = indexData[i];
+      if (wFilter.size && !wFilter.has(r.wilayah)) continue;
+      if (q && r._s.indexOf(q) === -1) continue;
+      if (indexJust === 'Hemat' && !(r.aktif && r.justifikasi === 'Hemat' && !r.anomali)) continue;
+      if (indexJust === 'Boros' && !(r.aktif && r.justifikasi === 'Boros' && !r.anomali)) continue;
+      if (indexJust === 'aktif' && !r.aktif) continue;
+      if (indexJust === 'anomali' && !r.anomali) continue;
+      const z = zp[r.engine] || null;
+      rows.push(Object.assign({}, r, {
+        zpN: z ? z.n : 0,
+        zpJam: z ? z.jam : 0,
+        zpSolar: z ? z.solar : 0,
+        zpLuas: z ? z.luas : 0,
+        zpLtrPerJam: z && z.jam ? z.solar / z.jam : 0
+      }));
+    }
+    const sorters = {
+      selisih: (a, b) => b.selisih - a.selisih,
+      deviasi: (a, b) => Math.abs(b.deviasi) - Math.abs(a.deviasi),
+      solar: (a, b) => b.solar - a.solar,
+      jam: (a, b) => b.jam - a.jam,
+      lpj: (a, b) => b.lpjAktual - a.lpjAktual,
+      engine: (a, b) => a.engine.localeCompare(b.engine)
+    };
+    rows.sort(sorters[indexSort] || sorters.selisih);
+
+    const aktif = rows.filter(r => r.aktif && !r.anomali);
+    // "solar 0 L" dipisah: pemakaian belum tercatat, tidak adil disebut Hemat/Boros
+    const nolSolar = aktif.filter(r => r.solar === 0);
+    const terukur = aktif.filter(r => r.solar > 0);
+    const ringkas = {
+      total: rows.length,
+      aktifAll: rows.filter(r => r.aktif).length,
+      aktif: aktif.length,
+      terukur: terukur.length,
+      nol: nolSolar.length,
+      hemat: terukur.filter(r => r.justifikasi === 'Hemat').length,
+      boros: terukur.filter(r => r.justifikasi === 'Boros').length,
+      anomaly: rows.filter(r => r.anomali).length,
+      tanpaSiram: rows.filter(r => !r.aktif).length,
+      solar: aktif.reduce((a, r) => a + r.solar, 0),
+      jam: aktif.reduce((a, r) => a + r.jam, 0),
+      selisih: terukur.reduce((a, r) => a + r.selisih, 0),
+      selisihAbs: terukur.reduce((a, r) => a + Math.abs(r.selisih), 0),
+      selisihAnomali: rows.filter(r => r.anomali).reduce((a, r) => a + r.selisih, 0),
+      kalibrasi: aktif.filter(r => r.kalibrasi > 0).reduce((a, r) => a + r.kalibrasi, 0),
+      kalibrasiN: aktif.filter(r => r.kalibrasi > 0).length,
+      // rekap per jenis (kolom "Jenis Engine" pada sheet Index Solar)
+      perJenisRingkas: {}
+    };
+    const jamTerukur = terukur.reduce((a, r) => a + r.jam, 0);
+    ringkas.ltrPerJam = jamTerukur ? terukur.reduce((a, r) => a + r.solar, 0) / jamTerukur : 0;
+    ringkas.kalibrasiAvg = ringkas.kalibrasiN ? ringkas.kalibrasi / ringkas.kalibrasiN : 0;
+    // rekap per wilayah & per jenis engine
+    const perWilayah = {}, perJenis = {};
+    aktif.forEach(r => {
+      const w = perWilayah[r.wilayah] || (perWilayah[r.wilayah] = { wilayah: r.wilayah, hemat: 0, boros: 0, solar: 0, jam: 0, selisih: 0 });
+      w.hemat += r.justifikasi === 'Hemat' ? 1 : 0;
+      w.boros += r.justifikasi === 'Boros' ? 1 : 0;
+      w.solar += r.solar; w.jam += r.jam; w.selisih += r.selisih;
+      const j = perJenis[r.jenis] || (perJenis[r.jenis] = { jenis: r.jenis, hemat: 0, boros: 0, solar: 0, jam: 0, n: 0 });
+      j.n++; j.hemat += r.justifikasi === 'Hemat' ? 1 : 0; j.boros += r.justifikasi === 'Boros' ? 1 : 0;
+      j.solar += r.solar; j.jam += r.jam;
+    });
+    Object.keys(perJenis).forEach(k => { ringkas.perJenisRingkas[k] = perJenis[k]; });
+    return {
+      rows,
+      ringkas,
+      perWilayah: Object.keys(perWilayah).map(k => perWilayah[k]).sort((a, b) => (b.hemat + b.boros) - (a.hemat + a.boros)),
+      perJenis: Object.keys(perJenis).map(k => perJenis[k]).sort((a, b) => b.n - a.n)
+    };
+  });
+}
+
 function getBiayaWilayahStats() {
   return memo('biaya:' + biayaSort, () => getBiayaWilayahStatsRaw());
 }
@@ -1374,13 +1656,200 @@ function renderOverviewWilayah() {
   }).join('');
 }
 
+// ===== TAB UTILISASI: kartu waktu alat + tabel ringkas per wilayah =====
+const WAKTU_CARDS = [
+  { k:'plan',      label:'Plan Time',      icon:'calendar-clock', color:'slate',   fmt:'jam', desc:'Rencana jam kerja' },
+  { k:'prepare',   label:'Prepare Time',   icon:'wrench',         color:'slate',   fmt:'jam', desc:'Persiapan sebelum operasi' },
+  { k:'operating', label:'Operating Time', icon:'activity',       color:'blue',    fmt:'jam', desc:'Jam operasi efektif' },
+  { k:'waiting',   label:'Waiting Time',   icon:'hourglass',      color:'amber',   fmt:'jam', desc:'Menunggu (cuaca/teknis)' },
+  { k:'repair',    label:'Repair',         icon:'hammer',         color:'red',     fmt:'jam', desc:'Waktu perbaikan' },
+  { k:'down',      label:'Down Time',      icon:'alert-octagon',  color:'red',     fmt:'jam', desc:'Alat berhenti (breakdown)' },
+  { k:'standby',   label:'Standby',        icon:'pause-circle',   color:'violet',  fmt:'jam', desc:'Siaga tanpa operasi' },
+  { k:'off',       label:'Off Time',       icon:'moon',           color:'slate',   fmt:'jam', desc:'Di luar jam kerja' },
+  { k:'totOper',   label:'Tot. Oper. Time',icon:'timer',          color:'blue',    fmt:'jam', desc:'Total waktu operasional' },
+  { k:'totalAvail',label:'Total Avail',    icon:'shield-check',   color:'emerald', fmt:'jam', desc:'Waktu tersedia' },
+  { k:'totalTime', label:'Total Time',     icon:'clock',          color:'slate',   fmt:'jam', desc:'Total seluruh waktu' },
+  { k:'air',       label:'Air Terpakai',   icon:'droplets',       color:'sky',     fmt:'air', desc:'Volume air irigasi' }
+];
+function renderWaktuCards() {
+  const host = $('#waktuCards');
+  if (!host) return;
+  const t = getWaktuTotal();
+  if (!t.count) { host.innerHTML = '<div class="col-span-12 text-center py-6 text-[12px] text-slate-400">Tidak ada data untuk filter ini</div>'; return; }
+  host.innerHTML = WAKTU_CARDS.map(c => {
+    const val = t[c.k] || 0;
+    const per = val / t.count;
+    const tampil = c.fmt === 'air' ? formatInt(val) + ' <span class="text-[10px] font-medium text-slate-400">L</span>'
+                                   : formatNumber(val, 1) + ' <span class="text-[10px] font-medium text-slate-400">jam</span>';
+    const sub = c.fmt === 'air' ? `rata-rata ${formatInt(per)} L/aktivitas` : `rata-rata ${formatNumber(per, 2)} jam/aktivitas`;
+    return `
+      <div class="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-soft">
+        <div class="flex items-center justify-between gap-2">
+          <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-${c.color}-50 text-${c.color}-600 ring-1 ring-${c.color}-100"><i data-lucide="${c.icon}" class="h-4 w-4"></i></span>
+          <span class="text-[10px] uppercase tracking-wider text-slate-400">${esc(c.desc)}</span>
+        </div>
+        <div class="mt-2.5 text-[16px] font-bold leading-tight tracking-tight text-slate-900">${tampil}</div>
+        <div class="mt-0.5 text-[11px] font-medium text-slate-500">${esc(c.label)}</div>
+        <div class="mt-1 text-[10px] text-slate-400">${sub}</div>
+      </div>`;
+  }).join('');
+  refreshIcons();
+}
+function renderWaktuWilayahTable() {
+  const tbody = $('#waktuWilayahBody');
+  if (!tbody) return;
+  const rows = getWaktuWilayah();
+  const foot = $('#waktuWilayahFoot');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="17" class="px-4 py-10 text-center text-slate-400">Tidak ada data</td></tr>';
+    if (foot) foot.innerHTML = '';
+    return;
+  }
+  const cell = (v, d = 1) => formatNumber(v, d);
+  tbody.innerHTML = rows.map(w => `
+    <tr class="hover:bg-slate-50/80 transition">
+      <td class="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-900">${esc(w.wilayah)}</td>
+      <td class="px-3 py-2.5 text-right">${formatInt(w.count)}</td>
+      <td class="px-3 py-2.5 text-right">${cell(w.plan)}</td>
+      <td class="px-3 py-2.5 text-right">${cell(w.prepare)}</td>
+      <td class="px-3 py-2.5 text-right font-medium text-blue-700">${cell(w.operating)}</td>
+      <td class="px-3 py-2.5 text-right">${cell(w.waiting)}</td>
+      <td class="px-3 py-2.5 text-right">${cell(w.repair, 2)}</td>
+      <td class="px-3 py-2.5 text-right">${cell(w.down, 2)}</td>
+      <td class="px-3 py-2.5 text-right">${cell(w.standby)}</td>
+      <td class="px-3 py-2.5 text-right">${cell(w.off)}</td>
+      <td class="px-3 py-2.5 text-right">${cell(w.totOper)}</td>
+      <td class="px-3 py-2.5 text-right">${cell(w.totalAvail)}</td>
+      <td class="px-3 py-2.5 text-right">${cell(w.totalTime)}</td>
+      <td class="px-3 py-2.5 text-right font-medium text-sky-700">${formatInt(w.air)}</td>
+      <td class="px-3 py-2.5 text-right">${formatNumber(w.literPerHa, 0)}</td>
+      <td class="px-3 py-2.5 text-right">${formatNumber(w.avgAvail, 1)}%</td>
+      <td class="px-3 py-2.5 text-right">${formatNumber(w.avgUtil, 1)}%</td>
+    </tr>`).join('');
+  if (foot) {
+    const t = getWaktuTotal();
+    foot.innerHTML = `
+      <tr class="bg-slate-50 font-semibold text-slate-900">
+        <td class="px-3 py-3 whitespace-nowrap">TOTAL</td>
+        <td class="px-3 py-3 text-right">${formatInt(t.count)}</td>
+        <td class="px-3 py-3 text-right">${cell(t.plan)}</td>
+        <td class="px-3 py-3 text-right">${cell(t.prepare)}</td>
+        <td class="px-3 py-3 text-right text-blue-700">${cell(t.operating)}</td>
+        <td class="px-3 py-3 text-right">${cell(t.waiting)}</td>
+        <td class="px-3 py-3 text-right">${cell(t.repair, 2)}</td>
+        <td class="px-3 py-3 text-right">${cell(t.down, 2)}</td>
+        <td class="px-3 py-3 text-right">${cell(t.standby)}</td>
+        <td class="px-3 py-3 text-right">${cell(t.off)}</td>
+        <td class="px-3 py-3 text-right">${cell(t.totOper)}</td>
+        <td class="px-3 py-3 text-right">${cell(t.totalAvail)}</td>
+        <td class="px-3 py-3 text-right">${cell(t.totalTime)}</td>
+        <td class="px-3 py-3 text-right text-sky-700">${formatInt(t.air)}</td>
+        <td class="px-3 py-3 text-right">-</td>
+        <td class="px-3 py-3 text-right">-</td>
+        <td class="px-3 py-3 text-right">-</td>
+      </tr>`;
+  }
+}
+function renderUtilisasiTab() {
+  safeRender('charts-util', () => renderCharts('utilisasi'));
+  safeRender('waktuCards', renderWaktuCards);
+  safeRender('waktuWilayah', renderWaktuWilayahTable);
+}
+
+// ===== TAB INDEX SOLAR =====
+function renderIndexKPI() {
+  const host = $('#indexKpiGrid');
+  if (!host) return;
+  const iv = getIndexSolarView();
+  if (!iv.rows.length) {
+    host.innerHTML = '<div class="col-span-12 rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center text-[12px] text-slate-400">Data "Index Solar" belum tersedia atau tidak ada yang cocok dengan filter.</div>';
+    return;
+  }
+  const r = iv.ringkas;
+  const nol = r.nol;
+  const selisihTotal = r.selisih + r.selisihAnomali;
+  const deviasiPct = r.kalibrasiAvg ? ((r.ltrPerJam - r.kalibrasiAvg) / r.kalibrasiAvg) * 100 : 0;
+  const cards = [
+    { label:'Engine Dievaluasi', value:`${formatInt(r.aktifAll)}`, unit:'engine', sub:`${formatInt(r.nol)} tanpa catatan solar • ${formatInt(r.anomaly)} anomali • ${formatInt(r.tanpaSiram)} tanpa siram`, icon:'cpu', color:'slate' },
+    { label:'Pemakaian Solar (Index)', value:formatInt(r.solar), unit:'L', sub:`${formatNumber(r.jam,1)} jam operasi tercatat`, icon:'fuel', color:'amber' },
+    { label:'Aktual vs Kalibrasi', value:`${formatNumber(r.ltrPerJam,2)}`, unit:'L/jam',
+      sub:`kalibrasi rata-rata ${formatNumber(r.kalibrasiAvg,2)} L/jam (${deviasiPct>=0?'+':''}${formatNumber(deviasiPct,1)}%)`, icon:'gauge', color: deviasiPct<=0 ? 'emerald' : 'red' },
+    { label:'Hasil Evaluasi', value:`${formatInt(r.hemat)} / ${formatInt(r.boros)}`, unit:'hemat / boros',
+      sub:`dari ${formatInt(r.terukur)} engine dengan pemakaian terukur (${formatNumber(r.terukur ? r.hemat / r.terukur * 100 : 0, 0)}% hemat)`, icon:'clipboard-check', color:'emerald' },
+    { label:'Total Selisih', value:formatInt(r.selisih), unit:'L',
+      sub: selisihTotal > r.selisih ? `+${formatInt(selisihTotal - r.selisih)} L dari ${formatInt(r.anomaly)} data anomali` : 'selisih terhadap kalibrasi', icon:'scale', color:'red' }
+  ];
+  host.innerHTML = cards.map(c => `
+    <div class="rounded-[18px] border border-slate-200/70 bg-white p-4 shadow-soft">
+      <div class="flex items-start justify-between">
+        <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-${c.color}-50 text-${c.color}-600 ring-1 ring-${c.color}-200/50"><i data-lucide="${c.icon}" class="h-4 w-4"></i></span>
+      </div>
+      <div class="mt-3 text-[11px] font-medium uppercase tracking-wide text-slate-500">${esc(c.label)}</div>
+      <div class="mt-1 text-[20px] font-bold leading-tight tracking-tight text-slate-900">${c.value} <span class="text-[11px] font-medium text-slate-400">${c.unit}</span></div>
+      <div class="mt-1 text-[11px] text-slate-500">${c.sub}</div>
+    </div>`).join('');
+  refreshIcons();
+}
+function renderIndexTable() {
+  const tbody = $('#indexTableBody');
+  if (!tbody) return;
+  const iv = getIndexSolarView();
+  const rows = iv.rows;
+  const totalPages = Math.max(1, Math.ceil(rows.length / indexPageSize));
+  if (indexPage > totalPages) indexPage = totalPages;
+  const start = (indexPage - 1) * indexPageSize;
+  const pageRows = rows.slice(start, start + indexPageSize);
+  const info = $('#indexPageInfo'); if (info) info.textContent = `Page ${indexPage} / ${totalPages}`;
+  const cnt = $('#indexCount'); if (cnt) cnt.textContent = formatInt(rows.length);
+  const prev = $('#indexPrevPage'); if (prev) prev.disabled = indexPage <= 1;
+  const next = $('#indexNextPage'); if (next) next.disabled = indexPage >= totalPages;
+
+  if (!pageRows.length) {
+    tbody.innerHTML = '<tr><td colspan="13" class="px-4 py-10 text-center text-slate-400">Tidak ada engine yang cocok</td></tr>';
+    return;
+  }
+  const badge = (r) => {
+    if (r.anomali) return '<span class="inline-flex whitespace-nowrap rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200">Anomali</span>';
+    if (!r.aktif) return '<span class="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200">Tidak ada siram</span>';
+    if (r.solar === 0) return '<span class="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200">Solar 0 L</span>';
+    return r.justifikasi === 'Boros'
+      ? '<span class="inline-flex whitespace-nowrap rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200">Boros</span>'
+      : '<span class="inline-flex whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">Hemat</span>';
+  };
+  tbody.innerHTML = pageRows.map(r => {
+    const devWarna = !r.kalibrasi ? 'text-slate-400' : (r.deviasi > 0 ? 'text-red-600' : 'text-emerald-600');
+    return `
+    <tr class="hover:bg-slate-50/80 transition">
+      <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] font-semibold text-slate-900">${esc(r.engine)}</td>
+      <td class="px-3 py-2.5 whitespace-nowrap"><span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium">${esc(r.wilayah)}</span></td>
+      <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] text-slate-600">${esc(r.lokasi)}</td>
+      <td class="px-3 py-2.5 whitespace-nowrap text-[11px] text-slate-600">${esc(r.jenis)}</td>
+      <td class="px-3 py-2.5 whitespace-nowrap text-[11px] text-slate-600">${esc(r.tanggalLabel || '-')}</td>
+      <td class="px-3 py-2.5 text-right font-medium">${formatInt(r.solar)}</td>
+      <td class="px-3 py-2.5 text-right">${formatNumber(r.jam, 1)}</td>
+      <td class="px-3 py-2.5 text-right font-semibold">${formatNumber(r.lpjAktual, 1)}</td>
+      <td class="px-3 py-2.5 text-right text-slate-500">${r.kalibrasi ? formatNumber(r.kalibrasi, 2) : '-'}</td>
+      <td class="px-3 py-2.5 text-right ${devWarna}">${r.kalibrasi ? (r.deviasi > 0 ? '+' : '') + formatNumber(r.deviasi, 1) : '-'}</td>
+      <td class="px-3 py-2.5 text-right ${r.selisih ? 'font-medium text-slate-700' : 'text-slate-400'}">${formatNumber(r.selisih, 0)}</td>
+      <td class="px-3 py-2.5 whitespace-nowrap text-center">${badge(r)}</td>
+      <td class="px-3 py-2.5 text-right text-[11px] text-slate-500">${r.zpN ? formatInt(r.zpN) + ' act • ' + formatNumber(r.zpLtrPerJam, 1) + ' L/j' : '-'}</td>
+    </tr>`;
+  }).join('');
+}
+function renderIndexSolar() {
+  safeRender('indexKpi', renderIndexKPI);
+  safeRender('charts-index', () => renderCharts('indexsolar'));
+  safeRender('indexTable', renderIndexTable);
+}
+
 // Render isi satu tab saja (dipakai oleh updateAll & activateTab)
 function renderTab(tab) {
   if (!rawData.length) return;
   if (tab === 'overview') { safeRender('kpi', renderKPIs); safeRender('overviewWilayah', renderOverviewWilayah); safeRender('charts-ovw', () => renderCharts('overview')); }
   else if (tab === 'wilayah') { safeRender('charts-wil', () => renderCharts('wilayah')); safeRender('wilayahDetail', renderWilayahDetail); }
   else if (tab === 'biaya') { safeRender('biaya', renderBiaya); }
-  else if (tab === 'utilisasi') { safeRender('charts-util', () => renderCharts('utilisasi')); }
+  else if (tab === 'utilisasi') { renderUtilisasiTab(); }
+  else if (tab === 'indexsolar') { renderIndexSolar(); }
   else if (tab === 'data') { safeRender('table', renderTable); }
   dirtyTabs.delete(tab);
 }
@@ -1464,7 +1933,9 @@ function ensureChart(id, config) {
 const CHART_TAB_OF = {
   chartSolar:'overview', chartLuas:'overview', chartJam:'overview', chartKecepatan:'overview',
   chartEfisiensi:'overview', chartWilayah:'wilayah', chartWilayahEff:'wilayah', chartWilayahCompare:'wilayah',
-  chartJenisEngine:'utilisasi', chartAvail:'utilisasi', chartScatter:'utilisasi'
+  chartJenisEngine:'utilisasi', chartAvail:'utilisasi', chartScatter:'utilisasi',
+  chartWaktuKomposisi:'utilisasi', chartAir:'utilisasi',
+  chartIndexBoros:'indexsolar', chartIndexHasil:'indexsolar', chartIndexWilayah:'indexsolar', chartIndexScatter:'indexsolar'
 };
 function renderCharts(tab) {
   const want = (id) => !tab || !CHART_TAB_OF[id] || CHART_TAB_OF[id] === tab;
@@ -1709,6 +2180,146 @@ function renderCharts(tab) {
       scales:{ x:{ title:{display:true,text:'Ha/Jam (Produktivitas)',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} }, y:{ title:{display:true,text:'Solar Ltr/Ha (Efisiensi)',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} } }
     }
   });
+
+  // ===== TAB UTILISASI: komposisi waktu alat (kolom Plan..Off, Tot Oper, Total Avail, Total Time) =====
+  if (want('chartWaktuKomposisi')) {
+    const wb = getWaktuBulanan();
+    ensureChart('chartWaktuKomposisi', {
+      type: 'bar',
+      data: {
+        labels: wb.map(w => w.label),
+        datasets: [
+          { label:'Operating', data: wb.map(w=>w.operating), backgroundColor:'#3b82f6', stack:'waktu' },
+          { label:'Waiting', data: wb.map(w=>w.waiting), backgroundColor:'#f59e0b', stack:'waktu' },
+          { label:'Prepare', data: wb.map(w=>w.prepare), backgroundColor:'#94a3b8', stack:'waktu' },
+          { label:'Standby', data: wb.map(w=>w.standby), backgroundColor:'#8b5cf6', stack:'waktu' },
+          { label:'Repair', data: wb.map(w=>w.repair), backgroundColor:'#ef4444', stack:'waktu' },
+          { label:'Down Time', data: wb.map(w=>w.down), backgroundColor:'#dc2626', stack:'waktu' },
+          { label:'Off Time', data: wb.map(w=>w.off), backgroundColor:'#cbd5e1', stack:'waktu' }
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, font:{size:10}, boxWidth:8 }}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12, callbacks:{ label: ctx=> `${ctx.dataset.label}: ${formatNumber(ctx.raw,1)} jam` } } },
+        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{font:{size:9}, maxTicksLimit:10} }, y:{ stacked:true, beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} , title:{display:true,text:'Jam',font:{size:10}}} }
+      }
+    });
+  }
+  if (want('chartAir')) {
+    const wb = getWaktuBulanan();
+    ensureChart('chartAir', {
+      type: 'line',
+      data: {
+        labels: wb.map(w=>w.label),
+        datasets: [
+          { label:'Air Terpakai (m³)', data: wb.map(w=>w.air/1000), borderColor:'#0ea5e9', backgroundColor:'rgba(14,165,233,0.12)', fill:true, tension:0.35, pointRadius:0, borderWidth:2, yAxisID:'y' },
+          { label:'Luas Siram (Ha)', data: wb.map(w=>w.luas), borderColor:'#10b981', backgroundColor:'transparent', tension:0.35, pointRadius:0, borderWidth:2, yAxisID:'y1' },
+          { label:'Solar (L)', data: wb.map(w=>w.solar/1000), borderColor:'#f59e0b', borderDash:[4,4], tension:0.35, pointRadius:0, borderWidth:1.5, yAxisID:'y1' }
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, font:{size:10} }}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12 } },
+        scales:{ x:{ grid:{display:false}, ticks:{font:{size:9}, maxTicksLimit:10} },
+                 y:{ beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}, title:{display:true,text:'Air (m³)',font:{size:10}} },
+                 y1:{ beginAtZero:true, position:'right', grid:{display:false}, ticks:{font:{size:10}}, title:{display:true,text:'Ha / ribu L solar',font:{size:10}} } }
+      }
+    });
+  }
+
+  // ===== TAB INDEX SOLAR: pemakaian solar per engine vs kalibrasi =====
+  if (want('chartIndexBoros') || want('chartIndexHasil') || want('chartIndexWilayah') || want('chartIndexScatter')) {
+    const iv = getIndexSolarView();
+    if (want('chartIndexBoros')) {
+      // 10 penyimpangan terbesar (|deviasi| L/jam) supaya engine Boros & Hemat paling menyimpang
+      // sama-sama terlihat - bukan hanya yang selisihnya kecil.
+      const top = iv.rows
+        .filter(r => r.aktif && !r.anomali && r.kalibrasi > 0)
+        .sort((a, b) => Math.abs(b.deviasi) - Math.abs(a.deviasi))
+        .slice(0, 10)
+        .sort((a, b) => Math.abs(a.deviasi) - Math.abs(b.deviasi));
+      ensureChart('chartIndexBoros', {
+        type: 'bar',
+        data: {
+          labels: top.map(r => r.engine + ' • ' + r.wilayah),
+          datasets: [{ label:'Deviasi L/jam', data: top.map(r=>r.deviasi),
+            backgroundColor: top.map(r=> r.justifikasi==='Boros' ? 'rgba(239,68,68,0.85)' : 'rgba(16,185,129,0.85)'), borderRadius:6, borderSkipped:false }]
+        },
+        options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
+          plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12,
+            callbacks:{ label: ctx=> `${top[ctx.dataIndex].justifikasi} • aktual ${formatNumber(top[ctx.dataIndex].lpjAktual,2)} L/j vs kalibrasi ${formatNumber(top[ctx.dataIndex].kalibrasi,2)} L/j (${ctx.raw>0?'+':''}${formatNumber(ctx.raw,2)})` } } },
+          scales:{ x:{ beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} }, y:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+      });
+    }
+    if (want('chartIndexHasil')) {
+      const r = iv.ringkas;
+      const nol = r.nol;
+      ensureChart('chartIndexHasil', {
+        type: 'doughnut',
+        data: { labels:['Hemat (L/j < kalibrasi)','Boros (L/j > kalibrasi)','Tanpa catatan solar','Anomali','Tidak ada siram'],
+          datasets:[{ data:[ r.hemat, r.boros, nol, r.anomaly, r.tanpaSiram ],
+            backgroundColor:['#10b981','#ef4444','#cbd5e1','#8b5cf6','#e2e8f0'], borderWidth:0, hoverOffset:8 }] },
+        options:{ responsive:true, maintainAspectRatio:false, cutout:'66%',
+          plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12 } } }
+      });
+      const legend = $('#indexHasilLegend');
+      if (legend) {
+        const items = [
+          ['Hemat', r.hemat, '#10b981'], ['Boros', r.boros, '#ef4444'], ['Tanpa catatan solar', nol, '#cbd5e1'],
+          ['Anomali', r.anomaly, '#8b5cf6'], ['Tidak ada siram', r.tanpaSiram, '#e2e8f0']
+        ];
+        const perJenis = Object.keys(r.perJenisRingkas || {}).map(k => {
+          const j = r.perJenisRingkas[k];
+          return `<div class="mt-2 border-t border-slate-100 pt-2">
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jenis ${esc(k)} • ${formatInt(j.n)} engine</div>
+            <div class="mt-1 flex items-center justify-between text-[11px]"><span class="text-slate-600">Hemat / Boros</span><span class="font-mono text-slate-500">${formatInt(j.hemat)} / ${formatInt(j.boros)}</span></div>
+            <div class="flex items-center justify-between text-[11px]"><span class="text-slate-600">L/jam tertimbang</span><span class="font-mono text-slate-500">${j.jam ? formatNumber(j.solar / j.jam, 2) : '-'}</span></div>
+          </div>`;
+        }).join('');
+        legend.innerHTML = items.map(([l, v, c]) =>
+          `<div class="flex items-center justify-between text-[11px]"><div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full" style="background:${c}"></span><span class="font-medium text-slate-700">${esc(l)}</span></div><span class="font-mono text-slate-500">${formatInt(v)} engine</span></div>`
+        ).join('') + perJenis;
+      }
+    }
+    if (want('chartIndexWilayah')) {
+      ensureChart('chartIndexWilayah', {
+        type: 'bar',
+        data: { labels: iv.perWilayah.map(w=>w.wilayah),
+          datasets:[
+            { label:'Hemat', data: iv.perWilayah.map(w=>w.hemat), backgroundColor:'rgba(16,185,129,0.85)', stack:'hasil', borderRadius:6 },
+            { label:'Boros', data: iv.perWilayah.map(w=>w.boros), backgroundColor:'rgba(239,68,68,0.85)', stack:'hasil', borderRadius:6 }
+          ] },
+        options:{ responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, font:{size:10} }}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12,
+            callbacks:{ label: ctx=> `${ctx.dataset.label}: ${formatInt(ctx.raw)} engine` } } },
+          scales:{ x:{ stacked:true, grid:{display:false}, ticks:{font:{size:10}} }, y:{ stacked:true, beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}, precision:0}, title:{display:true,text:'Jumlah engine',font:{size:10}} } } }
+      });
+    }
+    if (want('chartIndexScatter')) {
+      const grup = { Hemat:[], Boros:[], Anomali:[], Nol:[] };
+      iv.rows.forEach(r => {
+        if (!r.aktif) return;
+        const key = r.anomali ? 'Anomali' : (r.solar === 0 ? 'Nol' : r.justifikasi);
+        (grup[key] || grup.Nol).push({ x: r.kalibrasi, y: r.lpjAktual, engine: r.engine });
+      });
+      const warna = { Hemat:'#10b981', Boros:'#ef4444', Anomali:'#8b5cf6', Nol:'#cbd5e1' };
+      let maxV = 20;
+      iv.rows.forEach(r => { if (r.aktif) maxV = Math.max(maxV, r.kalibrasi, Math.min(r.lpjAktual, 60)); });
+      ensureChart('chartIndexScatter', {
+        type: 'scatter',
+        data: { datasets: Object.keys(grup).filter(k=>grup[k].length).map(k => ({
+            label: k, data: grup[k], backgroundColor: warna[k] + 'CC', pointRadius: 5, pointHoverRadius: 7, showLine:false
+          })).concat([{ label:'Garis kalibrasi (ideal)', data:[{x:0,y:0},{x:Math.ceil(maxV),y:Math.ceil(maxV)}], type:'line', borderColor:'#94a3b8', borderDash:[5,5], borderWidth:1.5, pointRadius:0, fill:false }]) },
+        options:{ responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, font:{size:10} }},
+            tooltip:{ backgroundColor:'#0f172a', cornerRadius:12, callbacks:{ label: ctx=> ctx.raw.engine ? `${ctx.raw.engine}: kalibrasi ${formatNumber(ctx.parsed.x,1)} L/j, aktual ${formatNumber(ctx.parsed.y,1)} L/j` : 'Garis kalibrasi' } } },
+          scales:{ x:{ beginAtZero:true, title:{display:true,text:'Kalibrasi standar (L/jam)',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} },
+                   y:{ beginAtZero:true, title:{display:true,text:'Aktual (L/jam)',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} } } }
+      });
+    }
+  }
 }
 
 function renderInsights() {
@@ -1740,50 +2351,104 @@ function renderInsights() {
   container.innerHTML = insights.map(t=>`<div class="flex gap-2"><span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-emerald-500"></span><span>${t}</span></div>`).join('');
 }
 
+// ===== TAB DETAIL: seluruh kolom sheet ZPAS637 (A..AH = 34 kolom) =====
+// Urutan kolom mengikuti urutan sheet agar mudah dicocokkan saat verifikasi data.
+const DETAIL_COLS = [
+  { h:'Tanggal',            s:'date',          get:d=>d.date,                        fmt:'date',  align:'left',  sort:true },
+  { h:'Wilayah',            s:'wilayah',       get:d=>d.wilayah,                     fmt:'text',  align:'left',  sort:true, badge:true },
+  { h:'Lokasi',             s:'lokasi',        get:d=>d.lokasi,                      fmt:'mono',  align:'left',  sort:true },
+  { h:'Engine',             s:'engine',        get:d=>d.engine,                      fmt:'monoB', align:'left',  sort:true },
+  { h:'Irigator',           s:'irigator',      get:d=>d.irigator,                    fmt:'mono',  align:'left',  sort:true },
+  { h:'Jenis Irigator',     s:'jenisIrigator', get:d=>d.jenisIrigator,               fmt:'text',  align:'left',  sort:true },
+  { h:'Plan Time',          s:'planTime',      get:d=>d.planTime,                    fmt:'n1',    align:'right' },
+  { h:'Luas Siram',         s:'luasSiram',     get:d=>d.luasSiram,                   fmt:'n2b',   align:'right', sort:true },
+  { h:'Kecepatan',          s:'kecepatan',     get:d=>d.kecepatan,                   fmt:'n1',    align:'right' },
+  { h:'Tebal Siram',        s:'tebalSiram',    get:d=>d.tebalSiram,                  fmt:'n1',    align:'right' },
+  { h:'Prepare',            s:'prepareTime',   get:d=>d.prepareTime,                 fmt:'n1',    align:'right' },
+  { h:'Operating',          s:'operatingTime', get:d=>d.operatingTime,               fmt:'n1',    align:'right', sort:true, cls:'text-blue-700' },
+  { h:'Waiting',            s:'waitingTime',   get:d=>d.waitingTime,                 fmt:'n1',    align:'right' },
+  { h:'Repair',             s:'repair',        get:d=>d.repair,                      fmt:'n2',    align:'right' },
+  { h:'Down Time',          s:'downTime',      get:d=>d.downTime,                    fmt:'n2',    align:'right' },
+  { h:'Standby',            s:'standby',       get:d=>d.standby,                     fmt:'n1',    align:'right' },
+  { h:'Off Time',           s:'offTime',       get:d=>d.offTime,                     fmt:'n1',    align:'right' },
+  { h:'Tot. Oper. Time',    s:'totOperTime',   get:d=>d.totOperTime,                 fmt:'n1',    align:'right' },
+  { h:'Total Avail',        s:'totalAvail',    get:d=>d.totalAvail,                  fmt:'n1',    align:'right' },
+  { h:'Total Time',         s:'totalTime',     get:d=>d.totalTime,                   fmt:'n1',    align:'right' },
+  { h:'% Availability',     s:'availability',  get:d=>d.availability,                fmt:'pct',   align:'right' },
+  { h:'% Utilization',      s:'utilization',   get:d=>d.utilization,                 fmt:'util',  align:'right', sort:true },
+  { h:'Air',                s:'air',           get:d=>d.air,                         fmt:'i0',    align:'right', sort:true, cls:'text-sky-700' },
+  { h:'Solar L',            s:'solarTerpakai', get:d=>d.solarTerpakai,               fmt:'i0',    align:'right', sort:true, cls:'text-amber-700' },
+  { h:'Biaya Solar',        s:'biayaSolar',    get:d=>d.biayaSolar,                  fmt:'rp',    align:'right' },
+  { h:'Biaya Upah',         s:'biayaUpah',     get:d=>d.biayaUpah,                   fmt:'rp',    align:'right' },
+  { h:'Biaya Alat',         s:'biayaAlat',     get:d=>d.biayaAlat,                   fmt:'rp',    align:'right' },
+  { h:'Biaya Total',        s:'biayaTotal',    get:d=>d.biayaTotal,                  fmt:'rp',    align:'right', sort:true },
+  { h:'Rp/Ha',              s:'rpPerHa',       get:d=>d.rpPerHa,                     fmt:'i0',    align:'right' },
+  { h:'Ha/Hari',            s:'haPerHari',     get:d=>d.haPerHari,                   fmt:'n2',    align:'right' },
+  { h:'Ha/Jam',             s:'haPerJam',      get:d=>d.haPerJam,                    fmt:'n3',    align:'right', sort:true, cls:'text-emerald-700 font-medium' },
+  { h:'Solar Ltr/jam',      s:'solarPerJam',   get:d=>d.solarPerJam,                 fmt:'n1',    align:'right' },
+  { h:'Solar Ltr/Ha',       s:'solarPerHa',    get:d=>d.solarPerHa,                  fmt:'n1',    align:'right' },
+  { h:'Jenis Engine',       s:'jenisEngine',   get:d=>d.jenisEngine,                 fmt:'text',  align:'left',  sort:true }
+];
+function detailCell(col, d) {
+  const v = col.get(d);
+  switch (col.fmt) {
+    case 'date': return formatDate(v);
+    case 'text': return v === '' || v === null || v === undefined ? '-' : esc(v);
+    case 'mono': return esc(v || '-');
+    case 'monoB': return esc(v || '-');
+    case 'n1': return formatNumber(v, 1);
+    case 'n2': return formatNumber(v, 2);
+    case 'n3': return formatNumber(v, 3);
+    case 'n2b': return formatNumber(v, 2);
+    case 'i0': return formatInt(v);
+    case 'pct': return formatNumber(v, 1) + '%';
+    case 'rp': return formatRupiah(v);
+    case 'util': {
+      const w = v >= 70 ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-amber-200';
+      return `<span class="inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${w}">${formatNumber(v, 1)}%</span>`;
+    }
+    default: return v === '' || v === null || v === undefined ? '-' : String(v);
+  }
+}
 function renderTable() {
   const tbody = $('#dataTableBody');
-  let data = [...filteredData];
-  data.sort((a,b)=>{
+  if (!tbody) return;
+  let data = filteredData.slice();
+  data.sort((a, b) => {
     let av = a[sortField], bv = b[sortField];
-    if (sortField==='date') { av=a.date; bv=b.date; }
-    if (av==null) av=''; if (bv==null) bv='';
-    if (typeof av === 'string') { av=av.toLowerCase(); bv=bv.toLowerCase(); }
-    if (av < bv) return sortDir==='asc'?-1:1;
-    if (av > bv) return sortDir==='asc'?1:-1;
+    if (sortField === 'date') { av = a.date; bv = b.date; }
+    if (av == null) av = ''; if (bv == null) bv = '';
+    if (typeof av === 'string') { av = av.toLowerCase(); bv = String(bv).toLowerCase(); }
+    if (av < bv) return sortDir === 'asc' ? -1 : 1;
+    if (av > bv) return sortDir === 'asc' ? 1 : -1;
     return 0;
   });
   const total = data.length;
-  const totalPages = Math.max(1, Math.ceil(total/pageSize));
-  if (currentPage>totalPages) currentPage=totalPages;
-  const start = (currentPage-1)*pageSize;
-  const pageData = data.slice(start, start+pageSize);
-  $('#tableCount').textContent = pageData.length;
-  $('#tableTotal').textContent = total;
-  $('#pageInfo').textContent = `Page ${currentPage} / ${totalPages}`;
-  $('#btnPrevPage').disabled = currentPage<=1;
-  $('#btnNextPage').disabled = currentPage>=totalPages;
-  if (pageData.length===0) {
-    tbody.innerHTML = `<tr><td colspan="14" class="px-4 py-10 text-center text-slate-400">Tidak ada data</td></tr>`;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (currentPage > totalPages) currentPage = totalPages;
+  const start = (currentPage - 1) * pageSize;
+  const pageData = data.slice(start, start + pageSize);
+  const tc = $('#tableCount'); if (tc) tc.textContent = formatInt(pageData.length);
+  const tt = $('#tableTotal'); if (tt) tt.textContent = formatInt(total);
+  const pi = $('#pageInfo'); if (pi) pi.textContent = `Page ${currentPage} / ${totalPages}`;
+  const bp = $('#btnPrevPage'); if (bp) bp.disabled = currentPage <= 1;
+  const bn = $('#btnNextPage'); if (bn) bn.disabled = currentPage >= totalPages;
+  if (!pageData.length) {
+    tbody.innerHTML = `<tr><td colspan="${DETAIL_COLS.length}" class="px-4 py-10 text-center text-slate-400">Tidak ada data</td></tr>`;
     return;
   }
-  tbody.innerHTML = pageData.map(d=>`
-    <tr class="hover:bg-slate-50/80 transition">
-      <td class="px-4 py-2.5 whitespace-nowrap font-medium text-slate-900">${formatDate(d.date)}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap"><span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium">${d.wilayah}</span></td>
-      <td class="px-4 py-2.5 whitespace-nowrap font-mono text-[11px]">${d.lokasi}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap font-mono text-[11px] font-medium">${d.engine}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap font-mono text-[11px]">${d.irigator}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap text-right font-semibold">${formatNumber(d.luasSiram,2)}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(d.operatingTime,1)}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(d.solarTerpakai)}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(d.solarPerJam,1)}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap text-right font-medium text-emerald-700">${formatNumber(d.haPerJam,3)}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(d.kecepatan,1)}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(d.tebalSiram,1)}</td>
-      <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(d.availability,1)}%</td>
-      <td class="px-4 py-2.5 whitespace-nowrap text-right"><span class="inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${d.utilization>=70?'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200':'bg-amber-50 text-amber-700 ring-1 ring-amber-200'}">${formatNumber(d.utilization,1)}%</span></td>
-    </tr>
-  `).join('');
+  const cellCls = (col) => `px-3 py-2.5 whitespace-nowrap ${col.align === 'right' ? 'text-right' : ''} ${col.cls || ''}`;
+  tbody.innerHTML = pageData.map(d => {
+    let html = '<tr class="hover:bg-slate-50/80 transition">';
+    for (let i = 0; i < DETAIL_COLS.length; i++) {
+      const col = DETAIL_COLS[i];
+      const isSticky = i === 0;
+      const val = detailCell(col, d);
+      if (col.badge) html += `<td class="px-3 py-2.5 whitespace-nowrap"><span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium">${val}</span></td>`;
+      else html += `<td class="${cellCls(col)}${isSticky ? ' font-medium text-slate-900' : ''}">${val}</td>`;
+    }
+    return html + '</tr>';
+  }).join('');
 }
 
 // Teks ringkas di kepala laci filter: berapa filter aktif & berapa record tampil
@@ -2058,11 +2723,41 @@ function initFiltersUI() {
     if ($('#filterYear')) $('#filterYear').value='all';
     if ($('#filterMonthDropdown')) $('#filterMonthDropdown').value='all';
     $('#filterSearch').value=''; $('#tableSearch').value='';
+    if ($('#indexSearch')) $('#indexSearch').value='';
+    indexSearch=''; indexJust='all'; indexPage=1;
+    if ($('#indexJustifikasi')) $('#indexJustifikasi').value='all';
     const dates = rawData.map(d=>d.date).sort((a,b)=>a-b);
     $('#filterStart').value = formatDateISO(dates[0]); $('#filterEnd').value = formatDateISO(dates[dates.length-1]);
     filters.start = dates[0]; filters.end = dates[dates.length-1];
     currentPage=1; updateAll(); renderMonthChips();
   });
+  // --- kontrol tab Index Solar ---
+  const idxSearch = $('#indexSearch');
+  if (idxSearch && !idxSearch.dataset.bound) {
+    idxSearch.dataset.bound = '1';
+    idxSearch.addEventListener('input', debounce(e => { indexSearch = e.target.value.trim(); indexPage = 1; renderIndexSolar(); }, 220));
+  }
+  const idxJust = $('#indexJustifikasi');
+  if (idxJust && !idxJust.dataset.bound) {
+    idxJust.dataset.bound = '1';
+    idxJust.addEventListener('change', e => { indexJust = e.target.value; indexPage = 1; renderIndexSolar(); });
+  }
+  const idxSort = $('#indexSort');
+  if (idxSort && !idxSort.dataset.bound) {
+    idxSort.dataset.bound = '1';
+    idxSort.addEventListener('change', e => { indexSort = e.target.value; indexPage = 1; renderIndexSolar(); });
+  }
+  const idxPrev = $('#indexPrevPage');
+  if (idxPrev && !idxPrev.dataset.bound) {
+    idxPrev.dataset.bound = '1';
+    idxPrev.addEventListener('click', () => { if (indexPage > 1) { indexPage--; renderIndexTable(); } });
+  }
+  const idxNext = $('#indexNextPage');
+  if (idxNext && !idxNext.dataset.bound) {
+    idxNext.dataset.bound = '1';
+    idxNext.addEventListener('click', () => { indexPage++; renderIndexTable(); });
+  }
+
   $('#btnPrevPage').addEventListener('click', ()=>{ if (currentPage>1){ currentPage--; renderTable(); } });
   $('#btnNextPage').addEventListener('click', ()=>{ currentPage++; renderTable(); });
   const psSelect = $('#pageSizeSelect');
@@ -2123,14 +2818,17 @@ function initFiltersUI() {
 // Export CSV internal (pengganti papaparse): escape kutip ganda & pemisah
 const EXPORT_COLS = [
   ['Date', d=>formatDateISO(d.date)], ['Wilayah', d=>d.wilayah], ['Lokasi', d=>d.lokasi],
-  ['Engine', d=>d.engine], ['Irigator', d=>d.irigator], ['Jenis Engine', d=>d.jenisEngine],
-  ['Jenis Irigator', d=>d.jenisIrigator], ['Plan Time', d=>d.planTime], ['Luas Siram', d=>d.luasSiram],
-  ['Operating Time', d=>d.operatingTime], ['Prepare Time', d=>d.prepareTime], ['Waiting Time', d=>d.waitingTime],
-  ['Solar L', d=>d.solarTerpakai], ['Ltr/Jam', d=>d.solarPerJam], ['Ltr/Ha', d=>d.solarPerHa],
-  ['Ha/Jam', d=>d.haPerJam], ['Kecepatan', d=>d.kecepatan], ['Tebal Siram', d=>d.tebalSiram],
-  ['Availability', d=>d.availability], ['Utilization', d=>d.utilization],
-  ['Biaya Solar', d=>d.biayaSolar], ['Biaya Upah', d=>d.biayaUpah], ['Biaya Alat', d=>d.biayaAlat],
-  ['Biaya Total', d=>d.biayaTotal], ['Rp/Ha', d=>d.rpPerHa]
+  ['Engine', d=>d.engine], ['Irigator', d=>d.irigator], ['Jenis Irigator', d=>d.jenisIrigator],
+  ['Plan Time', d=>d.planTime], ['Luas Siram', d=>d.luasSiram], ['Kecepatan Rata-rata', d=>d.kecepatan],
+  ['Tebal Siram', d=>d.tebalSiram], ['Prepare Time', d=>d.prepareTime], ['Operating Time', d=>d.operatingTime],
+  ['Waiting Time', d=>d.waitingTime], ['Repair', d=>d.repair], ['Down Time', d=>d.downTime],
+  ['Standby', d=>d.standby], ['Off Time', d=>d.offTime], ['Tot. Oper. Time', d=>d.totOperTime],
+  ['Total Avail', d=>d.totalAvail], ['Total Time', d=>d.totalTime], ['% Availability', d=>d.availability],
+  ['% Utilization', d=>d.utilization], ['Air', d=>d.air], ['Solar Terpakai (ltr)', d=>d.solarTerpakai],
+  ['Biaya Solar (Std)', d=>d.biayaSolar], ['Biaya Upah', d=>d.biayaUpah], ['Biaya Alat', d=>d.biayaAlat],
+  ['Biaya Total', d=>d.biayaTotal], ['Rp/Ha', d=>d.rpPerHa], ['Ha/Hari', d=>d.haPerHari],
+  ['Ha/Jam', d=>d.haPerJam], ['Solar Ltr/jam', d=>d.solarPerJam], ['Solar Ltr/Ha', d=>d.solarPerHa],
+  ['Jenis Engine', d=>d.jenisEngine]
 ];
 function csvCell(v) {
   const s = (v === null || v === undefined) ? '' : String(v);
@@ -2186,6 +2884,12 @@ function applyPayload(payload, { fromCache = false } = {}) {
   else { rows = parseGvizJSON(payload.json); payload.json = null; }
   if (!rows.length) throw new Error('Tidak ada baris data yang bisa dibaca');
   rawData = rows;
+  // sheet Index Solar (opsional: kalau gagal, dashboard utama tetap jalan)
+  if (payload.index) {
+    try { indexData = parseIndexSolar(payload.index); indexVersion++; }
+    catch (e) { console.warn('[index solar] gagal parse', e); }
+  }
+  payload.index = null;
   appliedSig = payload.sig;
   if (!filtersUIReady) { initFiltersUI(); initTabNav(); filtersUIReady = true; }
   lastMeta = { sig: payload.sig, ts: payload.ts, rows: rows.length };
@@ -2236,6 +2940,7 @@ async function loadData(opts = {}) {
       dataSource = 'live';
       // simpan mentah untuk kunjungan berikutnya (sebelum teksnya dilepas dari memori)
       if (payload.csv) { cachePut(CSV_URL, payload.csv); if (payload.dates) cachePut(DATES_URL, payload.dates); }
+      if (payload.index) cachePut(INDEX_URL, payload.index);
       applyPayload(payload);
       if (!first && !silent) showToast(`Data diperbarui — ${formatInt(rawData.length)} records`, 'success');
     } else {

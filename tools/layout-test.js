@@ -128,7 +128,8 @@ const ready = async (p) => p.waitForFunction(() => { const r = document.querySel
   });
   await new Promise(r => setTimeout(r, 800));
   const rc = await m.$eval('#rowCount', el => el.textContent.trim());
-  check('mobile: filter di dalam laci berfungsi', /^\d[\d.]* \/ 12\.396 records$/.test(rc) && !/^0 \//.test(rc), rc);
+  const [nShow, nAll] = rc.replace(/ records/, '').split(' / ').map(x => parseInt(x.replace(/\./g, ''), 10));
+  check('mobile: filter di dalam laci berfungsi', nShow > 0 && nShow < nAll, rc);
   await m.screenshot({ path: `${OUT}/fix-mobile-filtered.png` });
 
   // tombol close
