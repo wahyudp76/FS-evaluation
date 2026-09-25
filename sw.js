@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.7.1 — strategi cache dipisah: app shell (network-first) vs aset statis/vendor (cache-first)
-const VERSION = 'v1.7.1';
+// v1.7.2 — strategi cache dipisah: app shell (network-first) vs aset statis/vendor (cache-first)
+const VERSION = 'v1.7.2';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 

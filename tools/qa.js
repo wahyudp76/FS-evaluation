@@ -136,6 +136,20 @@ const check = (name, ok, extra = '') => {
   check('wilayah: plugin barLabels aktif di 2 chart bar', !!(barLabels.horizontal && barLabels.compare && barLabels.pluginAda), JSON.stringify(barLabels));
   check('wilayah: satuan label mengikuti sumbu (Ha vs L)', /y1/.test(barLabels.fmtCompare || ''), barLabels.fmtCompare);
 
+  // label angka pada chart bar single di tab lain (stacked dikecualikan)
+  const labelLain = await page.evaluate(() => {
+    const baca = (id) => {
+      const c = window.Chart.getChart(document.getElementById(id));
+      return c && c.$barLabels ? (c.$barLabels.fmt || 'multi') : null;
+    };
+    return { luas:baca('chartLuas'), solar:baca('chartSolar'), biayaGran:baca('chartBiayaGran'), indexBoros:baca('chartIndexBoros'),
+             jam:baca('chartJam'), biayaWilayah:baca('chartBiayaWilayah') };
+  });
+  check('overview: chart Luas & Solar diberi angka', !!labelLain.luas && !!labelLain.solar, JSON.stringify(labelLain));
+  check('biaya: chart biaya per periode diberi angka', !!labelLain.biayaGran, String(labelLain.biayaGran));
+  check('index solar: chart deviasi diberi angka', !!labelLain.indexBoros, String(labelLain.indexBoros));
+  check('chart stacked tanpa angka (jam & biaya wilayah)', !labelLain.jam && !labelLain.biayaWilayah, JSON.stringify({jam:labelLain.jam, biayaWilayah:labelLain.biayaWilayah}));
+
   const rcAll = await page.$eval('#rowCount', el => el.textContent.trim());
   const dRangeAll = Date.now() - tRange;
   check('btnRangeAll mengembalikan semua data', rcAll === TOTAL_STR + ' / ' + TOTAL_STR + ' records', rcAll + ' (' + dRangeAll + ' ms)');

@@ -99,12 +99,18 @@ const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                    
 ### Tab dashboard (6 tab)
 | Tab | Isi |
 |---|---|
-| **Overview** | KPI utama, ringkasan 8 wilayah, chart solar / luas / jam / kecepatan / efisiensi |
+| **Overview** | KPI utama, ringkasan 8 wilayah, chart solar / luas (angka pada batang tampil untuk tampilan **Mingguan & Bulanan**; pada **Harian** angka disembunyikan otomatis karena batang terlalu rapat dan diberi keterangan), chart jam / kecepatan / efisiensi |
 | **Performance Wilayah** | Perbandingan metrik antar afdeling dengan **angka ditulis langsung pada tiap batang** (18 metrik: luas, solar, biaya, Rp/Ha, Ha/Jam, Ltr/Ha, util, kecepatan, tebal, dll.), tabel detail wilayah, bubble & compare |
-| **Analisa Biaya** | Biaya solar/upah/alat per wilayah, komposisi, tren & biaya per periode |
+| **Analisa Biaya** | Biaya solar/upah/alat per wilayah (stacked — tanpa angka), komposisi, tren, serta **biaya per periode dengan angka batang** |
 | **Waktu & Utilisasi** | **Rincian seluruh kolom waktu** (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + **Air** dalam 12 kartu, komposisi waktu per bulan, air vs luas vs solar, plus tabel waktu+air per wilayah, availability/utilization |
-| **Index Solar** *(baru)* | Pemakaian solar per engine vs **kalibrasi**: L/jam aktual, deviasi, selisih (L), verdict Hemat/Boros, penanda **Solar 0 L** & **Anomali** (>5× kalibrasi), rekap per wilayah & jenis engine, scatter aktual vs kalibrasi, tabel per engine + filter/urut/paginasi/pencarian |
+| **Index Solar** *(baru)* | Chart penyimpangan dengan **angka deviasi (+7,13 / −8,19 L/jam)** pada tiap batang; pemakaian solar per engine vs **kalibrasi**: L/jam aktual, deviasi, selisih (L), verdict Hemat/Boros, penanda **Solar 0 L** & **Anomali** (>5× kalibrasi), rekap per wilayah & jenis engine, scatter aktual vs kalibrasi, tabel per engine + filter/urut/paginasi/pencarian |
 | **Detail Data Harian** | Tabel **34 kolom A–AH** (bisa digeser horizontal, kolom tanggal beku), sort klik header, paginasi, export CSV 34 kolom |
+
+### Aturan label angka pada batang (v1.7.2)
+- **Chart bar single** → angka ditulis pada batang: Overview (Luas, Solar), Analisa Biaya (biaya per periode), Index Solar (deviasi per engine), Performance Wilayah (18 metrik + chart pembanding).
+- **Chart bar bertumpuk (stacked)** → tanpa angka: Jam Efektif Siram, Komposisi Waktu per Bulan, Hasil per Wilayah (Index Solar), Biaya per Wilayah pada tab Analisa Biaya.
+- Angka otomatis: menghindari tumpang tindih antar label **dan** menghindari garis tren; bila tidak muat di luar batang, angka dipindah ke dalam batang (ukuran huruf mengecil) atau ditulis vertikal 90°.
+- Tampilan **Harian** pada Overview tidak diberi angka (116 batang terlalu rapat) — ada keterangan kecil di bawah judul chart agar pengguna tahu harus beralih ke Mingguan/Bulanan.
 
 Catatan metodologi Index Solar:
 - `L/jam aktual` dihitung sendiri dari **Pemakaian Solar ÷ Jam Operasi** (kolom "Liter/jam" sheet tidak dipakai) agar konsisten.

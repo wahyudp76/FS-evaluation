@@ -72,12 +72,35 @@ Permintaan: angka pada chart bar harus langsung terbaca tanpa hover.
 - Catatan teknis: konfigurasi plugin **tidak boleh berisi fungsi**, karena Chart.js me-*resolve* nilai fungsi di `options.plugins.*` sebagai *scriptable option* dan memanggilnya dengan objek konteks internal (bukan angka) — penyebab error `Cannot convert object to primitive value`. Format karena itu dipilih lewat kode teks (`ha`, `l`, `rp`, `pct`, `num1`, `num2`, `num3`, `int`) yang dipetakan di `BAR_LABEL_FMT`, dan konfigurasi asli disimpan di `chart.$barLabels`.
 - Plugin bersifat **opt-in per chart** (`options.plugins.barLabels.display`) sehingga chart lain bisa diberi label angka dengan mudah bila diminta.
 
+## 3d. Label angka pada chart bar tab lain (v1.7.2)
+
+Permintaan lanjutan: beri angka juga pada chart bar **single** di tab lain, tapi **chart bar bertumpuk (stacked) tidak perlu**.
+
+| Chart | Tab | Angka | Satuan |
+|---|---|---|---|
+| Luas Siram per periode | Overview | ✅ (Mingguan/Bulanan) | `469 Ha` |
+| Solar Terpakai | Overview | ✅ (Mingguan/Bulanan) | `241.853 L` |
+| Total Biaya per periode | Analisa Biaya | ✅ | ringkas: `Rp 22,94 M`, `Rp 342,2 Jt` |
+| Deviasi per engine | Index Solar | ✅ (+/−) | `+7,13` / `−8,19` (L/jam) |
+| Performa per Wilayah & Pemakaian vs Hasil | Performance Wilayah | ✅ (sebelumnya) | 18 metrik |
+| Jam Efektif Siram, Komposisi Waktu per Bulan | Overview / Waktu | ❌ stacked | — |
+| Biaya per Wilayah (solar/upah/alat) | Analisa Biaya | ❌ stacked | — |
+| Hasil per Wilayah (Hemat/Boros) | Index Solar | ❌ stacked | — |
+
+Cara kerja label (semuanya otomatis, tanpa pengaturan manual):
+- **Anti tumpang tindih**: setiap label punya kotak batas; label yang akan menimpa label lain tidak ditulis.
+- **Menghindari garis tren**: titik & ruas garis (mis. "Avg Ltr/Jam", "Rp/Ha") didaftarkan sebagai penghalang sehingga angka tidak tertimpa garis — terlihat pada chart Solar bulan Juni yang sebelumnya tertimpa.
+- **Bertingkat**: bila tidak muat di luar batang, angka dipindah ke dalam batang (huruf mengecil otomatis, teks putih) atau ditulis **vertikal 90°** pada batang sempit; batang yang hampir setinggi area chart otomatis dihindari karena tidak ada ruang di atasnya.
+- **Batas kepadatan**: pada overview, tampilan **Harian** (116 batang) tidak diberi angka otomatis + ada keterangan kecil "Angka pada batang tidak ditampilkan pada tampilan Harian (terlalu rapat) — pilih Mingguan atau Bulanan."
+- **Skrip uji khusus** `tools/qa-bar-labels.js` memverifikasi aturan ini dengan membandingkan hasil render kanvas saat label aktif vs dimatikan (`toDataURL`) sehingga terbukti angkanya benar-benar tergambar — bukan hanya konfigurasi.
+
 ## 4. Hasil uji (Chrome headless, lokal)
 
 | Skrip | Hasil |
 |---|---|
 | `tools/qa-index-solar.js` (baru) | **24/24 lulus** — 6 tab, semua 23 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail 34 kolom, export CSV 34 kolom × 12.730 baris, 0 error |
-| `tools/qa.js` (regresi, kini dinamis) | **36/36 lulus** — filter tanggal/bulan/wilayah, pencarian teks & angka, paginasi, sort, granularitas, biaya, export, sync, offline, fallback |
+| `tools/qa-bar-labels.js` (baru) | **10/10 lulus** — 6 chart single berlabel, 4 chart stacked tanpa label, bukti piksel, aturan harian/bulanan/mingguan |
+| `tools/qa.js` (regresi, kini dinamis) | **42/42 lulus** — filter tanggal/bulan/wilayah, pencarian teks & angka, paginasi, sort, granularitas, biaya, export, sync, offline, fallback |
 | `tools/layout-test.js` | **24/24 lulus** — laci filter mobile tetap menempel di bawah header, sticky desktop, resize, Esc/backdrop, fokus |
 | `tools/stress.js` | **0 error**, heap stabil 29–35 MB |
 

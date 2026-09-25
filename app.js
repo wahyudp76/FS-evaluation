@@ -1296,6 +1296,8 @@ function renderBiaya() {
       interaction:{mode:'index',intersect:false},
       plugins:{
         legend:{position:'bottom', labels:{usePointStyle:true,font:{size:10}}},
+        // angka biaya ditulis ringkas (Rp 1,2 M / Rp 350 Rb) agar muat di atas batang
+        barLabels:{ display:true, fmt:'rpshort', color:'#b45309' },
         tooltip:{backgroundColor:'#0f172a',cornerRadius:12, callbacks:{ label: ctx=> `${ctx.dataset.label}: ${formatRupiah(ctx.raw)}` }}
       },
       scales:{
@@ -1948,8 +1950,11 @@ const BAR_LABEL_FMT = {
   num2: v => formatNumber(v, 2),
   num3: v => formatNumber(v, 3),
   int:  v => formatInt(v),
+  'ha0': v => formatInt(v) + ' Ha',
   'ha1': v => formatNumber(v, 1) + ' Ha',
-  'Lint': v => formatInt(Math.round(v)) + ' L'
+  'Lint': v => formatInt(Math.round(v)) + ' L',
+  'rpshort': v => formatRupiahShort(v),
+  'signed2': v => (v > 0 ? '+' : '') + formatNumber(v, 2)
 };
 
 let barLabelsRegistered = false;
@@ -1957,19 +1962,48 @@ const BAR_LABELS = {
   id: 'barLabels',
   afterDatasetsDraw(chart) {
     const cfg = chart.$barLabels;                 // objek asli (bukan proxy Chart.js)
+    // $labelInfo selalu di-reset supaya informasi dari render sebelumnya tidak tertinggal
+    chart.$labelInfo = { tertulis: 0, kandidat: 0, batang: chart.data.datasets.reduce((a, d) => a + (d.data ? d.data.length : 0), 0) };
     if (!cfg || cfg.display === false) return;
     const ctx = chart.ctx;
     const area = chart.chartArea;
+    if (!area) return;
     const horizontal = chart.options.indexAxis === 'y';
     ctx.save();
     ctx.font = cfg.font || '600 10px Inter, system-ui, -apple-system, sans-serif';
     ctx.lineWidth = 3;
     ctx.strokeStyle = cfg.halo || 'rgba(255,255,255,0.9)';
     ctx.lineJoin = 'round';
+    const kotakTerpakai = [];                       // label yang sudah tertulis, agar tidak bertumpuk
+    let jumlahKandidat = 0, jumlahTertulis = 0;     // untuk diagnosa/skrip uji
+    const tumpangTindih = (r) => kotakTerpakai.some(k => !(r.x1 < k.x0 || r.x0 > k.x1 || r.y1 < k.y0 || r.y0 > k.y1));
+
+    // Rintangan: titik & ruas garis dari dataset garis/scatter. Label dihindarkan dari garis tren
+    // agar angkanya tidak tertimpa (mis. garis "Avg Ltr/Jam" pada chart Solar).
+    const rintangan = [];
+    chart.data.datasets.forEach((ds, di) => {
+      const tipe = ds.type || chart.config.type;
+      if (tipe === 'bar' || tipe === 'doughnut' || tipe === 'pie') return;
+      const m = chart.getDatasetMeta(di);
+      if (!m || m.hidden) return;
+      const titik = m.data.filter(el => el && isFinite(el.x) && isFinite(el.y)).map(el => ({ x: el.x, y: el.y }));
+      titik.forEach(t => rintangan.push({ x0: t.x - 6, x1: t.x + 6, y0: t.y - 6, y1: t.y + 6 }));
+      for (let i = 1; i < titik.length; i++) {
+        const a = titik[i - 1], b = titik[i];
+        [0.25, 0.5, 0.75].forEach(t => {
+          const x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t;
+          rintangan.push({ x0: x - 5, x1: x + 5, y0: y - 5, y1: y + 5 });
+        });
+      }
+    });
+    const kenaRintangan = (r) => rintangan.some(k => !(r.x1 < k.x0 || r.x0 > k.x1 || r.y1 < k.y0 || r.y0 > k.y1));
+
     chart.data.datasets.forEach((ds, di) => {
       if (ds.barLabels === false) return;
       const tipe = ds.type || chart.config.type;
-      if (tipe !== 'bar') return;                 // lewati garis/scatter/bubble
+      if (tipe !== 'bar') return;                   // lewati garis/scatter/bubble/doughnut
+      // terlalu banyak batang (mis. tampilan Harian) -> angka tidak akan terbaca, lebih baik tidak ditulis
+      if (cfg.maxBars && ds.data.length > cfg.maxBars) return;
       const meta = chart.getDatasetMeta(di);
       if (!meta || meta.hidden) return;
       const kunci = (cfg.fmtBySeries && ds.yAxisID && cfg.fmtBySeries[ds.yAxisID]) || cfg.fmt || 'num1';
@@ -1977,59 +2011,177 @@ const BAR_LABELS = {
       const warna = (cfg.colorBySeries && ds.yAxisID && cfg.colorBySeries[ds.yAxisID]) || cfg.color || '#334155';
       const posisi = (cfg.posBySeries && ds.yAxisID && cfg.posBySeries[ds.yAxisID]) || 'outside';
       const rotate = !!(cfg.rotateBySeries ? (ds.yAxisID && cfg.rotateBySeries[ds.yAxisID]) : cfg.rotate);
+      const warnaIsi = (cfg.insideColorBySeries && ds.yAxisID && cfg.insideColorBySeries[ds.yAxisID]) || cfg.insideColor || '#ffffff';
+      const fontDasar = cfg.font || '600 10px Inter, system-ui, -apple-system, sans-serif';
+      // ukuran huruf alternatif (mengecil) untuk label yang harus masuk ke dalam batang
+      const fontKecil = [fontDasar, fontDasar.replace(/\b(\d+)px\b/, (m, n) => Math.max(8, n - 1) + 'px'), fontDasar.replace(/\b(\d+)px\b/, (m, n) => Math.max(8, n - 2) + 'px')]
+        .filter((f, i, a) => a.indexOf(f) === i);
+
+      // kandidat label: hanya nilai angka yang valid
+      const kandidat = [];
       meta.data.forEach((el, i) => {
         const v = ds.data[i];
-        if (typeof v !== 'number' || !isFinite(v)) return;   // lewati nilai kosong/aneh
+        if (typeof v !== 'number' || !isFinite(v)) return;
         if (cfg.skipZero && v === 0) return;
         const teks = format(v);
-        if (!teks) return;
-        const warnaIsi = (cfg.insideColorBySeries && ds.yAxisID && cfg.insideColorBySeries[ds.yAxisID]) || cfg.insideColor || '#ffffff';
+        if (teks) kandidat.push({ el, i, v, teks });
+      });
+
+      // Batang rapat (mis. granularitas harian): tulis angka sebisanya saja, tapi
+      // diprioritaskan untuk nilai terbesar supaya yang tampil tetap yang penting.
+      // jarak minimum antar batang (dipakai untuk ukuran huruf label yang ditulis di dalam batang)
+      let jarakMin = Infinity;
+      for (let i = 1; i < meta.data.length; i++) {
+        const a = meta.data[i - 1], b = meta.data[i];
+        if (!a || !b) continue;
+        const d = horizontal ? Math.abs(b.y - a.y) : Math.abs(b.x - a.x);
+        if (d > 1) jarakMin = Math.min(jarakMin, d);
+      }
+      if (!isFinite(jarakMin)) jarakMin = 999;
+
+      // batang terpanjang/tertinggi paling sulit mendapat ruang di luar batang -> didahulukan
+      kandidat.sort((x, y) => Math.abs(y.v) - Math.abs(x.v));
+      if (cfg.maxLabels && kandidat.length > cfg.maxLabels) kandidat.length = cfg.maxLabels;
+
+      kandidat.forEach(({ el, v, teks }) => {
+        const lebar = ctx.measureText(teks).width;
+        const tinggi = 11;
+        const opsi = [];                 // beberapa alternatif posisi; dipakai yang pertama tidak bertabrakan
+
         if (horizontal) {
-          const w = ctx.measureText(teks).width;
-          if (posisi === 'inside' || el.x + 6 + w > area.right - 2) {
-            // tidak cukup ruang di luar batang -> tulis di tengah batang (teks putih)
-            const tengahX = el.base !== undefined ? el.base + (el.x - el.base) / 2 : el.x - w - 6;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = warnaIsi;
-            ctx.fillText(teks, tengahX, el.y);
+          const cx = el.base !== undefined ? el.base + (el.x - el.base) / 2 : el.x;
+          const muatDiLuar = v >= 0 && el.x + 6 + lebar <= area.right - 2;
+          if (posisi === 'inside' || (v >= 0 && !muatDiLuar)) {
+            // coba ukuran huruf penuh dulu, lalu mengecil supaya muat di dalam batang
+            fontKecil.forEach(f => {
+              ctx.font = f;
+              const lw = ctx.measureText(teks).width;
+              ctx.font = fontDasar;
+              opsi.push({
+                rect: { x0: cx - lw / 2 - 1, x1: cx + lw / 2 + 1, y0: el.y - tinggi, y1: el.y + tinggi },
+                gambar: () => { ctx.save(); ctx.font = f; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = warnaIsi; ctx.fillText(teks, cx, el.y); ctx.restore(); }
+              });
+            });
+          } else if (v < 0) {
+            const x = el.x - 6;
+            opsi.push({
+              rect: { x0: x - lebar - 2, x1: x + 2, y0: el.y - tinggi, y1: el.y + tinggi },
+              gambar: () => { ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = warna; ctx.strokeText(teks, x, el.y); ctx.fillText(teks, x, el.y); }
+            });
           } else {
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = warna;
-            ctx.strokeText(teks, el.x + 6, el.y);
-            ctx.fillText(teks, el.x + 6, el.y);
+            const tinggiBatang = el.height || 12;
+            [0, -(tinggiBatang / 2 + 3), (tinggiBatang / 2 + 3)].forEach(dy => {
+              const x = el.x + 6, y = el.y + dy;
+              opsi.push({
+                rect: { x0: x - 2, x1: x + lebar + 2, y0: y - tinggi, y1: y + tinggi },
+                gambar: () => { ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = warna; ctx.strokeText(teks, x, y); ctx.fillText(teks, x, y); }
+              });
+            });
           }
         } else {
-          ctx.textAlign = 'center';
           const x = Math.max(area.left + 2, Math.min(el.x, area.right - 2));
-          if (posisi === 'inside') {
-            // tengah batang: jauh dari label seri lain yang berada di atas batang
+          if (rotate) {
+            // label diputar 90°; ukuran huruf dipilih agar tetap muat di lebar batang
+            const lebarBatang = el.width || 12;
+            let fPutar = fontKecil[fontKecil.length - 1];
+            for (const f of fontKecil) {
+              ctx.font = f;
+              const th = ctx.measureText('0').width;   // tinggi huruf saat diputar
+              if (th <= lebarBatang - 2) { fPutar = f; break; }
+            }
+            ctx.font = fPutar;
+            const lebarTeks = ctx.measureText(teks).width;
+            ctx.font = fontDasar;
+            const dasar = el.y - 4;
+            const mode = [];
+            if (dasar - lebarTeks >= area.top + 2) mode.push({ y: dasar, tandai: 'luar' });      // di atas batang
+            if (el.base !== undefined && el.base - el.y > lebarTeks + 16) mode.push({ y: el.y + 6, tandai: 'dalam' });  // di dalam batang
+            mode.forEach(m => {
+              const yTeks = m.tandai === 'luar' ? m.y : m.y + lebarTeks;   // gambar dari bawah ke atas
+              opsi.push({
+                rect: { x0: x - 6, x1: x + 6, y0: yTeks - lebarTeks - 2, y1: (m.tandai === 'luar' ? m.y : m.y + lebarTeks) + 2 },
+                gambar: () => {
+                  ctx.save(); ctx.translate(x, yTeks); ctx.rotate(-Math.PI / 2);
+                  ctx.font = fPutar; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                  ctx.fillStyle = m.tandai === 'luar' ? warna : warnaIsi;
+                  if (m.tandai === 'luar') ctx.strokeText(teks, 0, 0);
+                  ctx.fillText(teks, 0, 0); ctx.restore();
+                }
+              });
+            });
+          } else if (posisi === 'inside') {
             const tengahY = el.base !== undefined ? el.y + (el.base - el.y) / 2 : el.y + 10;
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = warnaIsi;
-            ctx.fillText(teks, x, tengahY);
-          } else if (rotate) {
-            // label vertikal (diputar 90°) -> pas untuk batang yang rapat
-            ctx.save();
-            ctx.translate(x, el.y - 5);
-            ctx.rotate(-Math.PI / 2);
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = warna;
-            ctx.strokeText(teks, 0, 0);
-            ctx.fillText(teks, 0, 0);
-            ctx.restore();
+            opsi.push({
+              rect: { x0: x - lebar / 2 - 2, x1: x + lebar / 2 + 2, y0: tengahY - tinggi, y1: tengahY + tinggi },
+              gambar: () => { ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = warnaIsi; ctx.fillText(teks, x, tengahY); }
+            });
+          } else if (v < 0) {
+            [el.y + 5, el.y + 17].forEach(y => {
+              opsi.push({
+                rect: { x0: x - lebar / 2 - 2, x1: x + lebar / 2 + 2, y0: y - 2, y1: y + tinggi + 2 },
+                gambar: () => { ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = warna; ctx.strokeText(teks, x, y); ctx.fillText(teks, x, y); }
+              });
+            });
           } else {
-            ctx.textBaseline = 'bottom';
-            // stagger: geser naik-turun bergantian supaya label tetangga tidak saling menimpa
-            let y = el.y - 5 - (cfg.stagger ? (i % 2) * cfg.stagger : 0);
-            if (y - 10 < area.top) { ctx.textBaseline = 'top'; ctx.fillStyle = warnaIsi; y = el.y + 5; ctx.fillText(teks, x, y); }
-            else { ctx.fillStyle = warna; ctx.strokeText(teks, x, y); ctx.fillText(teks, x, y); }
+            // di atas batang; kalau bertabrakan dicoba naik lebih tinggi, terakhir ke dalam batang
+            const dasar = el.y - 5;
+            [0, 12, 24].forEach(naik => {
+              const y = dasar - naik;
+              if (y - tinggi < area.top + 2) return;      // bisa dicoba berikutnya
+              opsi.push({
+                rect: { x0: x - lebar / 2 - 2, x1: x + lebar / 2 + 2, y0: y - tinggi - 2, y1: y + 2 },
+                gambar: () => { ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = warna; ctx.strokeText(teks, x, y); ctx.fillText(teks, x, y); }
+              });
+            });
+            if (el.base !== undefined && el.base - el.y > tinggi + 20) {   // batang tinggi -> boleh di dalam
+              const y = el.y + 14;                                        // agak ke bawah agar tidak menyentuh ujung batang
+              // pilih satu ukuran huruf terbesar yang masih muat pada jarak antar batang
+              let fTerpilih = fontKecil[fontKecil.length - 1];
+              for (const f of fontKecil) {
+                ctx.font = f;
+                const lw0 = ctx.measureText(teks).width;
+                if (lw0 <= jarakMin - 2 || f === fontKecil[fontKecil.length - 1]) { fTerpilih = f; break; }
+              }
+              ctx.font = fTerpilih;
+              const lw = ctx.measureText(teks).width;
+              ctx.font = fontDasar;
+              const lebarBatang = el.width || 20;
+              if (lw <= lebarBatang - 3) {
+                // muat mendatar di dalam batang
+                opsi.push({
+                  rect: { x0: x - lw / 2 - 1, x1: x + lw / 2 + 1, y0: y - 2, y1: y + tinggi + 2 },
+                  gambar: () => { ctx.save(); ctx.font = fTerpilih; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = warnaIsi; ctx.fillText(teks, x, y); ctx.restore(); }
+                });
+              }
+              // batang sempit -> tulis angka diputar 90° di dalam batang (tetap terbaca, tidak terpotong)
+              const yPutar = el.y + 14 + lw;
+              if (el.base !== undefined && el.base - el.y > lw + 26) {
+                opsi.push({
+                  rect: { x0: x - 7, x1: x + 7, y0: el.y + 12, y1: yPutar + 2 },
+                  gambar: () => {
+                    ctx.save(); ctx.translate(x, yPutar); ctx.rotate(-Math.PI / 2);
+                    ctx.font = fTerpilih; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                    ctx.fillStyle = warnaIsi;
+                    ctx.fillText(teks, 0, 0); ctx.restore();
+                  }
+                });
+              }
+            }
           }
+        }
+
+        if (!opsi.length) return;
+        jumlahKandidat++;
+        for (const o of opsi) {
+          if (tumpangTindih(o.rect) || kenaRintangan(o.rect)) continue;
+          o.gambar();
+          kotakTerpakai.push(o.rect);
+          jumlahTertulis++;
+          return;
         }
       });
     });
+    chart.$labelInfo = { tertulis: jumlahTertulis, kandidat: jumlahKandidat, batang: chart.$labelInfo.batang };
     ctx.restore();
   }
 };
@@ -2065,6 +2217,17 @@ const CHART_TAB_OF = {
   chartWaktuKomposisi:'utilisasi', chartAir:'utilisasi',
   chartIndexBoros:'indexsolar', chartIndexHasil:'indexsolar', chartIndexWilayah:'indexsolar', chartIndexScatter:'indexsolar'
 };
+// Keterangan kecil di bawah chart: menjelaskan kapan angka pada batang tampil
+function renderBarLabelNotes() {
+  const nLuas = document.getElementById('chartLuasNote');
+  const nSolar = document.getElementById('chartSolarNote');
+  const teks = granularity === 'daily'
+    ? 'Angka pada batang tidak ditampilkan pada tampilan Harian (terlalu rapat) — pilih Mingguan atau Bulanan.'
+    : 'Angka pada setiap batang menunjukkan nilainya.';
+  if (nLuas) nLuas.textContent = teks;
+  if (nSolar) nSolar.textContent = teks;
+}
+
 function renderCharts(tab) {
   const want = (id) => !tab || !CHART_TAB_OF[id] || CHART_TAB_OF[id] === tab;
 
@@ -2082,7 +2245,11 @@ function renderCharts(tab) {
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: true, position: 'bottom', labels: { usePointStyle: true, font:{size:11}}}, tooltip: { backgroundColor: '#0f172a', titleFont:{size:11}, bodyFont:{size:11}, padding:10, cornerRadius:12 } },
+      plugins: {
+        legend: { display: true, position: 'bottom', labels: { usePointStyle: true, font:{size:11}}},
+        barLabels: { display:true, fmt:'Lint', color:'#b45309', maxBars:45, rotate:true },
+        tooltip: { backgroundColor: '#0f172a', titleFont:{size:11}, bodyFont:{size:11}, padding:10, cornerRadius:12 }
+      },
       scales: {
         x: { grid:{display:false}, ticks:{font:{size:10}, maxRotation:45, autoSkip:true, maxTicksLimit:12} },
         y: { beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} , title:{display:true,text:'Total Solar (L)',font:{size:10}} },
@@ -2102,7 +2269,12 @@ function renderCharts(tab) {
     },
     options: {
       responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom', labels:{usePointStyle:true,font:{size:11}}}, tooltip:{backgroundColor:'#0f172a',cornerRadius:12} },
+      plugins:{
+        legend:{position:'bottom', labels:{usePointStyle:true,font:{size:11}}},
+        // angka di atas batang; otomatis disembunyikan bila batang terlalu rapat (harian)
+        barLabels:{ display:true, fmt:'ha0', color:'#047857', maxBars:45, rotate:true },
+        tooltip:{backgroundColor:'#0f172a',cornerRadius:12}
+      },
       scales:{ x:{grid:{display:false}, ticks:{font:{size:10}, maxTicksLimit:10}}, y:{beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}, title:{display:true,text:'Ha',font:{size:10}}} }
     }
   });
@@ -2166,6 +2338,9 @@ function renderCharts(tab) {
       }
     }
   });
+
+  // keterangan label angka pada chart Overview
+  renderBarLabelNotes();
 
   // Performa per Wilayah - dynamic metric focused on pemakaian & hasil rata-rata
   const wilayahStatsForChart = getWilayahStats();
@@ -2387,7 +2562,11 @@ function renderCharts(tab) {
             backgroundColor: top.map(r=> r.justifikasi==='Boros' ? 'rgba(239,68,68,0.85)' : 'rgba(16,185,129,0.85)'), borderRadius:6, borderSkipped:false }]
         },
         options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
-          plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12,
+          layout:{ padding:{ left: 46, right: 52 } },
+          plugins:{ legend:{display:false},
+            // +7,13 (boros) / -8,19 (hemat) di ujung batang
+            barLabels:{ display:true, fmt:'signed2', font:'600 9px Inter, system-ui, -apple-system, sans-serif' },
+            tooltip:{ backgroundColor:'#0f172a', cornerRadius:12,
             callbacks:{ label: ctx=> `${top[ctx.dataIndex].justifikasi} • aktual ${formatNumber(top[ctx.dataIndex].lpjAktual,2)} L/j vs kalibrasi ${formatNumber(top[ctx.dataIndex].kalibrasi,2)} L/j (${ctx.raw>0?'+':''}${formatNumber(ctx.raw,2)})` } } },
           scales:{ x:{ beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} }, y:{ grid:{display:false}, ticks:{font:{size:10}} } } }
       });
