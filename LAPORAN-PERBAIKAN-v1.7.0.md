@@ -185,11 +185,21 @@ Permintaan: pada tab **Analisa Biaya**, ubah tampilannya agar **data yang ditamp
 - Mode **Total**: kartu Biaya Total **Rp 70,31 M** (per aktivitas Rp 5.522.789 • per hari Rp 606.078.474); Rp/Ha **Rp 1.549.662**; Rp/Jam **Rp 388.566**; Rp/Liter **Rp 46.802**; komponen terbesar **Solar 48,1%**; wilayah termahal **AW09 Rp 1.859.528/Ha** vs termurah **AW11 Rp 1.362.841/Ha** (selisih 36,4%).
 - Mode **Rata-rata / Hari**: kolom Biaya Solar AW12 **Rp 47.197.373/hari** = total Rp 5.333.303.197 ÷ 113 hari (cocok dengan nilai pada chart Performa Biaya).
 
+## 3i. Metrik "Luas Siram" diganti "Rp/Jam" pada Performa Biaya (v1.8.4)
+
+Permintaan: pada tab Analisa Biaya, chart **Performa Biaya per Wilayah**, metrik **Luas Siram** diganti **Rp/Jam**.
+
+- Entri metrik volume `Luas Siram` dihapus dari daftar metrik; **Rp/Jam Operasi** (`rpPerJam`) tersedia pada dropdown (10 metrik tersisa) sehingga tidak ada metrik yang tampil dua kali.
+- **Tombol cepat** juga disesuaikan: posisi yang sebelumnya dipakai metrik volume kini memakai **Rp/Jam Operasi** — jadi urutannya *Biaya Total • Biaya Solar • Biaya Alat • Rp/Ha • Rp/Jam Operasi • % dari Total Biaya*.
+- Karena Rp/Jam adalah rasio, metrik ini **tidak ikut** mode Total/Rata-rata (ada keterangan "Rasio per wilayah…" di bawah chart) dan satuannya `Rp/jam` pada judul sumbu.
+- Perbaikan tampilan label: angka rupiah pada batang pada metrik rasio (Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record) kini ditulis **ringkas** (`Rp 423 Rb`) — sebelumnya tertulis penuh (`Rp 422.763`) sehingga terpotong pada batang pendek. Jumlah tick sumbu X juga dibatasi (maks. 5) agar tidak bertumpuk.
+- Hasil uji: **AW12 Rp 422.763/jam** (tertinggi) → **AW09 Rp 402.435** → AW13 Rp 393.504 → AW15 Rp 387.910 → AW10 Rp 384.341 → AW14 Rp 383.542 → AW08 Rp 377.969 → **AW11 Rp 357.755/jam** (terendah); catatan chart menuliskan tertinggi & terendah otomatis. Bukti: `dokumentasi-v1.7.0/20-biaya-metrik-rpjam.png`.
+
 ## 4. Hasil uji (Chrome headless, lokal)
 
 | Skrip | Hasil |
 |---|---|
-| `tools/qa-index-solar.js` | **52/52 lulus** (7 pemeriksaan mode rata-rata/total + **5 pemeriksaan baru v1.8.1**: chart Performa Waktu terisi 8 batang & terurut, satuan mengikuti mode & label sumbu, pemilih 15 metrik + chip cepat, ganti metrik ke % Utilization mengubah data, kolom Wilayah `sticky` di thead/tbody/tfoot & posisinya tidak bergeser saat tabel digeser `scrollLeft=700`) — 6 tab, semua 24 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail **35 kolom A–AI**, export CSV **35 kolom** × 12.730 baris, 0 error |
+| `tools/qa-index-solar.js` | **54/54 lulus** (7 pemeriksaan mode rata-rata/total + **5 pemeriksaan baru v1.8.1**: chart Performa Waktu terisi 8 batang & terurut, satuan mengikuti mode & label sumbu, pemilih 15 metrik + chip cepat, ganti metrik ke % Utilization mengubah data, kolom Wilayah `sticky` di thead/tbody/tfoot & posisinya tidak bergeser saat tabel digeser `scrollLeft=700`) — 6 tab, semua 24 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail **35 kolom A–AI**, export CSV **35 kolom** × 12.730 baris, 0 error |
 | `tools/qa-bar-labels.js` (baru) | **10/10 lulus** — 6 chart single berlabel, 4 chart stacked tanpa label, bukti piksel, aturan harian/bulanan/mingguan |
 | `tools/qa.js` (regresi, kini dinamis) | **42/42 lulus** — filter tanggal/bulan/wilayah, pencarian teks & angka, paginasi, sort, granularitas, biaya, export, sync, offline, fallback |
 | `tools/layout-test.js` | **24/24 lulus** — laci filter mobile tetap menempel di bawah header, sticky desktop, resize, Esc/backdrop, fokus |
@@ -205,6 +215,6 @@ Permintaan: pada tab **Analisa Biaya**, ubah tampilannya agar **data yang ditamp
 
 ## 6. Status rilis
 
-- Service worker dinaikkan ke **v1.8.3** (cache aset lama dibersihkan otomatis).
+- Service worker dinaikkan ke **v1.8.4** (cache aset lama dibersihkan otomatis).
 - Catatan rilis: commit `bac0f74` sempat gagal pada langkah *Deploy to GitHub Pages* (langkah unggah artefak sukses) — kemungkinan gangguan sesaat GitHub Pages; **dijalankan ulang (attempt 2) dan sukses**, situs live memuat v1.8.2. Uji langsung ke situs live: **42/42 lulus**.
 - Push ke `wahyudp76/FS-evaluation` → GitHub Actions → <https://wahyudp76.github.io/FS-evaluation/>

@@ -1352,10 +1352,9 @@ const BIAYA_METRIC = {
   rpPerLiter: { label:'Rp/Liter Solar',     k:'rpPerLiter', tipe:'rr',   unit:'Rp/Liter', warna:'rgba(244,63,94,0.8)',  color:'#be123c' },
   rpPerRec:   { label:'Rp/Record',          k:'rpPerRec',   tipe:'rr',   unit:'Rp/Record',warna:'rgba(20,184,166,0.85)',color:'#0f766e' },
   share:      { label:'% dari Total Biaya', k:'share',      tipe:'pct',  warna:'rgba(15,23,42,0.75)',  color:'#0f172a' },
-  luas:       { label:'Luas Siram',         k:'luas',       tipe:'vol',  satVol:'Ha', warna:'rgba(16,185,129,0.8)', color:'#047857' },
   solarL:     { label:'Solar Terpakai',     k:'solar',      tipe:'vol',  satVol:'L',  warna:'rgba(245,158,11,0.8)', color:'#b45309' }
 };
-const BIAYA_METRIC_CEPAT = ['total', 'solar', 'alat', 'rpPerHa', 'rpPerLiter', 'share'];
+const BIAYA_METRIC_CEPAT = ['total', 'solar', 'alat', 'rpPerHa', 'rpPerJam', 'share'];
 
 function renderBiayaPerformaChart() {
   const cv = document.getElementById('chartBiayaPerforma');
@@ -1367,7 +1366,8 @@ function renderBiayaPerformaChart() {
   const data = list.map(w => ({ w, v: (w[m.k] || 0) / f(w) })).sort((a, b) => b.v - a.v);
   const satuan = satuanMetrikBiaya(m);
   // label batang: rupiah ringkas (Rp 1,2 M / Rp 350 Rb), persen 1 desimal, atau angka
-  const fmtLabel = m.tipe === 'rp' ? 'rpshort' : (m.tipe === 'pct' ? 'pct1' : (m.k === 'luas' ? 'ha1' : (m.tipe === 'rr' ? 'rp' : 'int')));
+  // label batang: rupiah selalu ringkas (Rp 1,2 M / Rp 422 Rb) supaya tidak terpotong pada batang pendek
+  const fmtLabel = m.tipe === 'pct' ? 'pct1' : (m.tipe === 'vol' ? (m.k === 'luas' ? 'ha1' : 'int') : 'rpshort');
   const satVolMode = m.tipe === 'vol' ? m.satVol + (biayaMode === 'avgAkt' ? '/aktivitas' : (biayaMode === 'avgHari' ? '/hari' : '')) : '';
   const judulMetrik = m.label + (m.tipe === 'rp' ? ' (' + satuan + ')' : (m.tipe === 'vol' ? ' (' + satVolMode + ')' : (m.tipe === 'pct' ? ' (%)' : '')));
 
@@ -1404,7 +1404,7 @@ function renderBiayaPerformaChart() {
       },
       scales: {
         x: { beginAtZero: true, grace: '18%', grid: { color: '#f1f5f9' },
-             ticks: { font: { size: 10 }, callback: v => ((m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiahShort(v) : (m.tipe === 'pct' ? v + '%' : v)) },
+             ticks: { font: { size: 10 }, maxTicksLimit: 5, callback: v => ((m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiahShort(v) : (m.tipe === 'pct' ? v + '%' : v)) },
              title: { display: true, text: (m.tipe === 'rp' ? satuan : (m.tipe === 'rr' ? m.unit : (m.tipe === 'vol' ? (satVolMode || m.satVol) : '% dari total'))), font: { size: 10 } } },
         y: { grid: { display: false }, ticks: { font: { size: 11 } } }
       }

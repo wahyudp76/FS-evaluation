@@ -180,6 +180,14 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   check('biaya: chart Performa Biaya per wilayah 8 batang & terurut', biayaTotal.batang === 8 && biayaTotal.urutTurun && biayaTotal.kategoriBatang === 0, biayaTotal.batang + ' batang, tertinggi ' + biayaTotal.tertinggi + ' — ' + biayaTotal.satuan);
   check('biaya: tabel rincian 15 kolom (Wilayah..Efisiensi)', biayaTotal.kolom === 15 && biayaTotal.th4 === 'Biaya Solar (Rp)' && biayaTotal.td1 !== '', biayaTotal.kolom + ' kolom, kolom ke-5 ' + biayaTotal.th4);
 
+  const metrikBiaya = await page.evaluate(() => ({
+    opsi: Array.from(document.querySelectorAll('#biayaMetric option')).map(o => o.textContent.trim()),
+    chip: Array.from(document.querySelectorAll('#biayaMetricChips [data-biaya-metric]')).map(b => b.textContent.trim()),
+    chipAktif: (document.querySelector('#biayaMetricChips [aria-pressed="true"]') || {}).textContent
+  }));
+  check('biaya: metrik "Luas Siram" diganti "Rp/Jam"', metrikBiaya.opsi.indexOf('Luas Siram') === -1 && metrikBiaya.opsi.indexOf('Rp/Jam Operasi') !== -1 && metrikBiaya.opsi.length === 10, metrikBiaya.opsi.length + ' metrik • ' + metrikBiaya.opsi.join(' | '));
+  check('biaya: tombol cepat memuat Rp/Jam', metrikBiaya.chip.indexOf('Rp/Jam Operasi') !== -1, metrikBiaya.chip.join(' | '));
+
   // ganti metrik ke Rp/Ha (rasio, tidak ikut mode)
   await page.evaluate(() => document.querySelector('[data-biaya-metric="rpPerHa"]').click());
   await new Promise(r => setTimeout(r, 900));
