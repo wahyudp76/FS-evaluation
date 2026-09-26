@@ -178,4 +178,5 @@ Permintaan: pelajari ulang struktur sheet **ZPAS637** & **Index Solar**, karena 
 ## 6. Status rilis
 
 - Service worker dinaikkan ke **v1.8.2** (cache aset lama dibersihkan otomatis).
+- Catatan rilis: commit `bac0f74` sempat gagal pada langkah *Deploy to GitHub Pages* (langkah unggah artefak sukses) — kemungkinan gangguan sesaat GitHub Pages; **dijalankan ulang (attempt 2) dan sukses**, situs live memuat v1.8.2. Uji langsung ke situs live: **42/42 lulus**.
 - Push ke `wahyudp76/FS-evaluation` → GitHub Actions → <https://wahyudp76.github.io/FS-evaluation/>
