@@ -268,5 +268,7 @@ Sheet dibaca ulang langsung dari spreadsheet (26 Sep 2026): kini **13 kolom × 1
 ## 6. Status rilis
 
 - Service worker dinaikkan ke **v1.8.5** (cache aset lama dibersihkan otomatis).
-- Catatan rilis: commit `bac0f74` sempat gagal pada langkah *Deploy to GitHub Pages* (langkah unggah artefak sukses) — kemungkinan gangguan sesaat GitHub Pages; **dijalankan ulang (attempt 2) dan sukses**, situs live memuat v1.8.2. Uji langsung ke situs live: **42/42 lulus**.
-- Push ke `wahyudp76/FS-evaluation` → GitHub Actions → <https://wahyudp76.github.io/FS-evaluation/>
+- **Rilis v1.8.5**: push ke `wahyudp76/FS-evaluation` → commit **`7707e93`**; GitHub Actions *Deploy to GitHub Pages* **sukses pada attempt 1** (run 36238860160).
+- **Verifikasi situs live** (<https://wahyudp76.github.io/FS-evaluation/>): service worker live sudah **v1.8.5**, 3 kartu per jenis engine terpasang, uji langsung `tools/qa-index-solar.js` ke situs live = **62/62 lulus** (DCL ±1,2 s, heap 40 MB).
+- **Bukti tangkapan layar versi live** (identik dengan versi lokal untuk tab biaya & waktu): `dokumentasi-v1.7.0/24-engine-biaya-live.png`, `25-engine-waktu-live.png`, `26-engine-index-solar-live.png`.
+- Riwayat: commit `bac0f74` (v1.8.2) sempat gagal pada langkah *Deploy to GitHub Pages* (langkah unggah artefak sukses) — kemungkinan gangguan sesaat GitHub Pages; dijalankan ulang (attempt 2) dan sukses.
