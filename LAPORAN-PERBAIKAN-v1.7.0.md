@@ -10,7 +10,7 @@
 
 | Item | Nilai |
 |---|---|
-| Jumlah kolom terbaca | **37 kolom**, dashboard hanya memakai **A–AH (34 kolom)** — AI/AJ/AK (`R Lokasi`, `R Irigator`, `R Wilayah`) diabaikan sesuai permintaan |
+| Jumlah kolom terbaca *(kondisi saat itu; struktur berubah lagi — lihat §3g)* | **37 kolom**, dashboard hanya memakai **A–AH (34 kolom)** — AI/AJ/AK (`R Lokasi`, `R Irigator`, `R Wilayah`) diabaikan sesuai permintaan |
 | Jumlah baris | **12.730** (sebelumnya 12.396) |
 | Rentang data | 29 Mei – 21 Sep 2026 |
 | Wilayah | AW08 – AW15 (8 afdeling) |
@@ -125,11 +125,43 @@ Permintaan: (1) kolom **Wilayah** pada tabel *Rincian Waktu per Wilayah* dibekuk
 - Keterangan di bawah chart menyebut wilayah tertinggi, mis. *"Nilai = rata-rata jam/akt per wilayah (dibagi data wilayah itu sendiri). Tertinggi: AW11 — 15,68 jam/akt."*
 - Contoh hasil (mode bawaan): Jam Operasi **AW11 15,7 → AW09 13,2 jam/aktivitas**; % Utilization **AW15 85,2 → AW10 78,4 %**.
 
+## 3g. Penyesuaian struktur sheet terbaru — kolom A..AI (v1.8.2)
+
+Permintaan: pelajari ulang struktur sheet **ZPAS637** & **Index Solar**, karena data yang diambil berubah dari kolom A sampai **AI**; analisa apakah perlu perubahan.
+
+### Hasil pembacaan sheet (langsung dari spreadsheet, 26 Sep 2026)
+
+| Sheet | Baris data | Kolom | Isi kolom |
+|---|---|---|---|
+| **ZPAS637** | 12.730 | **38** (A–AL) | **A = `R Bulan`** (bantu: Mei…Sep) • B = `Date` • C..AI = data utama 33 kolom • AJ–AL = `R Lokasi`/`R Irigator`/`R Wilayah` (bantu, tidak dipakai) |
+| **Index Solar** | 151 engine | 12 (A–L) | **Tidak berubah** — masih `Kode Engine … Selisih` |
+
+### Temuan: ada satu kolom baru di depan (A), jadi seluruh kolom bergeser satu huruf
+
+- Sebelumnya sheet dibaca **A–AH (34 kolom)** dengan `Date` di kolom **A**. Sekarang `Date` ada di kolom **B** dan kolom terakhir data utama adalah **AI (`Jenis Engine`)** → benar, data yang diambil berubah menjadi **A sampai AI (35 kolom)**.
+- Dampak nyata pada versi lama (v1.8.1, masih live saat analisa): dashboard mengambil *tanggal* dari kolom **A** (`select A`). Kolom A sekarang berisi teks `"Sep"`, bukan tanggal → seluruh baris ditolak → **12.730 baris hilang**, lalu dashboard jatuh ke berkas cadangan `assets/sample-data.csv` (12.396 baris = data per 18 Sep) dan menampilkan angka yang lebih kecil (Luas 44.116,52 Ha vs 45.368,02 Ha; Solar 1.483.274 L vs 1.502.197 L). Diagram & tabel tetap terisi sehingga masalahnya tidak terlihat sekejap — inilah yang diperbaiki.
+- Catatan: sisa analisa kolom **tidak berubah** — semua kolom lain dibaca berbasis **nama header**, bukan huruf kolom, dan tiap nilai `R Bulan` **selaras 100%** dengan bulan pada `Date` (Mei 61 • Jun 2.254 • Jul 4.024 • Agu 4.072 • Sep 2.319 baris; 116 hari, 5 bulan).
+
+### Perubahan yang dilakukan
+
+1. **Kolom tanggal pindah ke B** (`DATE_COL = 'B'`) pada `app.js` dan pada preload `index.html` → 12.730 baris kembali terbaca; tidak ada lagi kejadian "diam-diam pakai data contoh".
+2. **Deteksi otomatis huruf kolom `Date`** (`csvDateLetter`): huruf kolom dibaca dari header CSV; bila berbeda dari `B`, dashboard mengambil ulang overlay tanggal dengan huruf yang benar (`fixDatesColumn`) lalu memberi peringatan di konsol. Jadi kalau sheet disisipi kolom lagi, dashboard menyesuaikan sendiri.
+3. **Pengaman tanggal**: overlay tanggal yang tidak valid (mis. `Invalid Date`) tidak lagi membuang baris — baris jatuh ke tanggal dari CSV; jumlah baris bermasalah dilaporkan di konsol. Kegagalan total kini menghasilkan pesan galat yang jelas, bukan data contoh yang menyesatkan.
+4. **Kolom `R Bulan` (A) ikut ditampilkan** di tab Detail Data Harian sebagai kolom **Bulan** (setelah Tanggal, bisa diurutkan) → jumlah kolom tabel & export menjadi **35 (A–AI)**, header export dibuka `R Bulan, Date, …` mengikuti urutan sheet.
+5. **`assets/sample-data.csv` disegarkan ke 35 kolom** agar berkas cadangan offline seragam dengan struktur terbaru.
+6. Label kolom pada UI diperbarui: `Kolom A–AI`, judul "Detail Data Harian — 35 Kolom (A–AI)".
+
+### Bahan pertimbangan untuk sheet (opsional, tidak wajib)
+
+- Kolom A sekarang **duplikat informasi bulan** yang sudah ada di kolom B (tanggal). Keduanya terbukti selaras, jadi kolom tersebut tidak menambah wawasan baru — akan tetapi dashboard sudah tahan terhadap keberadaannya (bahkan menampilkannya sebagai kolom "Bulan"). Kalau ingin layout seperti semula (dimulai dari `Date` di kolom A), cukup hapus/gabungkan kolom A; dashboard mendeteksi ulang kolom tanggal secara otomatis dan tetap bekerja.
+- Kolom **AJ–AL** sengaja tetap diabaikan sesuai arahan.
+- Sheet **Index Solar** tidak perlu disesuaikan — struktur dan seluruh 151 engine terbaca tanpa perubahan.
+
 ## 4. Hasil uji (Chrome headless, lokal)
 
 | Skrip | Hasil |
 |---|---|
-| `tools/qa-index-solar.js` | **37/37 lulus** (7 pemeriksaan mode rata-rata/total + **5 pemeriksaan baru v1.8.1**: chart Performa Waktu terisi 8 batang & terurut, satuan mengikuti mode & label sumbu, pemilih 15 metrik + chip cepat, ganti metrik ke % Utilization mengubah data, kolom Wilayah `sticky` di thead/tbody/tfoot & posisinya tidak bergeser saat tabel digeser `scrollLeft=700`) — 6 tab, semua 24 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail 34 kolom, export CSV 34 kolom × 12.730 baris, 0 error |
+| `tools/qa-index-solar.js` | **42/42 lulus** (7 pemeriksaan mode rata-rata/total + **5 pemeriksaan baru v1.8.1**: chart Performa Waktu terisi 8 batang & terurut, satuan mengikuti mode & label sumbu, pemilih 15 metrik + chip cepat, ganti metrik ke % Utilization mengubah data, kolom Wilayah `sticky` di thead/tbody/tfoot & posisinya tidak bergeser saat tabel digeser `scrollLeft=700`) — 6 tab, semua 24 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail **35 kolom A–AI**, export CSV **35 kolom** × 12.730 baris, 0 error |
 | `tools/qa-bar-labels.js` (baru) | **10/10 lulus** — 6 chart single berlabel, 4 chart stacked tanpa label, bukti piksel, aturan harian/bulanan/mingguan |
 | `tools/qa.js` (regresi, kini dinamis) | **42/42 lulus** — filter tanggal/bulan/wilayah, pencarian teks & angka, paginasi, sort, granularitas, biaya, export, sync, offline, fallback |
 | `tools/layout-test.js` | **24/24 lulus** — laci filter mobile tetap menempel di bawah header, sticky desktop, resize, Esc/backdrop, fokus |
@@ -145,5 +177,5 @@ Permintaan: (1) kolom **Wilayah** pada tabel *Rincian Waktu per Wilayah* dibekuk
 
 ## 6. Status rilis
 
-- Service worker dinaikkan ke **v1.8.1** (cache aset lama dibersihkan otomatis).
+- Service worker dinaikkan ke **v1.8.2** (cache aset lama dibersihkan otomatis).
 - Push ke `wahyudp76/FS-evaluation` → GitHub Actions → <https://wahyudp76.github.io/FS-evaluation/>

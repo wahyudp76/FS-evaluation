@@ -220,16 +220,26 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   const detail = await page.evaluate(() => {
     const th = document.querySelectorAll('#tab-data thead th').length;
     const firstRow = document.querySelector('#dataTableBody tr');
+    const bulanOk = Array.from(document.querySelectorAll('#dataTableBody tr')).slice(0, 8).every(tr => {
+      const td = tr.children;
+      if (td.length < 3) return false;
+      const tgl = td[0].innerText.trim();             // "21 Sep 2026"
+      const bulan = td[1].innerText.trim();           // "Sep" (kolom A sheet: R Bulan)
+      return bulan !== '' && bulan !== '-' && tgl.indexOf(bulan) !== -1;
+    });
     return {
       kolom: th,
       selCount: firstRow ? firstRow.children.length : 0,
       cuplikan: firstRow ? firstRow.innerText.replace(/\t/g, ' | ').slice(0, 200) : '',
       lebarTabel: (document.querySelector('#tab-data table') || {}).scrollWidth,
-      wadahScroll: (document.querySelector('#tab-data .overflow-x-auto') || {}).scrollWidth
+      wadahScroll: (document.querySelector('#tab-data .overflow-x-auto') || {}).scrollWidth,
+      kolomBulan: Array.from(document.querySelectorAll('#tab-data thead th')).map(e => e.textContent.trim()).slice(0, 3),
+      bulanSelaras: bulanOk
     };
   });
   console.log('baris detail:', detail.cuplikan);
-  check('detail: 34 kolom sesuai sheet A..AH', detail.kolom === 34 && detail.selCount === 34, `th ${detail.kolom}, td ${detail.selCount}`);
+  check('detail: 35 kolom sesuai sheet A..AI (termasuk bantu "R Bulan")', detail.kolom === 35 && detail.selCount === 35, `th ${detail.kolom}, td ${detail.selCount}`);
+  check('detail: kolom Bulan (A) tampil setelah Tanggal & selaras', detail.kolomBulan[0] === 'Tanggal' && detail.kolomBulan[1] === 'Bulan' && detail.bulanSelaras, JSON.stringify(detail.kolomBulan));
   check('detail: tabel bisa digeser horizontal', detail.lebarTabel > 1200, 'lebar ' + detail.lebarTabel);
 
   // ---- export CSV 34 kolom ----
@@ -242,10 +252,29 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   const lines = String(csv).split(/\r?\n/);
   const header = lines[0].replace(/^\ufeff/, '');
   const nKolom = header.split(',').length;
-  check('export CSV: 34 kolom + seluruh baris', nKolom === 34 && lines.length > 12000, `${nKolom} kolom, ${lines.length} baris`);
+  check('export CSV: 35 kolom (A..AI) + seluruh baris', nKolom === 35 && lines.length > 12000, `${nKolom} kolom, ${lines.length} baris`);
+  check('export CSV: urut sheet — dibuka kolom "R Bulan" lalu "Date"', header.indexOf('R Bulan') === 0 && header.indexOf('Date') > 0, header.slice(0, 40));
   console.log('header CSV:', header.slice(0, 150));
 
   // ---- kecepatan & error ----
+  // ---- data sheet asli (bukan file contoh) + jumlah record sama dengan sheet ----
+  const sumber = await page.evaluate(async () => {
+    const urlGviz = 'https://docs.google.com/spreadsheets/d/1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o/gviz/tq?tqx=out:csv&sheet=ZPAS637&cb=' + Math.random();
+    const txt = await (await fetch(urlGviz)).text();
+    const barisSheet = txt.split('\n').filter(l => l.trim() !== '').length;   // termasuk header
+    const pakaiContoh = performance.getEntriesByType('resource').some(r => r.name.indexOf('sample-data.csv') !== -1);
+    const total = (document.querySelector('#rowCount') || {}).textContent || '';   // "12.730 / 12.730 records"
+    const angka = Number((total.split('/')[1] || '').replace(/[^0-9]/g, ''));
+    return { barisSheet, pakaiContoh, total, angka, cocok: angka === barisSheet - 1 };
+  });
+  check('data: memakai sheet asli, bukan file contoh (sample-data.csv tidak diunduh)', !sumber.pakaiContoh, 'sample-data diunduh=' + sumber.pakaiContoh);
+  const kolomTanggal = await page.evaluate(() => {
+    const urls = performance.getEntriesByType('resource').map(r => r.name).filter(u => u.indexOf('gviz') !== -1);
+    return { pakaiB: urls.some(u => /tq=select%20B|tq=select\+B/.test(u)), pakaiA: urls.some(u => /tq=select%20A(&|$)|tq=select\+A(&|$)/.test(u)) };
+  });
+  check('data: overlay tanggal memakai kolom B (bukan A = "R Bulan")', kolomTanggal.pakaiB && !kolomTanggal.pakaiA, JSON.stringify(kolomTanggal));
+  check('data: jumlah record dashboard = jumlah baris sheet', sumber.cocok, `sheet ${sumber.barisSheet - 1} baris vs dashboard ${sumber.angka}`);
+
   const perf = await page.evaluate(() => {
     const n = performance.getEntriesByType('navigation')[0];
     return { dcl: Math.round(n.domContentLoadedEventEnd), heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null };

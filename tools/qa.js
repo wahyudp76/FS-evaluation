@@ -267,7 +267,7 @@ const check = (name, ok, extra = '') => {
     });
   });
   const exportLines = String(exportTxt).split(/\r?\n/);
-  check('export CSV: header + baris', /^Date,Wilayah,Lokasi/.test(exportLines[0]) && exportLines.length > 100, exportLines.length + ' baris, header: ' + exportLines[0].slice(0, 60));
+  check('export CSV: header + baris', /^R Bulan,Date,Wilayah,Lokasi/.test(exportLines[0]) && exportLines.length > 100, exportLines.length + ' baris, header: ' + exportLines[0].slice(0, 60));
 
   // ---------- SYNC MANUAL ----------
   const tSync = Date.now();

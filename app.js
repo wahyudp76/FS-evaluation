@@ -1,13 +1,17 @@
 // PG2 Irrigation Evaluation Dashboard - ZPAS637
 // Auto-sync to Google Sheets ID: 1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o
-// Updated: Luas Cek column removed (now 34 cols), dynamic label-based parsing
+// Updated: sheet ZPAS637 = 35 kolom A..AI (kolom bantu 'R Bulan' di A), parsing berbasis label
 const SPREADSHEET_ID = '1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o';
 const SHEET_NAME = 'ZPAS637';
 const GVIZ_BASE = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq`;
 // CSV = sumber data utama (payload ~46% lebih kecil dari JSON gviz)
 const CSV_URL = `${GVIZ_BASE}?tqx=out:csv&sheet=${SHEET_NAME}`;
-// Query kecil khusus kolom tanggal: hanya ~3 KB terkompresi, memberi tanggal + tahun yang akurat
-const DATES_URL = `${GVIZ_BASE}?tq=${encodeURIComponent('select A')}&tqx=out:json&sheet=${SHEET_NAME}`;
+// Query kecil khusus kolom tanggal: hanya ~3 KB terkompresi, memberi tanggal + tahun yang akurat.
+// Kolom tanggal sheet ZPAS637 = kolom B ("Date"); kolom A kini berisi bantu "R Bulan".
+// Huruf kolom dihitung ulang otomatis dari header CSV bila susunan kolom sheet berubah lagi.
+const DATE_COL = 'B';
+const datesUrlFor = (letter) => `${GVIZ_BASE}?tq=${encodeURIComponent('select ' + letter)}&tqx=out:json&sheet=${SHEET_NAME}`;
+const DATES_URL = datesUrlFor(DATE_COL);
 // JSON penuh dipakai hanya sebagai fallback bila CSV bermasalah
 const GVIZ_URL = `${GVIZ_BASE}?tqx=out:json&sheet=${SHEET_NAME}`;
 const INDEX_SHEET = 'Index Solar';
@@ -245,6 +249,22 @@ function parseCSVFast(text) {
   return rows;
 }
 
+// Huruf kolom gaya spreadsheet: 0 -> A, 1 -> B, ... 26 -> AA
+function colLetter(i) {
+  let s = '', n = i + 1;
+  while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+// Cari huruf kolom "Date" dari header CSV (hanya baris pertama) untuk penyesuaian otomatis
+function csvDateLetter(csv) {
+  try {
+    const nl = csv.indexOf('\n');
+    const head = parseCSVFast(nl === -1 ? csv : csv.slice(0, nl))[0] || [];
+    for (let i = 0; i < head.length; i++) if (head[i].trim() === 'Date') return colLetter(i);
+  } catch (e) {}
+  return null;
+}
+
 // Angka gaya id-ID: "Rp2.332.240" -> 2332240 ; "2,05" -> 2.05 ; "1.234,5" -> 1234.5
 // Dibuat manual (tanpa regex/replace/parseFloat) karena dipanggil >400.000x saat load.
 function toNumFast(v) {
@@ -282,7 +302,7 @@ function toNumFast(v) {
   return sign * (int + frac);
 }
 
-// Tanggal dari query kolom A: "Date(2026,4,29)"
+// Tanggal dari query kolom "Date" (kolom B): "Date(2026,4,29)"
 function parseDatesJSON(text) {
   const m = text.match(/setResponse\(([\s\S]+)\)/);
   if (!m) return null;
@@ -296,7 +316,7 @@ function parseDatesJSON(text) {
   return out;
 }
 
-// Tanggal cadangan bila kolom A tidak tersedia: "29-Mei" (tanpa tahun)
+// Tanggal cadangan bila overlay kolom "Date" tidak tersedia: "29-Mei" (tanpa tahun)
 const _months = { 'Jan':0,'Feb':1,'Mar':2,'Apr':3,'Mei':4,'Jun':5,'Jul':6,'Ags':7,'Agu':7,'Sep':8,'Okt':9,'Nov':10,'Des':11,
                   'Januari':0,'Februari':1,'Maret':2,'April':3,'Juni':5,'Juli':6,'Agustus':7,'September':8,'Oktober':9,'November':10,'Desember':11 };
 function parseShortDate(str, fallbackYear) {
@@ -341,15 +361,21 @@ function buildRows(csvText, datesText) {
         cTotAvail = I('Total Avail'), cTotTime = I('Total Time'), cAvail = I('% Availability'), cUtil = I('% Utilization'),
         cAir = I('Air'), cSolar = I('Solar Terpakai (ltr)'), cBSolar = I('Biaya Solar (Std)'), cBUpah = I('Biaya Upah'),
         cBAlat = I('Biaya Alat'), cBTotal = I('Biaya Total'), cRpHa = I('Rp/Ha'), cHaHari = I('Ha/Hari'),
-        cHaJam = I('Ha/Jam'), cSolarJam = I('Solar Ltr/jam'), cSolarHa = I('Solar Ltr/Ha'), cJEng = I('Jenis Engine');
+        cHaJam = I('Ha/Jam'), cSolarJam = I('Solar Ltr/jam'), cSolarHa = I('Solar Ltr/Ha'), cJEng = I('Jenis Engine'),
+        cBulan = I('R Bulan');
   need('Date'); need('Wilayah'); need('Luas Siram'); need('Biaya Total');
 
   const out = [];
+  let badOverlay = 0;
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length < 3) continue;
     const rawDate = cDate !== undefined ? row[cDate] : '';
-    const date = (dates && dates[r - 1]) || parseShortDate(rawDate, fallbackYear);
+    // Overlay tanggal (kolom B) dipakai hanya bila valid; kalau tidak (mis. susunan kolom sheet
+    // berubah) baris ini jatuh ke tanggal dari CSV supaya tidak ada baris yang hilang.
+    const ov = dates ? dates[r - 1] : null;
+    if (ov && isNaN(ov)) badOverlay++;
+    const date = (ov && !isNaN(ov)) ? ov : parseShortDate(rawDate, fallbackYear);
     if (!date || isNaN(date)) continue;
     const g = (i) => (i === undefined || i < 0 || row[i] === undefined ? '' : row[i]);
     const num = (i) => (i === undefined || i < 0 ? 0 : toNumFast(row[i]));
@@ -371,6 +397,7 @@ function buildRows(csvText, datesText) {
       rpPerHa: num(cRpHa), haPerHari: num(cHaHari), haPerJam: num(cHaJam),
       solarPerJam: num(cSolarJam), solarPerHa: num(cSolarHa),
       jenisEngine: g(cJEng).trim(),
+      bulanR: g(cBulan).trim(),          // kolom A sheet: bantu bulan (Mei..Sep)
       _y: yr, _m: mo,
       _s: ''   // indeks pencarian, diisi di bawah
     };
@@ -379,6 +406,7 @@ function buildRows(csvText, datesText) {
     out.push(d);
   }
 
+  if (badOverlay) console.warn('[data] overlay tanggal kolom ' + DATE_COL + ' tidak valid pada ' + badOverlay + ' baris -> memakai tanggal dari CSV');
   if (out.length) {
     try { localStorage.setItem('pg2-year', String(out[out.length - 1]._y)); } catch (e) {}
   }
@@ -2916,10 +2944,11 @@ function renderInsights() {
   container.innerHTML = insights.map(t=>`<div class="flex gap-2"><span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-emerald-500"></span><span>${t}</span></div>`).join('');
 }
 
-// ===== TAB DETAIL: seluruh kolom sheet ZPAS637 (A..AH = 34 kolom) =====
+// ===== TAB DETAIL: seluruh kolom sheet ZPAS637 (A..AI = 35 kolom) =====
 // Urutan kolom mengikuti urutan sheet agar mudah dicocokkan saat verifikasi data.
 const DETAIL_COLS = [
   { h:'Tanggal',            s:'date',          get:d=>d.date,                        fmt:'date',  align:'left',  sort:true },
+  { h:'Bulan',              s:'bulanR',        get:d=>d.bulanR,                      fmt:'text',  align:'left',  sort:true },
   { h:'Wilayah',            s:'wilayah',       get:d=>d.wilayah,                     fmt:'text',  align:'left',  sort:true, badge:true },
   { h:'Lokasi',             s:'lokasi',        get:d=>d.lokasi,                      fmt:'mono',  align:'left',  sort:true },
   { h:'Engine',             s:'engine',        get:d=>d.engine,                      fmt:'monoB', align:'left',  sort:true },
@@ -3385,7 +3414,7 @@ function initFiltersUI() {
 
 // Export CSV internal (pengganti papaparse): escape kutip ganda & pemisah
 const EXPORT_COLS = [
-  ['Date', d=>formatDateISO(d.date)], ['Wilayah', d=>d.wilayah], ['Lokasi', d=>d.lokasi],
+  ['R Bulan', d=>d.bulanR], ['Date', d=>formatDateISO(d.date)], ['Wilayah', d=>d.wilayah], ['Lokasi', d=>d.lokasi],
   ['Engine', d=>d.engine], ['Irigator', d=>d.irigator], ['Jenis Irigator', d=>d.jenisIrigator],
   ['Plan Time', d=>d.planTime], ['Luas Siram', d=>d.luasSiram], ['Kecepatan Rata-rata', d=>d.kecepatan],
   ['Tebal Siram', d=>d.tebalSiram], ['Prepare Time', d=>d.prepareTime], ['Operating Time', d=>d.operatingTime],
@@ -3450,7 +3479,7 @@ function applyPayload(payload, { fromCache = false } = {}) {
   let rows;
   if (payload.csv) { rows = buildRows(payload.csv, payload.dates); payload.csv = null; payload.dates = null; }
   else { rows = parseGvizJSON(payload.json); payload.json = null; }
-  if (!rows.length) throw new Error('Tidak ada baris data yang bisa dibaca');
+  if (!rows.length) throw new Error('Tidak ada baris data yang bisa dibaca (periksa kolom Date/Wilayah pada sheet)');
   rawData = rows;
   // sheet Index Solar (opsional: kalau gagal, dashboard utama tetap jalan)
   if (payload.index) {
@@ -3469,6 +3498,16 @@ function applyPayload(payload, { fromCache = false } = {}) {
   $('#rowCount').textContent = `${formatInt(filteredData.length)} / ${formatInt(rawData.length)} records`;
   setSyncLabel(payload.ts, fromCache);
   console.debug('[data] siap dalam', Math.round(performance.now() - t0), 'ms (', fromCache ? 'cache' : 'jaringan', ')');
+}
+
+// Kalau kolom "Date" di sheet tidak lagi di kolom B, ambil ulang overlay tanggal memakai huruf
+// kolom yang benar (dibaca dari header CSV) supaya dashboard tidak jatuh ke data contoh.
+async function fixDatesColumn(payload) {
+  if (!payload || !payload.csv) return;
+  const letter = csvDateLetter(payload.csv);
+  if (!letter || letter === DATE_COL) return;
+  const t = await fetchText(datesUrlFor(letter)).catch(() => null);
+  if (t) { payload.dates = t; console.warn('[data] kolom Date ada di kolom ' + letter + ' (bukan ' + DATE_COL + ') — overlay tanggal disesuaikan'); }
 }
 
 async function loadData(opts = {}) {
@@ -3509,6 +3548,7 @@ async function loadData(opts = {}) {
       // simpan mentah untuk kunjungan berikutnya (sebelum teksnya dilepas dari memori)
       if (payload.csv) { cachePut(CSV_URL, payload.csv); if (payload.dates) cachePut(DATES_URL, payload.dates); }
       if (payload.index) cachePut(INDEX_URL, payload.index);
+      await fixDatesColumn(payload);          // jaga-jaga bila kolom Date di sheet berpindah
       applyPayload(payload);
       if (!first && !silent) showToast(`Data diperbarui — ${formatInt(rawData.length)} records`, 'success');
     } else {

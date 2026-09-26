@@ -71,7 +71,8 @@ Tab terakhir yang dibuka tersimpan otomatis (localStorage + hash URL), filter te
 ## 🔄 Auto-Sync Logic
 ```js
 const CSV_URL   = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=ZPAS637`;   // sumber utama (~3,6 MB)
-const DATES_URL = GVIZ_BASE + `?tq=select A&tqx=out:json&sheet=ZPAS637`;                                            // overlay tanggal (~3 KB)
+const DATES_URL = GVIZ_BASE + `?tq=select B&tqx=out:json&sheet=ZPAS637`;                                            // overlay tanggal (~3 KB, kolom "Date")
+// huruf kolom "Date" dideteksi dari header CSV -> kalau susunan kolom sheet berubah, query ini menyesuaikan sendiri
 const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                                                        // cadangan (~9,7 MB)
 ```
 - Frontend fetch langsung ke Google Sheets (sheet harus **Anyone with link can view**)
@@ -89,9 +90,11 @@ const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                    
 - Kepala laci menampilkan ringkasan langsung, mis. *"1 filter aktif • 1.352 dari 12.396 records"*.
 
 ## 🗂️ Struktur Data & Tab (v1.7.0)
-**Sheet ZPAS637** dibaca hanya pada rentang **kolom A–AH (34 kolom)** — kolom bantu AI–AK sengaja diabaikan:
+**Sheet ZPAS637** dibaca pada rentang **kolom A–AI (35 kolom)** — kolom bantu **AJ–AL** (`R Lokasi`, `R Irigator`, `R Wilayah`) sengaja diabaikan:
 
-`Date, Wilayah, Lokasi, Engine, Irigator, Jenis Irigator, Plan Time, Luas Siram, Kecepatan Rata-rata, Tebal Siram, Prepare Time, Operating Time, Waiting Time, Repair, Down Time, Standby, Off Time, Tot, Oper, Time, Total Avail, Total Time, % Availability, % Utilization, Air, Solar Terpakai (ltr), Biaya Solar (Std), Biaya Upah, Biaya Alat, Biaya Total, Rp/Ha, Ha/Hari, Ha/Jam, Solar Ltr/jam, Solar Ltr/Ha, Jenis Engine`
+`R Bulan, Date, Wilayah, Lokasi, Engine, Irigator, Jenis Irigator, Plan Time, Luas Siram, Kecepatan Rata-rata, Tebal Siram, Prepare Time, Operating Time, Waiting Time, Repair, Down Time, Standby, Off Time, Tot, Oper, Time, Total Avail, Total Time, % Availability, % Utilization, Air, Solar Terpakai (ltr), Biaya Solar (Std), Biaya Upah, Biaya Alat, Biaya Total, Rp/Ha, Ha/Hari, Ha/Jam, Solar Ltr/jam, Solar Ltr/Ha, Jenis Engine`
+
+> **Catatan kolom A ("R Bulan")** — kolom A kini berisi kolom bantu bulan (Mei…Sep), sehingga kolom tanggal ada di **kolom B ("Date")**. Dashboard mengambil tanggal dari kolom B dan **mendeteksi sendiri huruf kolom `Date`** dari header CSV: bila sheet diubah lagi (kolom disisipkan/dipindah), dashboard otomatis menyesuaikan tanpa perlu diperbaiki manual. Bila seluruh pembacaan tanggal gagal, angka dari CSV tetap dipakai — dashboard tidak akan diam-diam menampilkan data contoh. Bila tidak dibutuhkan, kolom A bisa dihapus/dikosongkan dan dashboard tetap berjalan (kolom tanggal akan terdeteksi kembali secara otomatis).
 
 **Sheet baru "Index Solar"** (12 kolom, 151 engine) kini dianalisa di dashboard:
 `Kode Engine, Tanggal Siram, Wilayah, Lokasi, Kode Irrigator, Jenis Engine, Pemakaian Solar, Jam Operaton, Liter/jam, Kalibrasi, Justifikasi, Selisih`
@@ -104,7 +107,7 @@ const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                    
 | **Analisa Biaya** | Biaya solar/upah/alat per wilayah (stacked — tanpa angka), komposisi, tren, serta **biaya per periode dengan angka batang** |
 | **Waktu & Utilisasi** | **Rincian seluruh kolom waktu** (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + **Air** dalam 12 kartu dengan **3 mode tampilan: Rata-rata / Aktivitas (bawaan), Rata-rata / Hari, atau Total** — kartu & tabel & chart komposisi ikut mode; tabel per wilayah punya kolom **Hari**, plus **chart Performa Waktu per Wilayah**: batang horizontal berlabel angka, 15 metrik + 6 tombol cepat, mengikuti mode rata-rata/total), chart komposisi waktu per bulan, air vs luas vs solar, availability/utilization |
 | **Index Solar** *(baru)* | Chart penyimpangan dengan **angka deviasi (+7,13 / −8,19 L/jam)** pada tiap batang; pemakaian solar per engine vs **kalibrasi**: L/jam aktual, deviasi, selisih (L), verdict Hemat/Boros, penanda **Solar 0 L** & **Anomali** (>5× kalibrasi), rekap per wilayah & jenis engine, scatter aktual vs kalibrasi, tabel per engine + filter/urut/paginasi/pencarian |
-| **Detail Data Harian** | Tabel **34 kolom A–AH** (bisa digeser horizontal, **kolom tanggal & kolom wilayah beku**), sort klik header, paginasi, export CSV 34 kolom |
+| **Detail Data Harian** | Tabel **35 kolom A–AI** (bisa digeser horizontal, **kolom tanggal & kolom wilayah beku**), termasuk kolom **Bulan** dari sheet, sort klik header, paginasi, export CSV 35 kolom urut sheet (dibuka dengan `R Bulan, Date, …`) |
 
 ### Mode tampilan waktu (v1.8.0)
 Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rincian Waktu Alat" (tab Waktu & Utilisasi):
