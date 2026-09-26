@@ -10,11 +10,12 @@ Dashboard disusun dalam bar navigasi tab (sticky) agar rapi dan tidak berdesakan
 
 | Tab | Isi |
 |-----|-----|
-| **Overview** | Garis besar seluruh wilayah: 4 KPI utama + 4 KPI biaya/utilisasi, ringkasan semua afdeling, tren solar harian, luas siram, jam efektif, kecepatan & tebal, efisiensi |
-| **Performance Wilayah** | Pemakaian & hasil rata-rata per afdeling: chart metrik dinamis (+ quick chips), mini cards, tabel evaluasi 15 kolom (sortable), bubble efisiensi Ha/Jam vs Ltr/Ha, pemakaian vs hasil |
-| **Analisa Biaya** | Biaya irigasi total & per wilayah: stacked biaya solar/upah/alat + garis Rp/Ha, komposisi biaya, tren biaya harian, tabel biaya per wilayah (13 kolom + TOTAL), tabel & chart biaya per periode (harian/mingguan/bulanan), insight biaya |
-| **Utilisasi & Efisiensi** | Availability vs Utilization, jenis engine, top engine & irigator, distribusi solar efficiency |
-| **Data Harian** | Tabel record harian: sort kolom, pencarian, pagination 15/30/50/100, export CSV |
+| **Overview** | Garis besar seluruh wilayah: 4 KPI utama + 12 KPI biaya/utilisasi, ringkasan 8 wilayah, tren solar, luas siram, jam efektif, kecepatan & tebal, efisiensi |
+| **Performance Wilayah** | Perbandingan antar afdeling: chart 18 metrik (+ quick chips, angka pada batang), mini cards, tabel evaluasi 15 kolom, bubble efisiensi Ha/Jam vs Ltr/Ha, pemakaian vs hasil |
+| **Analisa Biaya** | 12 kartu biaya (mode Total/Rata-rata), chart performa biaya per wilayah & per jenis engine, tabel rincian 15 kolom, komposisi, tren & tabel biaya per periode, insight biaya |
+| **Waktu & Utilisasi** | 12 kartu waktu (mode Rata-rata/Total), tabel rincian waktu per wilayah, chart performa waktu per wilayah & per jenis engine, komposisi waktu, availability vs utilization, jenis engine, top engine & irigator |
+| **Index Solar** | Evaluasi solar per engine: deviasi aktual vs kalibrasi, Hemat/Boros/Anomali, rekap per wilayah & jenis engine, scatter, tabel per engine |
+| **Detail Data Harian** | Tabel 35 kolom A–AI urut sheet: sort kolom, pencarian, pagination 15/30/50/100, export CSV |
 
 Tab terakhir yang dibuka tersimpan otomatis (localStorage + hash URL), filter tetap berlaku lintas tab, dan header menampilkan ticker ringkas (luas, solar, biaya, Rp/Ha, Ha/Jam, Ltr/Ha, util, avail) di semua tab.
 
@@ -54,7 +55,7 @@ Tab terakhir yang dibuka tersimpan otomatis (localStorage + hash URL), filter te
 
 ### 6. Interaktivitas
 - **Bar navigasi tab**: Overview / Performance Wilayah / Analisa Biaya / Utilisasi & Efisiensi / Detail Data Harian
-- Filter: **Periode Tanggal manual** (Mulai–Selesai + tombol *Semua* untuk kembali ke rentang penuh), **Filter Bulan** (Jan–Des) & **Tahun**, Wilayah, Jenis Engine (SPC, DEC, SPE, DEM), Search Engine/Irigator/Lokasi
+- Filter: **Periode Tanggal manual** (Mulai–Selesai + tombol *Semua* untuk kembali ke rentang penuh), **Filter Bulan** (Jan–Des) & **Tahun**, Wilayah, Jenis Engine (SPC, DEC, DED, DEM, SPE — diisi otomatis dari data), Search Engine/Irigator/Lokasi
 - Granularitas agregasi terpisah: **Harian / Mingguan / Bulanan** (chart solar, luas, jam, kecepatan, efisiensi)
 - Tabel detail 15/page (opsi 15/30/50/100) dengan sort & search
 - Export CSV filtered
@@ -63,15 +64,15 @@ Tab terakhir yang dibuka tersimpan otomatis (localStorage + hash URL), filter te
 ## 🚀 Tech Stack
 - **Frontend only** - No backend, deploy ke GitHub Pages
 - TailwindCSS (CDN) - Modern minimalist UI
-- Chart.js 4.4 + date-fns adapter
-- PapaParse for CSV fallback
+- Chart.js 4.4 (tanpa adapter date-fns — tidak ada time-scale)
+- Parser CSV & export CSV internal (tanpa dependensi PapaParse)
 - Lucide Icons
 - Google Sheets GViz JSON API (`/gviz/tq?tqx=out:json`)
 
 ## 🔄 Auto-Sync Logic
 ```js
-const CSV_URL   = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=ZPAS637`;   // sumber utama (~3,6 MB)
-const DATES_URL = GVIZ_BASE + `?tq=select B&tqx=out:json&sheet=ZPAS637`;                                            // overlay tanggal (~3 KB, kolom "Date")
+const CSV_URL   = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=ZPAS637`;   // sumber utama (~4,1 MB utk 12,7 rb baris)
+const DATES_URL = GVIZ_BASE + `?tq=select B&tqx=out:json&sheet=ZPAS637`;                                            // overlay tanggal (~560 KB, kolom "Date")
 // huruf kolom "Date" dideteksi dari header CSV -> kalau susunan kolom sheet berubah, query ini menyesuaikan sendiri
 const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                                                        // cadangan (~9,7 MB)
 ```
@@ -81,13 +82,14 @@ const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                    
 - **Cache Storage `pg2-data-v1`**: kunjungan berikutnya tampil instan dari cache, lalu diperbarui di belakang
 - Fallback berlapis: cache → CSV live → JSON gviz → `assets/sample-data.csv` (offline)
 - Sync manual (tombol Sync) + otomatis tiap 5 menit, dijeda otomatis saat tab tidak aktif, ada *backoff* saat gagal
+- **Probe hemat bandwidth (v1.8.6):** sync otomatis cek sidik jari ringan dulu (`count` + 3 baris teratas, ~2 KB); unduhan penuh 4–5 MB dilewati bila sheet tidak berubah, dipaksa ulang maks. tiap 30 menit agar edit baris lama tetap tertangkap
 - Notifikasi ringan (toast) untuk sukses/gagal sync — dashboard tidak pernah tertutup overlay karena gangguan jaringan
 
 ## 🧰 Panel Filter & Kontrol (v1.6.0)
 - **Mobile/tablet (<1024 px):** panel dibuka sebagai **laci penuh yang menempel tepat di bawah header** (+ backdrop, tombol X, Esc, klik luar untuk menutup, fokus kembali ke tombol Filter). Isi laci punya area scroll sendiri sehingga tidak pernah tertutup header.
 - **Desktop (≥1024 px):** panel jadi **kolom kiri sticky** dengan tinggi maksimum mengikuti viewport.
 - Tinggi header diukur otomatis (`--header-h`) dan dipakai panel + tab bar, jadi offset tetap pas walau tinggi header berubah (ticker terisi, tombol Install muncul, zoom, atau lebar layar berbeda).
-- Kepala laci menampilkan ringkasan langsung, mis. *"1 filter aktif • 1.352 dari 12.396 records"*.
+- Kepala laci menampilkan ringkasan langsung, mis. *"1 filter aktif • 1.352 dari 12.730 records"*.
 
 ## 🗂️ Struktur Data & Tab (v1.7.0)
 **Sheet ZPAS637** dibaca pada rentang **kolom A–AI (35 kolom)** — kolom bantu **AJ–AL** (`R Lokasi`, `R Irigator`, `R Wilayah`) sengaja diabaikan:
@@ -154,7 +156,7 @@ Tiga tab kini punya **chart batang horizontal per kategori engine** sehingga per
 - Masing-masing chart punya dropdown **Metrik** + **6 tombol cepat**; urutan batang terurut otomatis (terbesar → terkecil) dan **angka ditulis pada tiap batang**.
 - Aturan pembagi mengikuti tabnya: chart biaya mengikuti mode **Total / Rata-rata** (metrik rasio Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record tidak dibagi), chart waktu mengikuti mode **Rata-rata/Aktivitas, Rata-rata/Hari, Total** (rasio L/Ha, % Avail, % Util tidak dibagi), sedangkan chart Index Solar berupa rasio (L/jam tertimbang = total solar ÷ total jam per jenis engine).
 - Contoh angka (periode penuh): **Biaya Rp/Ha** SPC Rp 1,77 Jt (tertinggi) → DEM Rp 1,05 Jt (terendah); **Jam Operasi** DEC 14,8 → SPE 13,6 jam/akt; **L/jam** DEC 10,38 → SPC 8,81 (SPE & SPM 0,00 = belum ada pemakaian solar terukur).
-- Bukti tangkapan layar: `dokumentasi-v1.7.0/21-engine-biaya.png`, `22-engine-waktu.png`, `23-engine-index-solar.png`.
+- Bukti tangkapan layar tersimpan di arsip rilis lokal (folder `dokumentasi-v1.7.0/` tidak ikut di-commit agar repo tetap ramping).
 
 ### Aturan label angka pada batang (v1.7.2)
 - **Chart bar single** → angka ditulis pada batang: Overview (Luas, Solar), Analisa Biaya (biaya per periode), Index Solar (deviasi per engine), Performance Wilayah (18 metrik + chart pembanding), serta ketiga chart **per jenis engine** (biaya, waktu, index solar).
@@ -162,10 +164,17 @@ Tiga tab kini punya **chart batang horizontal per kategori engine** sehingga per
 - Angka otomatis: menghindari tumpang tindih antar label **dan** menghindari garis tren; bila tidak muat di luar batang, angka dipindah ke dalam batang (ukuran huruf mengecil) atau ditulis vertikal 90°.
 - Tampilan **Harian** pada Overview tidak diberi angka (116 batang terlalu rapat) — ada keterangan kecil di bawah judul chart agar pengguna tahu harus beralih ke Mingguan/Bulanan.
 
+### Audit data & stabilitas (v1.8.6)
+Audit menyeluruh Sep 2026 terhadap sheet live (12.730 baris) menemukan dan memperbaiki:
+- **Rasio operasional tertimbang (total ÷ total)** kini dipakai untuk **L/Ha, Ha/Jam, L/jam, Rp/Ha** di KPI, ticker, tabel & chart wilayah, dan tren periode. Sebelumnya memakai rata-rata baris yang bias +0,6–3,8% (mis. Rp/Ha global 1.590.992 → **1.549.662** yang benar; AW09 1.930.023 → **1.859.528**). Total (luas 45.368,02 Ha • solar 1.527.404 L • biaya Rp 70,31 M) dan seluruh rasio tab Analisa Biaya sudah benar sejak awal dan tidak berubah.
+- **Sinkronisasi satu arah**: web hanya *membaca* sheet (tidak menulis balik). Sheet harus *Anyone with link – Viewer*; edit baris lama tertangkap maks. 30 menit via unduhan penuh berkala, data baru ≤5 menit.
+- **Stabilitas:** timer auto-sync dipasang ulang setiap selesai sync (sebelumnya timer hanya jalan 1× lalu mati total); fallback JSON gviz disamakan (kolom `Tot, Oper, Time`, `R Bulan`, indeks pencarian); tahun cadangan memakai tahun maksimum; rentang filter memakai min/maks aktual; probe sync gagal → otomatis unduhan penuh (fail-open).
+- **Repo dirampingkan:** laporan `LAPORAN-*.md` + `DEPLOY.md` lama dihapus (riwayat tetap di git), 4 ikon duplikat/tak terpakai dihapus, adapter date-fns yang tak dipakai dilepas, `sample-data.csv` disegarkan dari data live, workflow Pages hanya men-deploy file web (tools/ & dokumen tidak ikut).
+
 Catatan metodologi Index Solar:
 - `L/jam aktual` dihitung sendiri dari **Pemakaian Solar ÷ Jam Operasi** (kolom "Liter/jam" sheet tidak dipakai) agar konsisten.
 - Engine dengan pemakaian **0 L** dipisah (belum ada catatan solar) dan tidak dihitung Hemat/Boros; selisih & rata-rata hanya dari engine terukur.
-- Pemakaian **>5× kalibrasi** ditandai **Anomali** (mis. SPC0127 46.258 L untuk 2 jam) dan dikecualikan dari rata-rata/total selisih agar tidak merusak kesimpulan.
+- Pemakaian **>5× kalibrasi** ditandai **Anomali** (mis. DED0015 544 L untuk 3 jam = 181 L/jam vs kalibrasi 15) dan dikecualikan dari rata-rata/total selisih agar tidak merusak kesimpulan.
 - Filter sidebar (periode, wilayah, jenis engine, pencarian) tetap berlaku; kolom `ZPAS637` pada tabel = rekap aktivitas engine yang sama pada periode terpilih.
 
 ## ⚡ Performa & Stabilitas (v1.5.0)
@@ -198,13 +207,13 @@ Perbaikan bug & ketahanan:
 ## 📁 Struktur Repo
 ```
 /
-├── index.html          # Dashboard utama
-├── app.js              # Logic fetch, filter, aggregation, charts
-├── assets/
-│   └── sample-data.csv # Snapshot 12.396 records untuk offline dev
-├── .github/
-│   └── workflows/
-│       └── deploy.yml  # GitHub Pages auto-deploy
+├── index.html          # Dashboard utama (UI + 6 tab)
+├── app.js              # Fetch, filter, agregasi, chart (±4.300 baris)
+├── sw.js               # Service worker PWA (app shell + fallback offline)
+├── manifest.json       # Manifest PWA
+├── assets/             # Ikon/logo + sample-data.csv (snapshot 12.730 baris utk fallback offline)
+├── tools/              # Skrip QA/stress/perf/push (dev saja, tidak ikut ter-deploy)
+├── .github/workflows/  # deploy.yml — GitHub Pages auto-deploy (staging file web saja)
 └── README.md
 ```
 
@@ -246,9 +255,9 @@ Pastikan sheet **File > Share > Anyone with link - Viewer**.
 
 ## 🪧 Logo & Ikon
 Logo: tetes air + sprinkler irigasi (brand emerald `#10A05C`).
-- **Ikon transparan** (tanpa kotak putih): `favicon.svg`, `favicon.ico`, `favicon-16/32.png`, `icon-16…512.png` → tampil bersih di tab browser, bookmark, dan taskbar
+- **Ikon transparan** (tanpa kotak putih): `favicon.svg`, `favicon.ico`, `favicon-16/32.png`, `icon-72…512.png` → tampil bersih di tab browser, bookmark, dan taskbar
 - **Glyph putih transparan**: `logo-white-192.png`, `logo-white-512.png` → dipakai di header dashboard & loading screen
-- **Full-bleed hijau** (khusus platform yang tidak mendukung transparansi): `apple-touch-icon.png`, `icon-180.png`
+- **Full-bleed hijau** (khusus platform yang tidak mendukung transparansi): `apple-touch-icon.png` (180 px)
 - **Maskable Android** (safe zone 66%): `icon-maskable-192.png`, `icon-maskable-512.png`
 - Ukuran kecil (16–32 px) memakai versi glyph disederhanakan (tetes air saja) agar tetap tajam
 

@@ -6,10 +6,13 @@ const SHEET_NAME = 'ZPAS637';
 const GVIZ_BASE = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq`;
 // CSV = sumber data utama (payload ~46% lebih kecil dari JSON gviz)
 const CSV_URL = `${GVIZ_BASE}?tqx=out:csv&sheet=${SHEET_NAME}`;
-// Query kecil khusus kolom tanggal: hanya ~3 KB terkompresi, memberi tanggal + tahun yang akurat.
-// Kolom tanggal sheet ZPAS637 = kolom B ("Date"); kolom A kini berisi bantu "R Bulan".
-// Huruf kolom dihitung ulang otomatis dari header CSV bila susunan kolom sheet berubah lagi.
+// Query khusus kolom tanggal: memberi tanggal + tahun yang akurat (terukur ~560 KB untuk 12,7 rb baris,
+// jauh lebih kecil dari JSON penuh ~10 MB). Kolom tanggal sheet ZPAS637 = kolom B ("Date");
+// kolom A kini berisi bantu "R Bulan". Huruf kolom dihitung ulang otomatis dari header CSV
+// bila susunan kolom sheet berubah lagi.
 const DATE_COL = 'B';
+// Huruf kolom Date terakhir yang terdeteksi (tersimpan agar probe sync tidak salah kolom)
+function dateLetter() { try { return localStorage.getItem('pg2-datecol') || DATE_COL; } catch (e) { return DATE_COL; } }
 const datesUrlFor = (letter) => `${GVIZ_BASE}?tq=${encodeURIComponent('select ' + letter)}&tqx=out:json&sheet=${SHEET_NAME}`;
 const DATES_URL = datesUrlFor(DATE_COL);
 // JSON penuh dipakai hanya sebagai fallback bila CSV bermasalah
@@ -20,6 +23,7 @@ const SAMPLE_URL = './assets/sample-data.csv';
 const DATA_CACHE = 'pg2-data-v1';
 const META_KEY = 'pg2-meta-v1';
 const AUTO_SYNC_MS = 5 * 60 * 1000;
+const FULL_REFRESH_MS = 30 * 60 * 1000;   // unduhan penuh dipaksa maks. tiap 30 mnt (tangkap edit baris lama)
 const REQ_TIMEOUT_MS = 25000;
 
 // State
@@ -86,6 +90,7 @@ let indexSearch = '';
 let indexJust = 'all';               // all | Hemat | Boros | anomali
 let indexPageSize = 12;
 let appliedSig = null;                // sidik jari payload yang sedang tampil (hindari render ganda)
+let _pendingProbe = null;             // sidik jari probe ringan untuk meta sync berikutnya
 let wasOffline = false;               // agar event 'online' bawaan browser tidak memicu sync ganda
 let filters = {
   start: null,
@@ -430,7 +435,11 @@ function buildRows(csvText, datesText) {
 
   if (badOverlay) console.warn('[data] overlay tanggal kolom ' + DATE_COL + ' tidak valid pada ' + badOverlay + ' baris -> memakai tanggal dari CSV');
   if (out.length) {
-    try { localStorage.setItem('pg2-year', String(out[out.length - 1]._y)); } catch (e) {}
+    try {
+      let maxY = out[0]._y;
+      for (let i = 1; i < out.length; i++) if (out[i]._y > maxY) maxY = out[i]._y;
+      localStorage.setItem('pg2-year', String(maxY));
+    } catch (e) {}
   }
   console.debug('[data] CSV', rows.length - 1, 'baris ->', out.length, 'dipakai dalam', Math.round(performance.now() - t0), 'ms');
   return out;
@@ -566,16 +575,17 @@ function parseGvizJSON(text) {
       kecepatan: num('Kecepatan Rata-rata'), tebalSiram: num('Tebal Siram'),
       prepareTime: num('Prepare Time'), operatingTime: num('Operating Time'), waitingTime: num('Waiting Time'),
       repair: num('Repair'), downTime: num('Down Time'), standby: num('Standby'), offTime: num('Off Time'),
-      totOperTime: num('Tot. Oper. Time'), totalAvail: num('Total Avail'), totalTime: num('Total Time'),
+      totOperTime: num(idx['Tot, Oper, Time'] !== undefined ? 'Tot, Oper, Time' : 'Tot. Oper. Time'), totalAvail: num('Total Avail'), totalTime: num('Total Time'),
       availability: num('% Availability'), utilization: num('% Utilization'), air: num('Air'),
       solarTerpakai: num('Solar Terpakai (ltr)'),
       biayaSolar: num('Biaya Solar (Std)'), biayaUpah: num('Biaya Upah'), biayaAlat: num('Biaya Alat'),
       biayaTotal: num('Biaya Total'), rpPerHa: num('Rp/Ha'), haPerHari: num('Ha/Hari'), haPerJam: num('Ha/Jam'),
       solarPerJam: num('Solar Ltr/jam'), solarPerHa: num('Solar Ltr/Ha'), jenisEngine: str('Jenis Engine'),
+      bulanR: str('R Bulan'),
       _y: date.getFullYear(), _m: date.getMonth(), _s: ''
     };
-    d._s = (d.lokasi + ' ' + d.engine + ' ' + d.irigator + ' ' + d.wilayah + ' ' +
-            formatDateISO(date) + ' ' + str('Date')).toLowerCase();
+    d._s = (d.lokasi + ' ' + d.engine + ' ' + d.irigator + ' ' + d.wilayah + ' ' + d.jenisIrigator + ' ' + d.jenisEngine + ' ' +
+            formatDateISO(date)).toLowerCase();
     out.push(d);
   }
   return out;
@@ -615,6 +625,21 @@ function readMeta() {
   try { const m = JSON.parse(localStorage.getItem(META_KEY) || 'null'); return (m && m.sig) ? m : null; } catch (e) { return null; }
 }
 function writeMeta(meta) { try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {} }
+// Probe ringan (~2 KB): jumlah baris + 3 baris teratas kolom tanggal. Dipakai sync otomatis
+// agar unduhan penuh 4-5 MB dilewati bila data tidak berubah. Gagal probe = lanjut unduhan penuh.
+const probeUrlFor = (q) => `${GVIZ_BASE}?tq=${encodeURIComponent(q)}&tqx=out:json&sheet=${SHEET_NAME}`;
+async function fetchProbeSig(letter) {
+  try {
+    const col = letter || DATE_COL;
+    const [a, b] = await Promise.all([
+      fetchText(probeUrlFor(`select count(${col})`), 12000),
+      fetchText(probeUrlFor(`select ${col} limit 3`), 12000)
+    ]);
+    if (!a || !b) return null;
+    return fingerprint(a + '|' + b);
+  } catch (e) { return null; }
+}
+
 // Sidik jari ringan: panjang + sampel karakter (cukup untuk mendeteksi perubahan isi)
 function fingerprint(text) {
   let h = 2166136261;
@@ -670,7 +695,7 @@ async function fetchPayload({ preferCache = false } = {}) {
 function parseCSVText(csvText, datesText) { return buildRows(csvText, datesText); }
 
 // Kolom angka yang bisa dicari di kotak pencarian tabel (perilaku lama dipertahankan)
-const NUM_SEARCH_FIELDS = ['luasSiram','solarTerpakai','biayaTotal','luasSiram','solarPerHa','solarPerJam','kecepatan','tebalSiram','utilization','availability','rpPerHa','operatingTime'];
+const NUM_SEARCH_FIELDS = ['luasSiram','solarTerpakai','biayaTotal','solarPerHa','solarPerJam','kecepatan','tebalSiram','utilization','availability','rpPerHa','operatingTime'];
 function rowNumericMatch(d, q) {
   for (let i = 0; i < NUM_SEARCH_FIELDS.length; i++) {
     const v = d[NUM_SEARCH_FIELDS[i]];
@@ -790,6 +815,12 @@ function getAggregatedRaw(gran) {
       totalBiaya: g.biayaTotal,
       avgRpPerHa: g.rpPerHa / n,
       avgPlan: g.planTime / n,
+      // Rasio tertimbang (total : total) — benar untuk agregasi lintas aktivitas.
+      // Rata-rata baris (avg*) dipertahankan untuk kompatibilitas, tapi tampilan memakai rasio ini.
+      ratioSolarPerHa: g.luasSiram ? g.solarTerpakai / g.luasSiram : 0,
+      ratioHaPerJam: g.operatingTime ? g.luasSiram / g.operatingTime : 0,
+      ratioSolarPerJam: g.operatingTime ? g.solarTerpakai / g.operatingTime : 0,
+      ratioRpPerHa: g.luasSiram ? g.biayaTotal / g.luasSiram : 0,
     };
   }
   return result;
@@ -837,6 +868,10 @@ function getWilayahStatsRaw() {
     const g = groups[w];
     const n = g.count || 1;
     const avgHaPerJam = g.haPerJam / n, avgSolarPerHa = g.solarPerHa / n;
+    // Rasio operasional (total : total) — tidak bias oleh aktivitas kecil (v1.8.6).
+    const opsHaPerJam = g.operatingTime ? g.luasSiram / g.operatingTime : 0;
+    const opsLtrPerHa = g.luasSiram ? g.solarTerpakai / g.luasSiram : 0;
+    const opsLtrPerJam = g.operatingTime ? g.solarTerpakai / g.operatingTime : 0;
     stats.push({
       wilayah: g.wilayah,
       count: g.count,
@@ -856,6 +891,9 @@ function getWilayahStatsRaw() {
       avgAvailability: g.availability / n,
       avgUtilization: g.utilization / n,
       avgRpPerHa: g.rpPerHa / n,
+      haPerJam: opsHaPerJam,
+      ltrPerHa: opsLtrPerHa,
+      ltrPerJam: opsLtrPerJam,
       totalBiaya: g.biayaTotal,
       totalAir: g.air,
       // BIAYA: rincian pemakaian biaya selama irigasi per wilayah
@@ -868,18 +906,18 @@ function getWilayahStatsRaw() {
       rpPerJam: g.operatingTime ? g.biayaTotal / g.operatingTime : 0,
       rpPerLiter: g.solarTerpakai ? g.biayaTotal / g.solarTerpakai : 0,
       avgBiayaPerRec: g.biayaTotal / n,
-      // efisiensi score: higher Ha/Jam and lower Ltr/Ha is better
-      efisiensiScore: avgHaPerJam / (avgSolarPerHa || 1) * 100,
+      // efisiensi score: higher Ha/Jam and lower Ltr/Ha is better (memakai rasio operasional)
+      efisiensiScore: opsHaPerJam / (opsLtrPerHa || 1) * 100,
     });
   }
   // sort by selected wilayahSort
   stats.sort((a,b)=>{
     if (wilayahSort==='totalLuas') return b.totalLuas - a.totalLuas;
-    if (wilayahSort==='avgHaPerJam') return b.avgHaPerJam - a.avgHaPerJam;
-    if (wilayahSort==='avgSolarPerHa') return a.avgSolarPerHa - b.avgSolarPerHa; // lower is better
+    if (wilayahSort==='avgHaPerJam') return b.haPerJam - a.haPerJam;
+    if (wilayahSort==='avgSolarPerHa') return a.ltrPerHa - b.ltrPerHa; // lower is better
     if (wilayahSort==='totalSolar') return b.totalSolar - a.totalSolar;
     if (wilayahSort==='avgUtil') return b.avgUtilization - a.avgUtilization;
-    if (wilayahSort==='avgRpPerHa') return a.avgRpPerHa - b.avgRpPerHa; // lower is better
+    if (wilayahSort==='avgRpPerHa') return a.rpPerHa - b.rpPerHa; // lower is better (rasio total:total)
     return b.totalLuas - a.totalLuas;
   });
   return stats;
@@ -1979,7 +2017,7 @@ function renderBiaya() {
       labels: dailyAgg.map(r=>r.label),
       datasets: [
         { label:'Biaya Total', data:dailyAgg.map(r=>r.totalBiaya), borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,0.15)', fill:true, tension:0.35, pointRadius:0, borderWidth:2, yAxisID:'y' },
-        { label:'Rp/Ha', data:dailyAgg.map(r=>r.avgRpPerHa), borderColor:'#0f172a', backgroundColor:'rgba(15,23,42,0.05)', fill:false, tension:0.35, pointRadius:0, borderWidth:1.5, borderDash:[4,3], yAxisID:'y1' }
+        { label:'Rp/Ha', data:dailyAgg.map(r=>r.ratioRpPerHa), borderColor:'#0f172a', backgroundColor:'rgba(15,23,42,0.05)', fill:false, tension:0.35, pointRadius:0, borderWidth:1.5, borderDash:[4,3], yAxisID:'y1' }
       ]
     },
     options:{
@@ -2115,8 +2153,8 @@ function renderWilayahDetail() {
         <div class="mt-2 grid grid-cols-2 gap-2 text-[10px]">
           <div><span class="text-slate-400">Avg Luas</span><div class="font-semibold text-slate-900">${formatNumber(s.avgLuas,2)} Ha</div></div>
           <div><span class="text-slate-400">Avg Solar</span><div class="font-semibold text-amber-700">${formatInt(s.avgSolar)} L</div></div>
-          <div><span class="text-slate-400">Ha/Jam</span><div class="font-semibold text-emerald-700">${formatNumber(s.avgHaPerJam,3)}</div></div>
-          <div><span class="text-slate-400">Ltr/Ha</span><div class="font-semibold text-slate-900">${formatNumber(s.avgSolarPerHa,1)}</div></div>
+          <div><span class="text-slate-400">Ha/Jam</span><div class="font-semibold text-emerald-700">${formatNumber(s.haPerJam,3)}</div></div>
+          <div><span class="text-slate-400">Ltr/Ha</span><div class="font-semibold text-slate-900">${formatNumber(s.ltrPerHa,1)}</div></div>
           <div><span class="text-slate-400">Jam Op</span><div class="font-medium">${formatNumber(s.avgOperating,1)}h</div></div>
           <div><span class="text-slate-400">Util</span><div class="font-medium ${s.avgUtilization>=70?'text-emerald-600':'text-amber-600'}">${formatNumber(s.avgUtilization,1)}%</div></div>
         </div>
@@ -2139,14 +2177,14 @@ function renderWilayahDetail() {
           <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(s.avgLuas,2)}</td>
           <td class="px-4 py-2.5 whitespace-nowrap text-right font-medium text-amber-700">${formatInt(s.totalSolar)}</td>
           <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(s.avgSolar)}</td>
-          <td class="px-4 py-2.5 whitespace-nowrap text-right font-bold text-emerald-700">${formatNumber(s.avgHaPerJam,3)}</td>
-          <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(s.avgSolarPerHa,1)}</td>
-          <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(s.avgSolarPerJam,1)}</td>
+          <td class="px-4 py-2.5 whitespace-nowrap text-right font-bold text-emerald-700">${formatNumber(s.haPerJam,3)}</td>
+          <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(s.ltrPerHa,1)}</td>
+          <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(s.ltrPerJam,1)}</td>
           <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(s.avgOperating,1)}</td>
           <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(s.avgKecepatan,1)}</td>
           <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(s.avgTebal,1)}</td>
           <td class="px-4 py-2.5 whitespace-nowrap text-right"><span class="inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${s.avgUtilization>=70?'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200':'bg-amber-50 text-amber-700 ring-1 ring-amber-200'}">${formatNumber(s.avgUtilization,1)}%</span></td>
-          <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(s.avgRpPerHa)}</td>
+          <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(s.rpPerHa)}</td>
           <td class="px-4 py-2.5 whitespace-nowrap text-center">${effBadge}</td>
         </tr>
       `;
@@ -2156,8 +2194,8 @@ function renderWilayahDetail() {
   // Bubble chart: efisiensi per wilayah
   const maxLuas = Math.max(...stats.map(s=>s.totalLuas)) || 1;
   const bubbleData = stats.map(s=>({
-    x: s.avgHaPerJam,
-    y: s.avgSolarPerHa,
+    x: s.haPerJam,
+    y: s.ltrPerHa,
     r: Math.sqrt(s.totalLuas / maxLuas) * 24 + 9, // proporsional, max ~33px
     wilayah: s.wilayah
   }));
@@ -2185,8 +2223,8 @@ function renderWilayahDetail() {
         }
       },
       scales:{
-        x:{ title:{display:true,text:'Avg Ha/Jam (Produktivitas) →',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} },
-        y:{ title:{display:true,text:'Avg Ltr/Ha (Pemakaian) → ideal rendah',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} }
+        x:{ title:{display:true,text:'Ha/Jam (Produktivitas) →',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} },
+        y:{ title:{display:true,text:'Ltr/Ha (Pemakaian) → ideal rendah',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} }
       }
     }
   });
@@ -2199,7 +2237,7 @@ function renderWilayahDetail() {
       datasets: [
         { label: 'Avg Luas Ha', data: stats.map(s=>s.avgLuas), backgroundColor: 'rgba(16,185,129,0.85)', borderRadius:6, yAxisID:'y' },
         { label: 'Avg Solar L', data: stats.map(s=>s.avgSolar), backgroundColor: 'rgba(245,158,11,0.65)', borderRadius:6, yAxisID:'y1' },
-        { type:'line', label: 'Avg Ha/Jam', data: stats.map(s=>s.avgHaPerJam), borderColor:'#0f172a', backgroundColor:'#0f172a', tension:0.4, pointRadius:3, borderWidth:2, yAxisID:'y' }
+        { type:'line', label: 'Ha/Jam', data: stats.map(s=>s.haPerJam), borderColor:'#0f172a', backgroundColor:'#0f172a', tension:0.4, pointRadius:3, borderWidth:2, yAxisID:'y' }
       ]
     },
     options:{
@@ -2273,6 +2311,10 @@ function calculateKPIsRaw() {
     rpPerLiterSolar: solar ? biaya / solar : 0,
     avgHaPerHari: avg(haHari),
     avgHaPerJam: avg(haJam),
+    // Rasio operasional tertimbang (total : total) — dipakai KPI & ticker (v1.8.6).
+    opsHaPerJam: oper ? luas / oper : 0,
+    opsSolarPerHa: luas ? solar / luas : 0,
+    opsSolarPerJam: oper ? solar / oper : 0,
     avgPlan: avg(plan),
     avgPrepare: avg(prep),
     avgWaiting: avg(wait),
@@ -2291,10 +2333,10 @@ function renderKPIs() {
     return;
   }
   const cards = [
-    { label: 'Total Luas Siram', value: `${formatNumber(kpi.totalLuasSiram,2)} Ha`, sub: `${kpi.totalRecords} aktivitas • ${formatNumber(kpi.avgHaPerHari,2)} Ha/hari avg`, icon: 'map', color: 'emerald', trend: `${formatNumber(kpi.avgHaPerJam,3)} Ha/Jam` },
-    { label: 'Total Solar Terpakai', value: `${formatInt(kpi.totalSolar)} L`, sub: `${formatNumber(kpi.avgSolarPerJam,2)} L/jam • ${formatNumber(kpi.avgSolarPerHa,2)} L/Ha`, icon: 'fuel', color: 'amber', trend: `${formatNumber(kpi.totalAir,0)} L air` },
+    { label: 'Total Luas Siram', value: `${formatNumber(kpi.totalLuasSiram,2)} Ha`, sub: `${kpi.totalRecords} aktivitas • ${formatNumber(kpi.avgHaPerHari,2)} Ha/hari avg`, icon: 'map', color: 'emerald', trend: `${formatNumber(kpi.opsHaPerJam,3)} Ha/Jam` },
+    { label: 'Total Solar Terpakai', value: `${formatInt(kpi.totalSolar)} L`, sub: `${formatNumber(kpi.opsSolarPerJam,2)} L/jam • ${formatNumber(kpi.opsSolarPerHa,2)} L/Ha`, icon: 'fuel', color: 'amber', trend: `${formatNumber(kpi.totalAir,0)} L air` },
     { label: 'Jam Efektif Siram', value: `${formatNumber(kpi.avgOperating,2)} Jam`, sub: `Plan avg ${formatNumber(kpi.avgPlan,2)} Jam • Prepare ${formatNumber(kpi.avgPrepare,2)}`, icon: 'clock-3', color: 'blue', trend: `Util ${formatNumber(kpi.avgUtilization,1)}%` },
-    { label: 'Efisiensi Operasional', value: `${formatNumber(kpi.avgHaPerJam,3)} Ha/Jam`, sub: `${formatNumber(kpi.avgHaPerHari,2)} Ha/Hari • Rp ${formatInt(kpi.avgRpPerHa)}/Ha`, icon: 'trending-up', color: 'violet', trend: `Avail ${formatNumber(kpi.avgAvailability,1)}%` },
+    { label: 'Efisiensi Operasional', value: `${formatNumber(kpi.opsHaPerJam,3)} Ha/Jam`, sub: `${formatNumber(kpi.avgHaPerHari,2)} Ha/Hari • Rp ${formatInt(kpi.rpPerHaOps)}/Ha`, icon: 'trending-up', color: 'violet', trend: `Avail ${formatNumber(kpi.avgAvailability,1)}%` },
   ];
   grid.innerHTML = cards.map(c => `
     <div class="group rounded-[18px] border border-slate-200/70 bg-white p-4 shadow-soft card-hover">
@@ -2320,7 +2362,7 @@ function renderKPIs() {
     { label: 'Biaya Upah', value: `${formatInt(kpi.totalBiayaUpah/1000000)}`, unit: `Jt Rp • ${formatNumber(kpi.totalBiaya?kpi.totalBiayaUpah/kpi.totalBiaya*100:0,0)}%`, icon: 'users' },
     { label: 'Biaya Alat', value: `${formatInt(kpi.totalBiayaAlat/1000000)}`, unit: `Jt Rp • ${formatNumber(kpi.totalBiaya?kpi.totalBiayaAlat/kpi.totalBiaya*100:0,0)}%`, icon: 'settings' },
     { label: 'Biaya Rp/Ha', value: `${formatInt(kpi.rpPerHaOps)}`, unit: `Rp/Ha • ${formatNumber(kpi.totalLuasSiram,0)} Ha`, icon: 'calculator' },
-    { label: 'Solar Ltr/Ha', value: `${formatNumber(kpi.avgSolarPerHa,1)}`, unit: 'L/Ha', icon: 'droplet' },
+    { label: 'Solar Ltr/Ha', value: `${formatNumber(kpi.opsSolarPerHa,1)}`, unit: 'L/Ha', icon: 'droplet' },
     { label: 'Waiting Time', value: `${formatNumber(kpi.avgWaiting,2)}`, unit: 'Jam', icon: 'pause' },
     { label: 'Air Terpakai', value: `${formatInt(kpi.totalAir)}`, unit: 'L', icon: 'waves' },
   ];
@@ -2336,7 +2378,7 @@ function renderKPIs() {
   refreshIcons();
   updateTicker();
   $('#solarTotal').textContent = formatInt(kpi.totalSolar);
-  $('#solarAvg').textContent = formatNumber(kpi.avgSolarPerJam,2);
+  $('#solarAvg').textContent = formatNumber(kpi.opsSolarPerJam,2);
   $('#avgPrepare').textContent = formatNumber(kpi.avgPrepare,2)+'h';
   $('#avgOperating').textContent = formatNumber(kpi.avgOperating,2)+'h';
   $('#avgWaiting').textContent = formatNumber(kpi.avgWaiting,2)+'h';
@@ -2355,8 +2397,8 @@ function updateTicker() {
     { l:'Solar', v:`${formatInt(kpi.totalSolar)} L`, c:'text-amber-600' },
     { l:'Total Biaya', v:formatRupiahShort(kpi.totalBiaya), c:'text-slate-900' },
     { l:'Rp/Ha', v:`Rp ${formatInt(kpi.rpPerHaOps)}`, c:'text-slate-900' },
-    { l:'Ha/Jam', v:formatNumber(kpi.avgHaPerJam,3), c:'text-emerald-600' },
-    { l:'Ltr/Ha', v:formatNumber(kpi.avgSolarPerHa,1), c:'text-amber-600' },
+    { l:'Ha/Jam', v:formatNumber(kpi.opsHaPerJam,3), c:'text-emerald-600' },
+    { l:'Ltr/Ha', v:formatNumber(kpi.opsSolarPerHa,1), c:'text-amber-600' },
     { l:'Util', v:`${formatNumber(kpi.avgUtilization,1)}%`, c:'text-slate-900' },
     { l:'Avail', v:`${formatNumber(kpi.avgAvailability,1)}%`, c:'text-slate-900' }
   ];
@@ -2391,8 +2433,8 @@ function renderOverviewWilayah() {
         <div class="mt-2 grid grid-cols-2 gap-1.5 text-[10px]">
           <div class="rounded-lg bg-white px-2 py-1.5 ring-1 ring-slate-100"><div class="text-slate-400">Solar</div><div class="font-semibold text-amber-700">${formatInt(x.totalSolar)} L</div></div>
           <div class="rounded-lg bg-white px-2 py-1.5 ring-1 ring-slate-100"><div class="text-slate-400">Rp/Ha</div><div class="font-semibold text-slate-900">${formatInt(rpHa)}</div></div>
-          <div class="rounded-lg bg-white px-2 py-1.5 ring-1 ring-slate-100"><div class="text-slate-400">Ha/Jam</div><div class="font-semibold text-emerald-700">${formatNumber(x.avgHaPerJam,3)}</div></div>
-          <div class="rounded-lg bg-white px-2 py-1.5 ring-1 ring-slate-100"><div class="text-slate-400">Ltr/Ha</div><div class="font-semibold text-slate-900">${formatNumber(x.avgSolarPerHa,1)}</div></div>
+          <div class="rounded-lg bg-white px-2 py-1.5 ring-1 ring-slate-100"><div class="text-slate-400">Ha/Jam</div><div class="font-semibold text-emerald-700">${formatNumber(x.haPerJam,3)}</div></div>
+          <div class="rounded-lg bg-white px-2 py-1.5 ring-1 ring-slate-100"><div class="text-slate-400">Ltr/Ha</div><div class="font-semibold text-slate-900">${formatNumber(x.ltrPerHa,1)}</div></div>
         </div>
       </div>
     `;
@@ -3176,7 +3218,7 @@ function renderCharts(tab) {
       labels,
       datasets: [
         { type: 'bar', label: 'Solar Terpakai (L)', data: agg.map(a=>a.totalSolar), backgroundColor: 'rgba(245,158,11,0.85)', borderRadius: 8, borderSkipped: false, yAxisID: 'y' },
-        { type: 'line', label: 'Avg Ltr/Jam', data: agg.map(a=>a.avgSolarPerJam), borderColor: '#0f172a', backgroundColor: '#0f172a', tension: 0.4, pointRadius: 0, borderWidth: 2, yAxisID: 'y1' }
+        { type: 'line', label: 'Ltr/Jam', data: agg.map(a=>a.ratioSolarPerJam), borderColor: '#0f172a', backgroundColor: '#0f172a', tension: 0.4, pointRadius: 0, borderWidth: 2, yAxisID: 'y1' }
       ]
     },
     options: {
@@ -3255,9 +3297,9 @@ function renderCharts(tab) {
     data: {
       labels,
       datasets: [
-        { label:'Ha/Jam', data: agg.map(a=>a.avgHaPerJam), borderColor:'#10b981', backgroundColor:'#10b981', tension:0.4, pointRadius:0, borderWidth:2, yAxisID:'y' },
-        { label:'Solar Ltr/Ha', data: agg.map(a=>a.avgSolarPerHa), borderColor:'#f59e0b', backgroundColor:'#f59e0b', tension:0.4, pointRadius:0, borderWidth:2, yAxisID:'y1' },
-        { label:'Rp/Ha', data: agg.map(a=>a.avgRpPerHa), borderColor:'#0f172a', backgroundColor:'#0f172a', tension:0.4, pointRadius:0, borderWidth:1.5, borderDash:[5,3], yAxisID:'y2', hidden:true }
+        { label:'Ha/Jam', data: agg.map(a=>a.ratioHaPerJam), borderColor:'#10b981', backgroundColor:'#10b981', tension:0.4, pointRadius:0, borderWidth:2, yAxisID:'y' },
+        { label:'Solar Ltr/Ha', data: agg.map(a=>a.ratioSolarPerHa), borderColor:'#f59e0b', backgroundColor:'#f59e0b', tension:0.4, pointRadius:0, borderWidth:2, yAxisID:'y1' },
+        { label:'Rp/Ha', data: agg.map(a=>a.ratioRpPerHa), borderColor:'#0f172a', backgroundColor:'#0f172a', tension:0.4, pointRadius:0, borderWidth:1.5, borderDash:[5,3], yAxisID:'y2', hidden:true }
       ]
     },
     options:{
@@ -3288,14 +3330,14 @@ function renderCharts(tab) {
     solar:     { get:s=>s.totalSolar,     label:'Total Solar (L)',              color:'rgba(245,158,11,0.85)', fmt:'l' },
     avgLuas:   { get:s=>s.avgLuas,        label:'Avg Luas / Aktivitas (Ha)',   color:'rgba(16,185,129,0.65)', fmt:'ha' },
     avgSolar:  { get:s=>s.avgSolar,       label:'Avg Solar / Aktivitas (L)',   color:'rgba(245,158,11,0.65)', fmt:'l' },
-    haPerJam:  { get:s=>s.avgHaPerJam,    label:'Avg Ha/Jam (Produktivitas)',  color:'rgba(16,185,129,0.95)', fmt:'num3' },
-    ltrPerHa:  { get:s=>s.avgSolarPerHa,  label:'Avg Ltr/Ha (Efisiensi)',      color:'rgba(239,68,68,0.75)',  fmt:'num1' },
-    ltrPerJam: { get:s=>s.avgSolarPerJam, label:'Avg Ltr/Jam',                 color:'rgba(245,158,11,0.75)', fmt:'num1' },
+    haPerJam:  { get:s=>s.haPerJam,       label:'Ha/Jam (Produktivitas)',        color:'rgba(16,185,129,0.95)', fmt:'num3' },
+    ltrPerHa:  { get:s=>s.ltrPerHa,       label:'Ltr/Ha (Efisiensi)',            color:'rgba(239,68,68,0.75)',  fmt:'num1' },
+    ltrPerJam: { get:s=>s.ltrPerJam,      label:'Ltr/Jam',                       color:'rgba(245,158,11,0.75)', fmt:'num1' },
     operating: { get:s=>s.avgOperating,   label:'Avg Jam Operasi (Jam)',       color:'rgba(59,130,246,0.85)', fmt:'num1' },
     kecepatan: { get:s=>s.avgKecepatan,   label:'Avg Kecepatan (m/menit)',     color:'rgba(139,92,246,0.85)', fmt:'num1' },
     tebal:     { get:s=>s.avgTebal,       label:'Avg Tebal Siram (mm)',        color:'rgba(6,182,214,0.85)',  fmt:'num1' },
     util:      { get:s=>s.avgUtilization, label:'Avg % Utilization',           color:'rgba(15,23,42,0.75)',   fmt:'pct' },
-    rpPerHa:   { get:s=>s.avgRpPerHa,     label:'Avg Rp/Ha (Biaya)',           color:'rgba(100,116,139,0.85)',fmt:'rp' },
+    rpPerHa:   { get:s=>s.rpPerHa,         label:'Rp/Ha (Biaya)',                 color:'rgba(100,116,139,0.85)',fmt:'rp' },
     totalBiaya:{ get:s=>s.biayaTotal||s.totalBiaya, label:'Total Biaya Irigasi (Rp)', color:'rgba(245,158,11,0.9)', fmt:'rp' },
     biayaSolar:{ get:s=>(s.biayaSolar||0),  label:'Biaya Solar (Rp)',          color:'rgba(245,158,11,0.85)', fmt:'rp' },
     biayaUpah: { get:s=>(s.biayaUpah||0),   label:'Biaya Upah (Rp)',           color:'rgba(59,130,246,0.8)',  fmt:'rp' },
@@ -3742,8 +3784,10 @@ function updateFilterSheetMeta() {
   if (filters.search) n++;
   if (filters.tableSearch) n++;
   if (rawData.length && filters.start && filters.end) {
-    const first = rawData[0].date, last = rawData[rawData.length - 1].date;
-    const full = filters.start.getTime() <= first.getTime() && filters.end.getTime() >= last.getTime();
+    // rawData mengikuti urutan sheet (terbaru dulu) — cari rentang aktual secara eksplisit
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < rawData.length; i++) { const t = rawData[i].date.getTime(); if (t < lo) lo = t; if (t > hi) hi = t; }
+    const full = filters.start.getTime() <= lo && filters.end.getTime() >= hi;
     if (!full) n++;
   }
   el.textContent = n
@@ -4176,7 +4220,7 @@ function applyPayload(payload, { fromCache = false } = {}) {
   payload.index = null;
   appliedSig = payload.sig;
   if (!filtersUIReady) { initFiltersUI(); initTabNav(); filtersUIReady = true; }
-  lastMeta = { sig: payload.sig, ts: payload.ts, rows: rows.length };
+  lastMeta = { sig: payload.sig, ts: payload.ts, rows: rows.length, probe: payload.probe || null, fullTs: payload.ts };
   writeMeta(lastMeta);
   applyFilters();
   updateTicker();
@@ -4192,8 +4236,10 @@ function applyPayload(payload, { fromCache = false } = {}) {
 async function fixDatesColumn(payload) {
   if (!payload || !payload.csv) return;
   const letter = csvDateLetter(payload.csv);
+  if (letter) { try { localStorage.setItem('pg2-datecol', letter); } catch (e) {} }
   if (!letter || letter === DATE_COL) return;
-  const t = await fetchText(datesUrlFor(letter)).catch(() => null);
+  payload.datesKey = datesUrlFor(letter);
+  const t = await fetchText(payload.datesKey).catch(() => null);
   if (t) { payload.dates = t; console.warn('[data] kolom Date ada di kolom ' + letter + ' (bukan ' + DATE_COL + ') — overlay tanggal disesuaikan'); }
 }
 
@@ -4212,6 +4258,25 @@ async function loadData(opts = {}) {
     if (btn) { btn.innerHTML = '<i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i> Syncing'; refreshIcons(); }
   }
   try {
+    const firstLoad = (rawData.length === 0);
+    // Sync otomatis (bukan load pertama / manual): cek probe ringan dulu.
+    // Unduhan penuh ~4-5 MB dilewati bila isi sheet tidak berubah.
+    _pendingProbe = null;
+    if (!firstLoad && !manual) {
+      try {
+        const probe = await fetchProbeSig(dateLetter());
+        const meta = readMeta();
+        if (probe) {
+          _pendingProbe = probe;
+          if (meta && meta.probe === probe && (Date.now() - (meta.fullTs || 0)) < FULL_REFRESH_MS) {
+            setSyncLabel(Date.now(), false);
+            syncFailures = 0;   // probe berhasil = endpoint reachable
+            console.debug('[sync] probe sama — unduhan penuh dilewati');
+            return;
+          }
+        }
+      } catch (e) { /* abaikan — lanjut unduhan penuh */ }
+    }
     // Mulai unduhan dari jaringan lebih dulu, lalu baca cache secara paralel:
     // mana pun yang siap duluan langsung dipakai (tidak saling menunggu).
     const netPromise = fetchPayload();
@@ -4232,13 +4297,19 @@ async function loadData(opts = {}) {
     const changed = payload.sig !== appliedSig;
     if (changed) {
       dataSource = 'live';
-      // simpan mentah untuk kunjungan berikutnya (sebelum teksnya dilepas dari memori)
-      if (payload.csv) { cachePut(CSV_URL, payload.csv); if (payload.dates) cachePut(DATES_URL, payload.dates); }
-      if (payload.index) cachePut(INDEX_URL, payload.index);
       await fixDatesColumn(payload);          // jaga-jaga bila kolom Date di sheet berpindah
+      payload.probe = _pendingProbe;
+      // simpan mentah untuk kunjungan berikutnya (sebelum teksnya dilepas dari memori)
+      if (payload.csv) { cachePut(CSV_URL, payload.csv); if (payload.dates) cachePut(payload.datesKey || DATES_URL, payload.dates); }
+      if (payload.index) cachePut(INDEX_URL, payload.index);
       applyPayload(payload);
       if (!first && !silent) showToast(`Data diperbarui — ${formatInt(rawData.length)} records`, 'success');
     } else {
+      // Isi sama persis — tetap catat waktu fetch penuh agar jadwal probe akurat
+      try {
+        const m = readMeta();
+        if (m) { m.ts = Date.now(); m.fullTs = Date.now(); if (_pendingProbe) m.probe = _pendingProbe; writeMeta(m); lastMeta = m; }
+      } catch (e) {}
       setSyncLabel(Date.now(), false);
       if (manual) showToast('Data sudah terbaru', 'info', 3000);
     }
@@ -4262,11 +4333,14 @@ async function loadData(opts = {}) {
       }
     } else {
       // sudah ada data tampil -> jangan tutupi dashboard, cukup beri tahu
+      // (jadwal ulang ditangani di finally agar tidak ganda)
       showToast(`Sinkron gagal (${esc(e.message || 'jaringan')}) — mencoba lagi otomatis`, 'warn', 7000);
-      scheduleSync(true);
     }
   } finally {
     isSyncing = false;
+    // Jaga agar sync otomatis BERULANG tiap 5 menit (dulu: timer tidak pernah dipasang ulang
+    // setelah sync pertama sehingga auto-sync mati total). Gagal = backoff progresif.
+    try { scheduleSync(syncFailures > 0); } catch (e) {}
     if (overlay) overlay.style.display = 'none';
     if (manual) {
       const btn = $('#btnSync');

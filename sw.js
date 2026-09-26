@@ -1,10 +1,10 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.8.5 — Chart performa per jenis engine pada tab Analisa Biaya, Waktu & Utilisasi, dan Index Solar
-const VERSION = 'v1.8.5';
+// v1.8.6 — Rasio operasional tertimbang + probe sync hemat bandwidth + fallback offline sample-data
+const VERSION = 'v1.8.6';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 
-const SHELL = ['./', './index.html', './app.js', './manifest.json'];
+const SHELL = ['./', './index.html', './app.js', './manifest.json', './assets/sample-data.csv'];
 
 const STATIC_ASSETS = [
   './assets/favicon.ico',

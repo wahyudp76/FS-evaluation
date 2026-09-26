@@ -25,10 +25,18 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
+      # Hanya file yang dibutuhkan browser — tools/, *.md, .github tidak ikut ter-deploy
+      - name: Stage deploy files
+        run: |
+          rm -rf .pages-stage
+          mkdir -p .pages-stage/assets
+          cp index.html app.js sw.js manifest.json .pages-stage/
+          cp assets/*.png assets/*.ico assets/*.svg assets/*.csv .pages-stage/assets/
+          du -sh .pages-stage .pages-stage/assets
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '.pages-stage'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

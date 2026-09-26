@@ -66,7 +66,6 @@
         }
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/lucide@0.454.0/dist/umd/lucide.min.js"></script>
     <style>
         ::-webkit-scrollbar{width:6px;height:6px}
@@ -146,6 +145,8 @@
     </style>
 </head>
 <body class="bg-[#fcfdfc] text-slate-800 font-sans antialiased selection:bg-emerald-100 selection:text-emerald-900">
+    <!-- Safelist: kelas warna dinamis yang disuntik renderKPIs() via JS -->
+    <div class="hidden bg-emerald-50 text-emerald-600 ring-emerald-200/50 bg-amber-50 text-amber-600 ring-amber-200/50 bg-blue-50 text-blue-600 ring-blue-200/50 bg-violet-50 text-violet-600 ring-violet-200/50" aria-hidden="true"></div>
     <!-- Top Navigation -->
     <header class="sticky top-0 z-40 border-b border-slate-200/70 bg-white/80 glass">
         <div class="mx-auto max-w-[1600px] px-6 lg:px-8">
@@ -490,16 +491,16 @@
                                         <option value="solar">Total Solar</option>
                                         <option value="avgLuas">Avg Luas / Aktivitas</option>
                                         <option value="avgSolar">Avg Solar / Aktivitas</option>
-                                        <option value="haPerJam">Avg Ha/Jam (Produktivitas)</option>
-                                        <option value="ltrPerHa">Avg Ltr/Ha (Efisiensi)</option>
-                                        <option value="ltrPerJam">Avg Ltr/Jam</option>
+                                        <option value="haPerJam">Ha/Jam (Produktivitas)</option>
+                                        <option value="ltrPerHa">Ltr/Ha (Efisiensi)</option>
+                                        <option value="ltrPerJam">Ltr/Jam</option>
                                         <option value="operating">Avg Jam Operasi</option>
                                         <option value="kecepatan">Avg Kecepatan</option>
                                         <option value="tebal">Avg Tebal Siram</option>
                                         <option value="util">Avg % Utilization</option>
                                     </optgroup>
                                     <optgroup label="Biaya Irigasi">
-                                        <option value="rpPerHa">Avg Rp/Ha (Biaya)</option>
+                                        <option value="rpPerHa">Rp/Ha (Biaya)</option>
                                         <option value="totalBiaya">Total Biaya Irigasi</option>
                                         <option value="biayaSolar">Biaya Solar</option>
                                         <option value="biayaUpah">Biaya Upah</option>
@@ -561,14 +562,14 @@
                                     <th class="px-4 py-3 whitespace-nowrap text-right">Avg Luas Ha</th>
                                     <th class="px-4 py-3 whitespace-nowrap text-right">Total Solar L</th>
                                     <th class="px-4 py-3 whitespace-nowrap text-right">Avg Solar L</th>
-                                    <th class="px-4 py-3 whitespace-nowrap text-right">Avg Ha/Jam</th>
-                                    <th class="px-4 py-3 whitespace-nowrap text-right">Avg Ltr/Ha</th>
-                                    <th class="px-4 py-3 whitespace-nowrap text-right">Avg Ltr/Jam</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-right">Ha/Jam</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-right">Ltr/Ha</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-right">Ltr/Jam</th>
                                     <th class="px-4 py-3 whitespace-nowrap text-right">Avg Jam Op</th>
                                     <th class="px-4 py-3 whitespace-nowrap text-right">Avg Kec</th>
                                     <th class="px-4 py-3 whitespace-nowrap text-right">Avg Tebal</th>
                                     <th class="px-4 py-3 whitespace-nowrap text-right">Avg % Util</th>
-                                    <th class="px-4 py-3 whitespace-nowrap text-right">Avg Rp/Ha</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Ha</th>
                                     <th class="px-4 py-3 whitespace-nowrap text-center">Efisiensi</th>
                                 </tr>
                             </thead>
