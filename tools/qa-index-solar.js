@@ -150,6 +150,97 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   await new Promise(r => setTimeout(r, 1000));
   check('utilisasi: judul tab baru', /Waktu & Utilisasi/.test(waktu.judul || ''), waktu.judul);
 
+  // ---- TAB ANALISA BIAYA: kartu biaya, chart Performa Biaya, tabel per wilayah (kolom beku) ----
+  await page.click('#tabbtn-biaya');
+  await new Promise(r => setTimeout(r, 1500));
+  const biayaTotal = await page.evaluate(() => {
+    const kartu = Array.from(document.querySelectorAll('#biayaCards > div'));
+    const c = window.Chart.getChart(document.getElementById('chartBiayaPerforma'));
+    const th = Array.from(document.querySelectorAll('#biayaWilayahHead th')).map(e => e.textContent.trim());
+    const td = Array.from(document.querySelectorAll('#biayaWilayahBody tr:first-child td')).map(e => e.textContent.trim());
+    return {
+      kartu: kartu.length,
+      kartu1: kartu[0] ? kartu[0].innerText.replace(/\s+/g, ' ').trim() : '',
+      kartuTermahal: kartu[11] ? kartu[11].innerText.replace(/\s+/g, ' ').trim() : '',
+      mode: (document.querySelector('[data-biaya][aria-pressed="true"]') || {}).textContent,
+      batang: c ? c.data.labels.length : 0,
+      urutTurun: c ? c.data.datasets[0].data.every((v, i, a) => i === 0 || a[i - 1] >= v) : false,
+      satuan: c ? c.data.datasets[0].label : '',
+      xtitle: c ? c.options.scales.x.title.text : '',
+      tertinggi: c ? c.data.labels[0] : '',
+      kolom: th.length,
+      th4: th[4] || '',
+      td1: td[0] || '',
+      kategoriBatang: c ? c.data.datasets[0].data.filter(v => v <= 0).length : 9,
+      note: (document.getElementById('chartBiayaPerformaNote') || {}).textContent || ''
+    };
+  });
+  check('biaya: 12 kartu biaya terisi (mode Total bawaan)', biayaTotal.kartu === 12 && /Biaya Total/.test(biayaTotal.kartu1) && /Rp/.test(biayaTotal.kartu1), biayaTotal.kartu + ' kartu • ' + biayaTotal.kartu1.slice(0, 70));
+  check('biaya: kartu wilayah termahal menyebut Rp/Ha', /Termahal|Rp\/Ha tertinggi/i.test(biayaTotal.kartuTermahal) && /Rp/.test(biayaTotal.kartuTermahal), biayaTotal.kartuTermahal.slice(0, 90));
+  check('biaya: chart Performa Biaya per wilayah 8 batang & terurut', biayaTotal.batang === 8 && biayaTotal.urutTurun && biayaTotal.kategoriBatang === 0, biayaTotal.batang + ' batang, tertinggi ' + biayaTotal.tertinggi + ' — ' + biayaTotal.satuan);
+  check('biaya: tabel rincian 15 kolom (Wilayah..Efisiensi)', biayaTotal.kolom === 15 && biayaTotal.th4 === 'Biaya Solar (Rp)' && biayaTotal.td1 !== '', biayaTotal.kolom + ' kolom, kolom ke-5 ' + biayaTotal.th4);
+
+  // ganti metrik ke Rp/Ha (rasio, tidak ikut mode)
+  await page.evaluate(() => document.querySelector('[data-biaya-metric="rpPerHa"]').click());
+  await new Promise(r => setTimeout(r, 900));
+  const biayaRpHa = await page.evaluate(() => {
+    const c = window.Chart.getChart(document.getElementById('chartBiayaPerforma'));
+    return { satuan: c.data.datasets[0].label, xtitle: c.options.scales.x.title.text, tertinggi: c.data.labels[0], nilai: Math.round(c.data.datasets[0].data[0]), note: document.getElementById('chartBiayaPerformaNote').textContent };
+  });
+  check('biaya: metrik Rp/Ha jadi rasio (label, sumbu, nilai wajar)', /Rp\/Ha/.test(biayaRpHa.satuan) && biayaRpHa.xtitle === 'Rp/Ha' && biayaRpHa.nilai > 500000 && /tidak mengikuti mode/.test(biayaRpHa.note), JSON.stringify(biayaRpHa).slice(0, 150));
+
+  // metrik dikembalikan ke Biaya Solar agar nilai chart bisa dibandingkan dengan kolom Biaya Solar
+  await page.evaluate(() => document.querySelector('[data-biaya-metric="solar"]').click());
+  await new Promise(r => setTimeout(r, 900));
+  const barTotal = await page.evaluate(() => {
+    const td = Array.from(document.querySelectorAll('#biayaWilayahBody tr:first-child td')).map(e => e.textContent.trim());
+    const angka = (x) => Number(String(x).replace(/\./g, '')) || 0;
+    return { wilayah: td[0], hari: angka(td[2]), solar: angka(td[4]), total: angka(td[7]) };
+  });
+
+  // mode Rata-rata / Hari: kartu, tabel, chart, tabel periode ikut dibagi
+  await page.evaluate(() => document.querySelector('[data-biaya="avgHari"]').click());
+  await new Promise(r => setTimeout(r, 1400));
+  const biayaHari = await page.evaluate(() => {
+    const angka = (x) => Number(String(x).replace(/\./g, '')) || 0;
+    const c = window.Chart.getChart(document.getElementById('chartBiayaPerforma'));
+    const td = Array.from(document.querySelectorAll('#biayaWilayahBody tr:first-child td')).map(e => e.textContent.trim());
+    const idx = c.data.labels.indexOf(td[0]);
+    return {
+      mode: (document.querySelector('[data-biaya][aria-pressed="true"]') || {}).textContent,
+      th: document.querySelectorAll('#biayaWilayahHead th')[4].textContent.trim(),
+      foot: document.querySelector('#biayaWilayahFoot tr td').textContent.trim(),
+      wilayah1: td[0], hari1: angka(td[2]), nilaiKolom: angka(td[4]), nilaiChart: idx === -1 ? -1 : c.data.datasets[0].data[idx],
+      gran: window.Chart.getChart(document.getElementById('chartBiayaGran')).data.datasets[0].label,
+      judul: document.getElementById('biayaGranJudul').textContent
+    };
+  });
+  const harapan = barTotal.solar / barTotal.hari;
+  check('biaya: mode Rata-rata / Hari membagi kartu, tabel & footer', /RATA-RATA \/ HARI/.test(biayaHari.foot) && biayaHari.th === 'Biaya Solar (Rp/hari)' && biayaHari.mode === 'Rata-rata / Hari', `${biayaHari.mode} • ${biayaHari.th} • footer ${biayaHari.foot}`);
+  check('biaya: nilai per hari = biaya wilayah ÷ hari wilayah itu', barTotal.wilayah === biayaHari.wilayah1 && Math.abs(biayaHari.nilaiKolom - harapan) < 1.5 && Math.abs(biayaHari.nilaiChart - harapan) < 1.5, `${barTotal.wilayah}: total ${barTotal.solar} ÷ ${barTotal.hari} hari = ${Math.round(harapan)} • tabel ${biayaHari.nilaiKolom} • chart ${Math.round(biayaHari.nilaiChart)}`);
+  check('biaya: tabel & chart biaya per periode ikut mode', /Rp\/hari/.test(biayaHari.gran) && /Rata-rata/.test(biayaHari.judul), biayaHari.gran + ' • ' + biayaHari.judul);
+
+  // kolom Wilayah beku pada tabel biaya + kembali ke mode Total
+  const stickyBiaya = await page.evaluate(() => {
+    const wrap = document.getElementById('biayaWilayahBody').closest('.overflow-x-auto');
+    const td = document.querySelector('#biayaWilayahBody tr td:first-child');
+    const th = document.querySelector('#biayaWilayahHead th:first-child');
+    const tf = document.querySelector('#biayaWilayahFoot tr td:first-child');
+    const sebelum = Math.round(td.getBoundingClientRect().left);
+    wrap.scrollLeft = 700;
+    const hasil = { sebelum, sesudah: Math.round(td.getBoundingClientRect().left), header: Math.round(th.getBoundingClientRect().left), kaki: tf ? Math.round(tf.getBoundingClientRect().left) : null, pos: getComputedStyle(td).position, collapse: getComputedStyle(wrap.querySelector('table')).borderCollapse, scrollLeft: wrap.scrollLeft };
+    wrap.scrollLeft = 0;
+    return hasil;
+  });
+  check('biaya: kolom Wilayah beku saat tabel digeser', stickyBiaya.pos === 'sticky' && stickyBiaya.collapse === 'separate' && stickyBiaya.scrollLeft > 300 && stickyBiaya.sebelum === stickyBiaya.sesudah && stickyBiaya.sesudah === stickyBiaya.header && stickyBiaya.sesudah === stickyBiaya.kaki, JSON.stringify(stickyBiaya));
+  await page.evaluate(() => { document.querySelector('[data-biaya="total"]').click(); document.querySelector('[data-biaya-metric="total"]').click(); });
+  await new Promise(r => setTimeout(r, 1200));
+  const balik = await page.evaluate(() => ({
+    mode: (document.querySelector('[data-biaya][aria-pressed="true"]') || {}).textContent,
+    satuan: window.Chart.getChart(document.getElementById('chartBiayaPerforma')).data.datasets[0].label
+  }));
+  check('biaya: kembali ke mode Total & metrik Biaya Total', balik.mode === 'Total' && /Biaya Total \(Rp\)/.test(balik.satuan), JSON.stringify(balik));
+
   // ---- tab Index Solar ----
   await page.click('#tabbtn-indexsolar');
   await new Promise(r => setTimeout(r, 1200));

@@ -37,6 +37,28 @@ const WAKTU_MODES = {
   total:  { id:'total',  label:'Total',                 satJam:'jam',           satAir:'L',           satPendek:'jam',      nilai:()=>1 }
 };
 const modeWaktu = () => WAKTU_MODES[waktuMode] || WAKTU_MODES.avgAkt;
+// Mode tampilan biaya pada tab "Analisa Biaya": total (bawaan), rata-rata per aktivitas, rata-rata per hari.
+// Rasio (Rp/Ha, Rp/Jam, Rp/Liter, % komposisi) tidak ikut dibagi.
+let biayaMode = 'total';
+let biayaMetric = 'total';
+const BIAYA_MODES = {
+  total:  { id:'total',  label:'Total',                satRp:'Rp',            satPendek:'Rp',           nilai:()=>1 },
+  avgAkt: { id:'avgAkt', label:'Rata-rata / Aktivitas', satRp:'Rp/aktivitas',  satPendek:'Rp/akt',       nilai:g => g.count || 1 },
+  avgHari:{ id:'avgHari',label:'Rata-rata / Hari',      satRp:'Rp/hari',       satPendek:'Rp/hari',      nilai:g => g.hari || 1 }
+};
+const modeBiaya = () => BIAYA_MODES[biayaMode] || BIAYA_MODES.total;
+function bagiBiaya(g) {
+  const f = modeBiaya().nilai(g);
+  return f > 0 ? f : 1;
+}
+function satuanMetrikBiaya(m) {
+  if (m.tipe === 'rp')  return modeBiaya().satPendek;   // Rp | Rp/akt | Rp/hari
+  if (m.tipe === 'rr')  return m.unit || 'Rp';          // rasio rupiah: Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record
+  if (m.tipe === 'vol') return m.satVol;                // Ha | L
+  return '%';                                           // persentase (komposisi)
+}
+// Metrik nominal/volume ikut mode tampilan; rasio (Rp/Ha, %, dst) selalu tetap
+const ikutModeBiaya = (m) => (m.tipe === 'rp' || m.tipe === 'vol');
 let sortField = 'date';
 let sortDir = 'desc';
 let currentPage = 1;
@@ -1052,10 +1074,11 @@ function getBiayaWilayahStatsRaw() {
   filteredData.forEach(d => {
     if (!groups[d.wilayah]) groups[d.wilayah] = {
       wilayah: d.wilayah, count: 0, luas: 0, biayaSolar: 0, biayaUpah: 0, biayaAlat: 0,
-      biayaTotal: 0, solar: 0, operating: 0, air: 0
+      biayaTotal: 0, solar: 0, operating: 0, air: 0, _hari: new Set()
     };
     const g = groups[d.wilayah];
     g.count++;
+    if (d.date) g._hari.add(d.date.getTime());
     g.luas += d.luasSiram||0;
     g.biayaSolar += d.biayaSolar||0;
     g.biayaUpah += d.biayaUpah||0;
@@ -1068,6 +1091,8 @@ function getBiayaWilayahStatsRaw() {
   const list = Object.values(groups).map(g=>{
     // Jika kolom Biaya Total kosong di sheet, hitung dari komponen
     const total = g.biayaTotal || (g.biayaSolar + g.biayaUpah + g.biayaAlat);
+    g.hari = g._hari ? g._hari.size : 0;
+    delete g._hari;
     return Object.assign(g, {
       biayaTotal: total,
       rpPerHa: g.luas ? total/g.luas : 0,
@@ -1100,6 +1125,7 @@ function getBiayaWilayahStatsRaw() {
   const totals = {
     wilayahCount: list.length,
     count: list.reduce((s,x)=>s+x.count,0),
+    hari: getBiayaTotal().hari,
     luas: grandLuas,
     biayaSolar: list.reduce((s,x)=>s+x.biayaSolar,0),
     biayaUpah: list.reduce((s,x)=>s+x.biayaUpah,0),
@@ -1119,6 +1145,33 @@ function getBiayaWilayahStatsRaw() {
   return { list, totals };
 }
 
+// Total biaya seluruh periode terpilih (untuk kartu biaya & pembagi mode) - satu lintasan
+function getBiayaTotal() {
+  return memo('biayaTotal', () => {
+    const t = { count: 0, hari: 0, luas: 0, solar: 0, air: 0, operating: 0, biayaSolar: 0, biayaUpah: 0, biayaAlat: 0, biayaTotal: 0 };
+    const setHari = new Set();
+    for (let i = 0; i < filteredData.length; i++) {
+      const d = filteredData[i];
+      t.count++;
+      if (d.date) setHari.add(d.date.getTime());
+      t.luas += d.luasSiram||0; t.solar += d.solarTerpakai||0; t.air += d.air||0;
+      t.operating += d.operatingTime||0;
+      t.biayaSolar += d.biayaSolar||0; t.biayaUpah += d.biayaUpah||0; t.biayaAlat += d.biayaAlat||0;
+      t.biayaTotal += (d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0)));
+    }
+    t.hari = setHari.size;
+    if (!t.biayaTotal) t.biayaTotal = t.biayaSolar + t.biayaUpah + t.biayaAlat;
+    t.rpPerHa = t.luas ? t.biayaTotal/t.luas : 0;
+    t.rpPerJam = t.operating ? t.biayaTotal/t.operating : 0;
+    t.rpPerLiter = t.solar ? t.biayaTotal/t.solar : 0;
+    t.rpPerRec = t.count ? t.biayaTotal/t.count : 0;
+    t.pctSolar = t.biayaTotal ? t.biayaSolar/t.biayaTotal*100 : 0;
+    t.pctUpah = t.biayaTotal ? t.biayaUpah/t.biayaTotal*100 : 0;
+    t.pctAlat = t.biayaTotal ? t.biayaAlat/t.biayaTotal*100 : 0;
+    return t;
+  });
+}
+
 // Biaya per periode (harian/mingguan/bulanan) - total wilayah
 function getBiayaPeriodStats() {
   return memo('bperiod:' + biayaGran, () => getBiayaPeriodStatsRaw());
@@ -1134,9 +1187,10 @@ function getBiayaPeriodStatsRaw() {
     if (biayaGran === 'daily') key = formatDateISO(d.date);
     else if (biayaGran === 'weekly') key = getWeekLabel(d.date);
     else key = getMonthLabel(d.date);
-    if (!groups[key]) groups[key] = { label:key, key, date:d.date, count:0, luas:0, biayaSolar:0, biayaUpah:0, biayaAlat:0, biayaTotal:0, operating:0, solar:0 };
+    if (!groups[key]) groups[key] = { label:key, key, date:d.date, count:0, hari:0, luas:0, biayaSolar:0, biayaUpah:0, biayaAlat:0, biayaTotal:0, operating:0, solar:0, _hari:new Set() };
     const g = groups[key];
     g.count++;
+    if (d.date) g._hari.add(d.date.getTime());
     g.luas += d.luasSiram||0;
     g.biayaSolar += d.biayaSolar||0;
     g.biayaUpah += d.biayaUpah||0;
@@ -1149,6 +1203,8 @@ function getBiayaPeriodStatsRaw() {
   const rows = Object.keys(groups).sort().map(k=>{
     const g = groups[k];
     const total = g.biayaTotal || (g.biayaSolar + g.biayaUpah + g.biayaAlat);
+    g.hari = g._hari ? g._hari.size : 0;
+    delete g._hari;
     return Object.assign(g, {
       biayaTotal: total,
       rpPerHa: g.luas ? total/g.luas : 0,
@@ -1175,99 +1231,355 @@ function formatRupiahShort(n) {
   return 'Rp ' + formatInt(n);
 }
 
-function renderBiaya() {
-  const { list, totals } = getBiayaWilayahStats();
-  const tbody = $('#biayaWilayahBody');
-  const tfoot = $('#biayaWilayahFoot');
-  if (!tbody) return;
+// ===== KARTU BIAYA (gaya sama dengan kartu waktu pada tab Waktu & Utilisasi) =====
+// Nominal (biaya) & volume ikut mode; rasio (Rp/Ha, Rp/Jam, Rp/Liter, % ) tetap.
+const BIAYA_CARDS = [
+  { k:'biayaTotal', label:'Biaya Total',        desc:'Solar+Upah+Alat', tipe:'rp',   icon:'wallet',        color:'amber' },
+  { k:'biayaSolar', label:'Biaya Solar',        desc:'Komponen 1',      tipe:'rp',   icon:'fuel',          color:'amber' },
+  { k:'biayaUpah',  label:'Biaya Upah',         desc:'Komponen 2',      tipe:'rp',   icon:'users',         color:'blue' },
+  { k:'biayaAlat',  label:'Biaya Alat',         desc:'Komponen 3',      tipe:'rp',   icon:'truck',         color:'violet' },
+  { k:'rpPerHa',    label:'Rp/Ha',              desc:'Efisiensi lahan', tipe:'rasio',icon:'land-plot',     color:'emerald' },
+  { k:'rpPerJam',   label:'Rp/Jam Operasi',     desc:'Efisiensi alat',  tipe:'rasio',icon:'timer',         color:'sky' },
+  { k:'rpPerLiter', label:'Rp/Liter Solar',     desc:'Efisiensi bahan', tipe:'rasio',icon:'droplet',       color:'rose' },
+  { k:'rpPerRec',   label:'Rp/Record',          desc:'Per aktivitas',   tipe:'rasio',icon:'list-checks',   color:'teal' },
+  { k:'luas',       label:'Luas Siram',         desc:'Volume kerja',    tipe:'vol',  icon:'sprout',        color:'emerald', satVol:'Ha' },
+  { k:'solar',      label:'Solar Terpakai',     desc:'Volume bahan',    tipe:'vol',  icon:'fuel',          color:'amber',   satVol:'L' },
+  { k:'komposisi',  label:'Komponen Terbesar',  desc:'Komposisi biaya', tipe:'share',icon:'pie-chart',     color:'slate' },
+  { k:'wilayahMahal', label:'Wilayah Termahal', desc:'Rp/Ha tertinggi',  tipe:'wil',  icon:'arrow-up-right', color:'red' }
+];
 
+function renderBiayaCards() {
+  const host = $('#biayaCards');
+  if (!host) return;
+  const t = getBiayaTotal();
+  if (!t.count) { host.innerHTML = '<div class="col-span-12 text-center py-6 text-[12px] text-slate-400">Tidak ada data untuk filter ini</div>'; return; }
+  const mode = modeBiaya();
+  const bagi = bagiBiaya(t);
+  const nAkt = t.count || 1, nHari = t.hari || 1;
+
+  const subRupiah = (total) => {
+    const bagian = [];
+    if (biayaMode !== 'total')  bagian.push('total ' + formatRupiah(total));
+    if (biayaMode !== 'avgAkt') bagian.push(formatRupiah(total / nAkt) + '/aktivitas');
+    if (biayaMode !== 'avgHari')bagian.push(formatRupiah(total / nHari) + '/hari');
+    return bagian.join(' • ');
+  };
+  const subVolume = (total, sat, des) => {
+    const bagian = [];
+    if (biayaMode !== 'total')  bagian.push('total ' + formatNumber(total, des) + ' ' + sat);
+    if (biayaMode !== 'avgAkt') bagian.push(formatNumber(total / nAkt, des) + ' ' + sat + '/aktivitas');
+    if (biayaMode !== 'avgHari')bagian.push(formatNumber(total / nHari, des) + ' ' + sat + '/hari');
+    return bagian.join(' • ');
+  };
+
+  const noteMode = $('#biayaModeNote');
+  if (noteMode) {
+    noteMode.textContent = biayaMode === 'total'
+      ? `Total seluruh komponen biaya pada periode terpilih (${formatInt(t.count)} aktivitas, ${formatInt(t.hari)} hari) & rasio efisiensi biaya.`
+      : (biayaMode === 'avgAkt'
+        ? `Biaya dibagi jumlah AKTIVITAS (${formatInt(t.count)} baris data, mencakup ${formatInt(t.hari)} hari). Rasio Rp/Ha, Rp/Jam, Rp/Liter tetap.`
+        : `Biaya dibagi jumlah HARI operasi (${formatInt(t.hari)} hari, dari ${formatInt(t.count)} aktivitas). Rasio Rp/Ha, Rp/Jam, Rp/Liter tetap.`);
+  }
+
+  // wilayah termahal/termurah menurut Rp/Ha (dipakai kartu ke-12)
+  const { list } = getBiayaWilayahStats();
+  const berLahan = list.filter(x => x.luas > 0);
+  const termahal = berLahan.slice().sort((a, b) => b.rpPerHa - a.rpPerHa)[0];
+  const termurah = berLahan.slice().sort((a, b) => a.rpPerHa - b.rpPerHa)[0];
+
+  host.innerHTML = BIAYA_CARDS.map(c => {
+    const isRasio = c.tipe === 'rasio';
+    let utama, sub;
+
+    if (c.tipe === 'wil') {
+      utama = termahal
+        ? `${esc(termahal.wilayah)} <span class="text-[10px] font-medium text-slate-400">${formatRupiahShort(termahal.rpPerHa)}/Ha</span>`
+        : '-';
+      sub = termurah && termahal && termurah.wilayah !== termahal.wilayah
+        ? `termurah ${esc(termurah.wilayah)} ${formatRupiahShort(termurah.rpPerHa)}/Ha • selisih ${formatNumber(termurah.rpPerHa ? (termahal.rpPerHa - termurah.rpPerHa) / termurah.rpPerHa * 100 : 0, 1)}%`
+        : '\u00a0';
+    } else if (c.tipe === 'share') {
+      const komp = [
+        { n:'Solar', v:t.pctSolar }, { n:'Upah', v:t.pctUpah }, { n:'Alat', v:t.pctAlat }
+      ].sort((a, b) => b.v - a.v);
+      utama = komp[0] ? `${esc(komp[0].n)} ${formatNumber(komp[0].v, 1)}<span class="text-[10px] font-medium text-slate-400">%</span>` : '-';
+      sub = komp.map(x => `${x.n} ${formatNumber(x.v, 0)}%`).join(' • ');
+    } else if (c.tipe === 'vol') {
+      const total = t[c.k] || 0;
+      const nilai = total / bagi;
+      const des = c.k === 'luas' ? 2 : 0;
+      utama = `${formatNumber(nilai, des)} <span class="text-[10px] font-medium text-slate-400">${esc(c.satVol)}</span>`;
+      sub = subVolume(total, c.satVol, des);
+    } else if (isRasio) {
+      utama = `${formatRupiah(t[c.k] || 0)}`;
+      sub = c.k === 'rpPerRec'
+        ? `${formatInt(t.count)} aktivitas • ${formatInt(t.hari)} hari`
+        : (c.k === 'rpPerHa' ? `${formatNumber(t.luas, 1)} Ha tersiram` : (c.k === 'rpPerJam' ? `${formatNumber(t.operating, 0)} jam operasi` : `${formatInt(t.solar)} L solar`));
+    } else {
+      const total = t[c.k] || 0;
+      const nilai = total / bagi;
+      const unit = biayaMode === 'total' ? '' : (biayaMode === 'avgHari' ? ' / hari' : ' / aktivitas');
+      utama = `${biayaMode === 'total' ? formatRupiahShort(nilai) : formatRupiah(nilai)}` +
+              (unit ? `<span class="text-[10px] font-medium text-slate-400">${unit}</span>` : '');
+      sub = subRupiah(total);
+    }
+
+    const labelSatuan = '';
+
+    return `
+      <div class="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-soft transition hover:border-slate-300">
+        <div class="flex items-center justify-between gap-2">
+          <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-${c.color}-50 text-${c.color}-600 ring-1 ring-${c.color}-100"><i data-lucide="${c.icon}" class="h-4 w-4"></i></span>
+          <span class="text-[10px] uppercase tracking-wider text-slate-400">${esc(c.desc)}</span>
+        </div>
+        <div class="mt-2.5 text-[16px] font-bold leading-tight tracking-tight text-slate-900">${utama}${labelSatuan}</div>
+        <div class="mt-0.5 text-[11px] font-medium text-slate-500">${esc(c.label)}</div>
+        <div class="mt-1 text-[10px] leading-relaxed text-slate-400">${esc(sub || '\u00a0')}</div>
+      </div>`;
+  }).join('');
+  refreshIcons();
+}
+
+// ===== Chart bar "Performa Biaya per Wilayah" (gaya sama dengan Performa Waktu / Performance Wilayah) =====
+// rp & vol: ikut mode (total / Rp per aktivitas / Rp per hari) • rasio (Rp/Ha, %, dst) tetap
+const BIAYA_METRIC = {
+  total:      { label:'Biaya Total',        k:'biayaTotal', tipe:'rp',   warna:'rgba(245,158,11,0.85)', color:'#b45309' },
+  solar:      { label:'Biaya Solar',        k:'biayaSolar', tipe:'rp',   warna:'rgba(251,191,36,0.85)', color:'#92400e' },
+  upah:       { label:'Biaya Upah',         k:'biayaUpah',  tipe:'rp',   warna:'rgba(59,130,246,0.8)',  color:'#1d4ed8' },
+  alat:       { label:'Biaya Alat',         k:'biayaAlat',  tipe:'rp',   warna:'rgba(139,92,246,0.75)', color:'#6d28d9' },
+  rpPerHa:    { label:'Rp/Ha (efisiensi)',  k:'rpPerHa',    tipe:'rr',   unit:'Rp/Ha',    warna:'rgba(16,185,129,0.85)', color:'#047857' },
+  rpPerJam:   { label:'Rp/Jam Operasi',     k:'rpPerJam',   tipe:'rr',   unit:'Rp/Jam',   warna:'rgba(14,165,233,0.85)', color:'#0369a1' },
+  rpPerLiter: { label:'Rp/Liter Solar',     k:'rpPerLiter', tipe:'rr',   unit:'Rp/Liter', warna:'rgba(244,63,94,0.8)',  color:'#be123c' },
+  rpPerRec:   { label:'Rp/Record',          k:'rpPerRec',   tipe:'rr',   unit:'Rp/Record',warna:'rgba(20,184,166,0.85)',color:'#0f766e' },
+  share:      { label:'% dari Total Biaya', k:'share',      tipe:'pct',  warna:'rgba(15,23,42,0.75)',  color:'#0f172a' },
+  luas:       { label:'Luas Siram',         k:'luas',       tipe:'vol',  satVol:'Ha', warna:'rgba(16,185,129,0.8)', color:'#047857' },
+  solarL:     { label:'Solar Terpakai',     k:'solar',      tipe:'vol',  satVol:'L',  warna:'rgba(245,158,11,0.8)', color:'#b45309' }
+};
+const BIAYA_METRIC_CEPAT = ['total', 'solar', 'alat', 'rpPerHa', 'rpPerLiter', 'share'];
+
+function renderBiayaPerformaChart() {
+  const cv = document.getElementById('chartBiayaPerforma');
+  if (!cv) return;
+  const { list } = getBiayaWilayahStats();
+  if (!list.length) { ensureChart('chartBiayaPerforma', { type:'bar', data:{ labels:[], datasets:[] }, options:{ responsive:true, maintainAspectRatio:false } }); return; }
+  const m = BIAYA_METRIC[biayaMetric] || BIAYA_METRIC.total;
+  const f = (w) => (ikutModeBiaya(m) ? bagiBiaya(w) : 1);
+  const data = list.map(w => ({ w, v: (w[m.k] || 0) / f(w) })).sort((a, b) => b.v - a.v);
+  const satuan = satuanMetrikBiaya(m);
+  // label batang: rupiah ringkas (Rp 1,2 M / Rp 350 Rb), persen 1 desimal, atau angka
+  const fmtLabel = m.tipe === 'rp' ? 'rpshort' : (m.tipe === 'pct' ? 'pct1' : (m.k === 'luas' ? 'ha1' : (m.tipe === 'rr' ? 'rp' : 'int')));
+  const satVolMode = m.tipe === 'vol' ? m.satVol + (biayaMode === 'avgAkt' ? '/aktivitas' : (biayaMode === 'avgHari' ? '/hari' : '')) : '';
+  const judulMetrik = m.label + (m.tipe === 'rp' ? ' (' + satuan + ')' : (m.tipe === 'vol' ? ' (' + satVolMode + ')' : (m.tipe === 'pct' ? ' (%)' : '')));
+
+  ensureChart('chartBiayaPerforma', {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.w.wilayah),
+      datasets: [{
+        label: judulMetrik,
+        data: data.map(d => d.v),
+        backgroundColor: m.warna,
+        borderRadius: 8,
+        borderSkipped: false
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: 'y',
+      layout: { padding: { right: 84 } },
+      plugins: {
+        legend: { display: false },
+        barLabels: { display: true, fmt: fmtLabel, color: m.color, maxBars: 45 },
+        tooltip: {
+          backgroundColor: '#0f172a', cornerRadius: 12,
+          callbacks: {
+            label: (ctx) => {
+              const d = data[ctx.dataIndex];
+              const nilai = (m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + (m.tipe === 'vol' ? (satVolMode || m.satVol) : ''));
+              const komposisi = m.k === 'biayaTotal' ? ` • solar ${formatRupiahShort(d.w.biayaSolar)} + upah ${formatRupiahShort(d.w.biayaUpah)} + alat ${formatRupiahShort(d.w.biayaAlat)}` : '';
+              return `${m.label}: ${nilai}${komposisi} • ${formatInt(d.w.count)} rec, ${formatInt(d.w.hari)} hari`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { beginAtZero: true, grace: '18%', grid: { color: '#f1f5f9' },
+             ticks: { font: { size: 10 }, callback: v => ((m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiahShort(v) : (m.tipe === 'pct' ? v + '%' : v)) },
+             title: { display: true, text: (m.tipe === 'rp' ? satuan : (m.tipe === 'rr' ? m.unit : (m.tipe === 'vol' ? (satVolMode || m.satVol) : '% dari total'))), font: { size: 10 } } },
+        y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+
+  // kontrol metrik (dropdown + tombol cepat) — dipasang sekali
+  const sel = document.getElementById('biayaMetric');
+  if (sel && !sel.dataset.bound) {
+    sel.dataset.bound = '1';
+    sel.innerHTML = Object.keys(BIAYA_METRIC).map(k => `<option value="${k}">${esc(BIAYA_METRIC[k].label)}</option>`).join('');
+    sel.value = biayaMetric;
+    sel.addEventListener('change', (e) => { biayaMetric = e.target.value; renderBiayaPerformaChart(); });
+  } else if (sel) { sel.value = biayaMetric; }
+
+  const chips = document.getElementById('biayaMetricChips');
+  if (chips && !chips.dataset.bound) {
+    chips.dataset.bound = '1';
+    chips.innerHTML = BIAYA_METRIC_CEPAT.map(k =>
+      `<button type="button" data-biaya-metric="${k}" class="rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50">${esc(BIAYA_METRIC[k].label)}</button>`).join('');
+    chips.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-biaya-metric]');
+      if (!b) return;
+      biayaMetric = b.dataset.biayaMetric;
+      if (sel) sel.value = biayaMetric;
+      renderBiayaPerformaChart();
+    });
+  }
+  if (chips) {
+    chips.querySelectorAll('[data-biaya-metric]').forEach(b => {
+      const aktif = b.dataset.biayaMetric === biayaMetric;
+      b.className = aktif
+        ? 'rounded-full border border-slate-900 bg-slate-900 px-3 py-1 text-[10px] font-semibold text-white transition'
+        : 'rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50';
+      b.setAttribute('aria-pressed', aktif ? 'true' : 'false');
+    });
+  }
+
+  const note = document.getElementById('chartBiayaPerformaNote');
+  if (note) {
+    const tertinggi = data[0], terendah = data[data.length - 1];
+    const tulis = (d) => ((m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + (m.tipe === 'vol' ? (satVolMode || m.satVol) : '')));
+    note.textContent = (!ikutModeBiaya(m)
+      ? 'Rasio per wilayah (tidak mengikuti mode rata-rata/total). '
+      : (biayaMode === 'total' ? 'Nilai = total per wilayah. ' : `Nilai = rata-rata ${satuan} per wilayah (dibagi data wilayah itu sendiri). `)) +
+      (tertinggi ? `Tertinggi: ${tertinggi.w.wilayah} — ${tulis(tertinggi)}` : '') +
+      (terendah && terendah !== tertinggi ? ` • Terendah: ${terendah.w.wilayah} — ${tulis(terendah)}.` : '.');
+  }
+}
+
+// ===== TABEL "Rincian Biaya per Wilayah" (kolom Wilayah beku, gaya tabel waktu) =====
+function renderBiayaWilayahTable() {
+  const tbody = $('#biayaWilayahBody');
+  if (!tbody) return;
+  const { list, totals } = getBiayaWilayahStats();
+  const foot = $('#biayaWilayahFoot');
+  const mode = modeBiaya();
   if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="13" class="px-4 py-8 text-center text-slate-400">Tidak ada data biaya untuk filter ini</td></tr>';
-    if (tfoot) tfoot.innerHTML = '';
+    tbody.innerHTML = '<tr><td colspan="15" class="px-4 py-8 text-center text-slate-400">Tidak ada data biaya untuk filter ini</td></tr>';
+    if (foot) foot.innerHTML = '';
     return;
   }
+  // rata-rata Rp/Ha untuk badge efisiensi (rasio, tidak ikut mode)
+  const rpHa = list.map(x => x.rpPerHa).filter(v => v > 0);
+  const avgRpHa = rpHa.length ? rpHa.reduce((a, b) => a + b, 0) / rpHa.length : 0;
 
-  // Rasio biaya terhadap produksi - untuk badge efisiensi biaya
-  const rpPerHaValues = list.map(x=>x.rpPerHa).filter(v=>v>0);
-  const avgRpPerHaAll = rpPerHaValues.length ? rpPerHaValues.reduce((a,b)=>a+b,0)/rpPerHaValues.length : 0;
+  // judul kolom nominal menyebut satuan mode aktif
+  document.querySelectorAll('#biayaWilayahHead th[data-unit]').forEach(th => {
+    if (!th.dataset.label) th.dataset.label = th.textContent.trim().replace(/\s*\([^)]*\)$/, '');
+    const sat = th.dataset.unit === 'rr' ? 'Rp' : modeBiaya().satPendek;   // kolom rasio tetap Rp
+    th.textContent = th.dataset.label + ' (' + sat + ')';
+  });
 
-  tbody.innerHTML = list.map(x=>{
+  tbody.innerHTML = list.map(x => {
+    const f = bagiBiaya(x);
     let badge;
-    if (avgRpPerHaAll && x.rpPerHa <= avgRpPerHaAll*0.9) badge = '<span class="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">Hemat</span>';
-    else if (avgRpPerHaAll && x.rpPerHa <= avgRpPerHaAll*1.1) badge = '<span class="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700 ring-1 ring-sky-200">Normal</span>';
+    if (avgRpHa && x.rpPerHa <= avgRpHa * 0.9) badge = '<span class="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">Hemat</span>';
+    else if (avgRpHa && x.rpPerHa <= avgRpHa * 1.1) badge = '<span class="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700 ring-1 ring-sky-200">Normal</span>';
     else badge = '<span class="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200">Mahal</span>';
     return `
-      <tr class="hover:bg-amber-50/40 transition">
-        <td class="px-4 py-2.5 whitespace-nowrap"><span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-amber-500"></span><span class="font-semibold text-slate-900">${esc(x.wilayah)}</span></span></td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-center"><span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium">${formatInt(x.count)}</span></td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(x.luas,2)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(x.biayaSolar)}<span class="ml-1 text-[9px] text-slate-400">${formatNumber(x.pctSolar,0)}%</span></td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(x.biayaUpah)}<span class="ml-1 text-[9px] text-slate-400">${formatNumber(x.pctUpah,0)}%</span></td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(x.biayaAlat)}<span class="ml-1 text-[9px] text-slate-400">${formatNumber(x.pctAlat,0)}%</span></td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right font-bold text-amber-700">${formatInt(x.biayaTotal)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">
-          <span class="inline-flex items-center gap-1.5"><span class="hidden h-1.5 w-10 overflow-hidden rounded-full bg-slate-100 sm:inline-flex"><span class="h-full rounded-full bg-amber-400" style="width:${Math.min(100, x.share)}%"></span></span><span class="text-[10px] text-slate-500">${formatNumber(x.share,1)}%</span></span>
-        </td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right font-bold text-slate-900">${formatInt(x.rpPerHa)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(x.rpPerJam)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(x.rpPerLiter)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(x.solar && x.luas ? x.solar/x.luas : 0,1)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-center">${badge}</td>
-      </tr>
-    `;
+    <tr class="hover:bg-amber-50/40 transition">
+      <td class="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-900">${esc(x.wilayah)}</td>
+      <td class="px-3 py-2.5 text-right">${formatInt(x.count)}</td>
+      <td class="px-3 py-2.5 text-right">${formatInt(x.hari)}</td>
+      <td class="px-3 py-2.5 text-right">${formatNumber(x.luas, 2)}</td>
+      <td class="px-3 py-2.5 text-right">${formatInt(x.biayaSolar / f)}</td>
+      <td class="px-3 py-2.5 text-right">${formatInt(x.biayaUpah / f)}</td>
+      <td class="px-3 py-2.5 text-right">${formatInt(x.biayaAlat / f)}</td>
+      <td class="px-3 py-2.5 text-right font-bold text-amber-700">${formatInt(x.biayaTotal / f)}</td>
+      <td class="px-3 py-2.5 text-right">
+        <span class="inline-flex items-center gap-1.5"><span class="hidden h-1.5 w-10 overflow-hidden rounded-full bg-slate-100 sm:inline-flex"><span class="h-full rounded-full bg-amber-400" style="width:${Math.min(100, x.share)}%"></span></span><span class="text-[10px] text-slate-500">${formatNumber(x.share, 1)}%</span></span>
+      </td>
+      <td class="px-3 py-2.5 text-right font-semibold text-slate-900">${formatInt(x.rpPerHa)}</td>
+      <td class="px-3 py-2.5 text-right">${formatInt(x.rpPerJam)}</td>
+      <td class="px-3 py-2.5 text-right">${formatInt(x.rpPerLiter)}</td>
+      <td class="px-3 py-2.5 text-right">${formatInt(x.count ? x.biayaTotal / x.count : 0)}</td>
+      <td class="px-3 py-2.5 text-right">${formatNumber(x.solar && x.luas ? x.solar / x.luas : 0, 1)}</td>
+      <td class="px-3 py-2.5 text-center">${badge}</td>
+    </tr>`;
   }).join('');
 
-  if (tfoot) {
-    tfoot.innerHTML = `
-      <tr class="bg-slate-900 text-white">
-        <td class="px-4 py-3 whitespace-nowrap font-bold">TOTAL ${totals.wilayahCount} Wilayah</td>
-        <td class="px-4 py-3 whitespace-nowrap text-center">${formatInt(totals.count)}</td>
-        <td class="px-4 py-3 whitespace-nowrap text-right">${formatNumber(totals.luas,2)}</td>
-        <td class="px-4 py-3 whitespace-nowrap text-right">${formatInt(totals.biayaSolar)}<span class="ml-1 text-[9px] text-slate-400">${formatNumber(totals.pctSolar,0)}%</span></td>
-        <td class="px-4 py-3 whitespace-nowrap text-right">${formatInt(totals.biayaUpah)}<span class="ml-1 text-[9px] text-slate-400">${formatNumber(totals.pctUpah,0)}%</span></td>
-        <td class="px-4 py-3 whitespace-nowrap text-right">${formatInt(totals.biayaAlat)}<span class="ml-1 text-[9px] text-slate-400">${formatNumber(totals.pctAlat,0)}%</span></td>
-        <td class="px-4 py-3 whitespace-nowrap text-right text-amber-300">${formatInt(totals.biayaTotal)}</td>
-        <td class="px-4 py-3 whitespace-nowrap text-right">100%</td>
-        <td class="px-4 py-3 whitespace-nowrap text-right text-emerald-300">${formatInt(totals.rpPerHa)}</td>
-        <td class="px-4 py-3 whitespace-nowrap text-right">${formatInt(totals.rpPerJam)}</td>
-        <td class="px-4 py-3 whitespace-nowrap text-right">${formatInt(totals.rpPerLiter)}</td>
-        <td class="px-4 py-3 whitespace-nowrap text-right">${formatNumber(totals.solar && totals.luas ? totals.solar/totals.luas : 0,1)}</td>
-        <td class="px-4 py-3 whitespace-nowrap text-center"><span class="inline-flex rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium">Total</span></td>
-      </tr>
-    `;
+  if (foot) {
+    const t = getBiayaTotal();
+    const f = bagiBiaya(t);
+    const labelFoot = biayaMode === 'total' ? 'TOTAL' : (biayaMode === 'avgHari' ? 'RATA-RATA / HARI' : 'RATA-RATA / AKTIVITAS');
+    foot.innerHTML = `
+      <tr class="bg-slate-50 font-semibold text-slate-900">
+        <td class="px-3 py-3 whitespace-nowrap">${labelFoot}</td>
+        <td class="px-3 py-3 text-right">${formatInt(t.count)}</td>
+        <td class="px-3 py-3 text-right">${formatInt(t.hari)}</td>
+        <td class="px-3 py-3 text-right">${formatNumber(t.luas, 2)}</td>
+        <td class="px-3 py-3 text-right">${formatInt(t.biayaSolar / f)}</td>
+        <td class="px-3 py-3 text-right">${formatInt(t.biayaUpah / f)}</td>
+        <td class="px-3 py-3 text-right">${formatInt(t.biayaAlat / f)}</td>
+        <td class="px-3 py-3 text-right text-amber-700">${formatInt(t.biayaTotal / f)}</td>
+        <td class="px-3 py-3 text-right">100%</td>
+        <td class="px-3 py-3 text-right text-emerald-700">${formatInt(t.rpPerHa)}</td>
+        <td class="px-3 py-3 text-right">${formatInt(t.rpPerJam)}</td>
+        <td class="px-3 py-3 text-right">${formatInt(t.rpPerLiter)}</td>
+        <td class="px-3 py-3 text-right">${formatInt(t.count ? t.biayaTotal / t.count : 0)}</td>
+        <td class="px-3 py-3 text-right">${formatNumber(t.solar && t.luas ? t.solar / t.luas : 0, 1)}</td>
+        <td class="px-3 py-3 text-center">-</td>
+      </tr>`;
   }
 
-  // Mini cards biaya total
-  const cards = $('#biayaTotalCards');
-  if (cards) {
-    const items = [
-      { label:'Total Biaya Irigasi', value: formatRupiahShort(totals.biayaTotal), sub: `${formatRupiah(totals.biayaTotal)}`, color:'slate' },
-      { label:'Rp/Ha (Total)', value: formatRupiah(totals.rpPerHa), sub:`${formatNumber(totals.luas,1)} Ha tersiram`, color:'emerald' },
-      { label:'Biaya Solar', value: formatRupiahShort(totals.biayaSolar), sub:`${formatNumber(totals.pctSolar,1)}% dari total • ${formatInt(totals.solar)} L`, color:'amber' },
-      { label:'Biaya Upah', value: formatRupiahShort(totals.biayaUpah), sub:`${formatNumber(totals.pctUpah,1)}% dari total`, color:'blue' },
-      { label:'Biaya Alat', value: formatRupiahShort(totals.biayaAlat), sub:`${formatNumber(totals.pctAlat,1)}% dari total`, color:'violet' },
-      { label:'Rp/Jam Operasi', value: formatRupiah(totals.rpPerJam), sub:`${formatNumber(totals.operating,0)} jam total`, color:'sky' },
-      { label:'Rp/Liter Solar', value: formatRupiah(totals.rpPerLiter), sub:`${formatInt(totals.solar)} L solar`, color:'rose' },
-      { label:'Rp/Record', value: formatRupiah(totals.count ? totals.biayaTotal/totals.count : 0), sub:`${formatInt(totals.count)} aktivitas`, color:'teal' },
-    ];
-    cards.innerHTML = items.map(c=>`
-      <div class="rounded-xl border border-slate-200 bg-white p-3">
-        <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">${c.label}</div>
-        <div class="mt-1 text-[15px] font-bold text-slate-900">${c.value}</div>
-        <div class="mt-0.5 text-[10px] text-slate-500">${c.sub}</div>
-      </div>
-    `).join('');
+  const note = $('#biayaWilayahNote');
+  if (note) {
+    note.textContent = biayaMode === 'total'
+      ? 'Nilai = akumulasi seluruh aktivitas pada periode & filter aktif. Kolom % dr Total, Rp/Ha, Rp/Jam, Rp/Liter, L/Ha tetap rasio.'
+      : (biayaMode === 'avgAkt'
+        ? `Nilai biaya = rata-rata per AKTIVITAS (dibagi jumlah baris data). Kolom % dr Total, Rp/Ha, Rp/Jam, Rp/Liter, L/Ha tetap rasio.`
+        : `Nilai biaya = rata-rata per HARI (dibagi hari operasi; kolom Hari per wilayah bisa berbeda). Kolom % dr Total, Rp/Ha, Rp/Jam, Rp/Liter, L/Ha tetap rasio.`);
   }
+}
+
+// Tombol mode biaya (total / rata-rata per aktivitas / per hari) pada tab Analisa Biaya
+function bindBiayaModeButtons() {
+  document.querySelectorAll('[data-biaya]').forEach(btn => {
+    const set = () => {
+      biayaMode = btn.dataset.biaya;
+      document.querySelectorAll('[data-biaya]').forEach(x => {
+        const aktif = x.dataset.biaya === biayaMode;
+        x.className = aktif
+          ? 'rounded-full bg-slate-900 px-3 py-1 text-[10px] font-semibold text-white transition'
+          : 'rounded-full px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:bg-white';
+        x.setAttribute('aria-pressed', aktif ? 'true' : 'false');
+      });
+      // renderBiaya() sudah mencakup kartu, chart Performa Biaya, tabel wilayah & tabel periode
+      safeRender('biaya', renderBiaya);
+    };
+    if (btn.dataset.biayaBound === '1') return;
+    btn.dataset.biayaBound = '1';
+    btn.addEventListener('click', set);
+  });
+}
+
+function renderBiaya() {
+  const { list, totals } = getBiayaWilayahStats();
+
+  // Kartu biaya (gaya tab Waktu & Utilisasi), chart Performa Biaya, & tabel per wilayah (kolom beku)
+  safeRender('biayaCards', renderBiayaCards);
+  safeRender('chartBiayaPerforma', renderBiayaPerformaChart);
+  safeRender('biayaWilayah', renderBiayaWilayahTable);
+  if (!list.length) return;
 
   // Chart: total biaya per wilayah (stacked komponen + line Rp/Ha)
+  const fBiaya = (x) => bagiBiaya(x);
   ensureChart('chartBiayaWilayah', {
     type: 'bar',
     data: {
       labels: list.map(x=>x.wilayah),
       datasets: [
-        { label:'Biaya Solar', data:list.map(x=>x.biayaSolar), backgroundColor:'rgba(245,158,11,0.85)', borderRadius:4, stack:'biaya', yAxisID:'y' },
-        { label:'Biaya Upah', data:list.map(x=>x.biayaUpah), backgroundColor:'rgba(59,130,246,0.75)', borderRadius:4, stack:'biaya', yAxisID:'y' },
-        { label:'Biaya Alat', data:list.map(x=>x.biayaAlat), backgroundColor:'rgba(139,92,246,0.7)', borderRadius:4, stack:'biaya', yAxisID:'y' },
+        { label:'Biaya Solar', data:list.map(x=>x.biayaSolar/fBiaya(x)), backgroundColor:'rgba(245,158,11,0.85)', borderRadius:4, stack:'biaya', yAxisID:'y' },
+        { label:'Biaya Upah', data:list.map(x=>x.biayaUpah/fBiaya(x)), backgroundColor:'rgba(59,130,246,0.75)', borderRadius:4, stack:'biaya', yAxisID:'y' },
+        { label:'Biaya Alat', data:list.map(x=>x.biayaAlat/fBiaya(x)), backgroundColor:'rgba(139,92,246,0.7)', borderRadius:4, stack:'biaya', yAxisID:'y' },
         { type:'line', label:'Rp/Ha', data:list.map(x=>x.rpPerHa), borderColor:'#0f172a', backgroundColor:'#0f172a', borderWidth:2, pointRadius:3, tension:0.35, yAxisID:'y1' }
       ]
     },
@@ -1282,7 +1594,7 @@ function renderBiaya() {
       },
       scales:{
         x:{ stacked:true, grid:{display:false}, ticks:{font:{size:10}} },
-        y:{ stacked:true, beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}, callback:v=>formatRupiahShort(v)}, title:{display:true,text:'Total Biaya',font:{size:10}} },
+        y:{ stacked:true, beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}, callback:v=>formatRupiahShort(v)}, title:{display:true,text:(biayaMode === 'total' ? 'Total Biaya' : 'Biaya ' + modeBiaya().satPendek),font:{size:10}} },
         y1:{ position:'right', beginAtZero:true, grid:{display:false}, ticks:{font:{size:10}, callback:v=>formatInt(v/1000)+'rb'}, title:{display:true,text:'Rp/Ha',font:{size:10}} }
       }
     }
@@ -1339,7 +1651,7 @@ function renderBiaya() {
     data: {
       labels: periodRows.map(r=>r.label),
       datasets: [
-        { type:'bar', label:'Total Biaya', data: periodRows.map(r=>r.biayaTotal), backgroundColor:'rgba(245,158,11,0.85)', borderRadius:5, yAxisID:'y' },
+        { type:'bar', label: (biayaMode === 'total' ? 'Biaya' : 'Biaya (' + modeBiaya().satPendek + ')'), data: periodRows.map(r=>r.biayaTotal/bagiBiaya(r)), backgroundColor:'rgba(245,158,11,0.85)', borderRadius:5, yAxisID:'y' },
         { type:'line', label:'Rp/Ha', data: periodRows.map(r=>r.rpPerHa), borderColor:'#0f172a', backgroundColor:'#0f172a', borderWidth:2, pointRadius: periodRows.length>40?0:3, tension:0.35, yAxisID:'y1' }
       ]
     },
@@ -1350,36 +1662,45 @@ function renderBiaya() {
         legend:{position:'bottom', labels:{usePointStyle:true,font:{size:10}}},
         // angka biaya ditulis ringkas (Rp 1,2 M / Rp 350 Rb) agar muat di atas batang
         barLabels:{ display:true, fmt:'rpshort', color:'#b45309' },
+        title:{ display: biayaMode !== 'total', text: 'Nilai dibagi sesuai mode ' + modeBiaya().label, font:{size:10}, color:'#94a3b8', padding:{bottom:4} },
         tooltip:{backgroundColor:'#0f172a',cornerRadius:12, callbacks:{ label: ctx=> `${ctx.dataset.label}: ${formatRupiah(ctx.raw)}` }}
       },
       scales:{
         x:{grid:{display:false}, ticks:{font:{size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:8}},
-        y:{beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}, callback:v=>formatRupiahShort(v)}, title:{display:true,text:'Total Biaya',font:{size:9}}},
+        y:{beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}, callback:v=>formatRupiahShort(v)}, title:{display:true,text:(biayaMode === 'total' ? 'Total Biaya' : 'Biaya ' + modeBiaya().satPendek),font:{size:9}}},
         y1:{position:'right', beginAtZero:true, grid:{display:false}, ticks:{font:{size:10}, callback:v=>formatInt(v/1000)+'rb'}, title:{display:true,text:'Rp/Ha',font:{size:9}}}
       }
     }
   });
 
-  // Tabel biaya per periode
+  // Tabel biaya per periode (nominal mengikuti mode tampilan biaya)
   const pbody = $('#biayaPeriodeBody');
   const periodoInfo = $('#biayaPeriodeInfo');
   const granLabel = biayaGran==='all' ? 'seluruh periode' : biayaGran==='daily' ? 'harian' : biayaGran==='weekly' ? 'mingguan' : 'bulanan';
-  if (periodoInfo) periodoInfo.textContent = `Granularitas: ${granLabel} • ${periodRows.length} periode`;
+  if (periodoInfo) periodoInfo.textContent = `Granularitas: ${granLabel} • ${periodRows.length} periode • mode ${modeBiaya().label}`;
   const trendLabel = $('#biayaTrendGranLabel');
   if (trendLabel) trendLabel.textContent = '(' + granLabel + ')';
+  const judulGran = $('#biayaGranJudul');
+  if (judulGran) judulGran.textContent = (biayaMode === 'total' ? 'Total' : 'Rata-rata') + ' Biaya & Rp/Ha per Periode';
+  document.querySelectorAll('#biayaPeriodeHead th[data-unit]').forEach(th => {
+    if (!th.dataset.label) th.dataset.label = th.textContent.trim().replace(/\s*\([^)]*\)$/, '');
+    th.textContent = th.dataset.label + ' (' + modeBiaya().satPendek + ')';
+  });
   if (pbody) {
-    pbody.innerHTML = periodRows.map(r=>`
+    pbody.innerHTML = periodRows.map(r=>{
+      const f = bagiBiaya(r);
+      return `
       <tr class="hover:bg-amber-50/40 transition">
         <td class="px-4 py-2.5 whitespace-nowrap font-medium text-slate-900">${esc(r.label)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-center text-slate-500">${formatInt(r.count)}</td>
+        <td class="px-4 py-2.5 whitespace-nowrap text-center text-slate-500">${formatInt(r.count)}<span class="ml-1 text-[9px] text-slate-400">${formatInt(r.hari)}h</span></td>
         <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatNumber(r.luas,2)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(r.biayaSolar)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(r.biayaUpah)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(r.biayaAlat)}</td>
-        <td class="px-4 py-2.5 whitespace-nowrap text-right font-bold text-amber-700">${formatInt(r.biayaTotal)}</td>
+        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(r.biayaSolar/f)}</td>
+        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(r.biayaUpah/f)}</td>
+        <td class="px-4 py-2.5 whitespace-nowrap text-right">${formatInt(r.biayaAlat/f)}</td>
+        <td class="px-4 py-2.5 whitespace-nowrap text-right font-bold text-amber-700">${formatInt(r.biayaTotal/f)}</td>
         <td class="px-4 py-2.5 whitespace-nowrap text-right font-semibold text-slate-900">${formatInt(r.rpPerHa)}</td>
-      </tr>
-    `).join('') || '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Tidak ada data</td></tr>';
+      </tr>`;
+    }).join('') || '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Tidak ada data</td></tr>';
   }
 
   // Insight biaya
@@ -2467,7 +2788,8 @@ const CHART_TAB_OF = {
   chartEfisiensi:'overview', chartWilayah:'wilayah', chartWilayahEff:'wilayah', chartWilayahCompare:'wilayah',
   chartJenisEngine:'utilisasi', chartAvail:'utilisasi', chartScatter:'utilisasi',
   chartWaktuKomposisi:'utilisasi', chartAir:'utilisasi', chartWaktuWilayah:'utilisasi',
-  chartIndexBoros:'indexsolar', chartIndexHasil:'indexsolar', chartIndexWilayah:'indexsolar', chartIndexScatter:'indexsolar'
+  chartIndexBoros:'indexsolar', chartIndexHasil:'indexsolar', chartIndexWilayah:'indexsolar', chartIndexScatter:'indexsolar',
+  chartBiayaWilayah:'biaya', chartBiayaKomposisi:'biaya', chartBiayaTrend:'biaya', chartBiayaGran:'biaya', chartBiayaPerforma:'biaya'
 };
 // Keterangan kecil di bawah chart: menjelaskan kapan angka pada batang tampil
 function renderBarLabelNotes() {
@@ -3327,6 +3649,8 @@ function initFiltersUI() {
   });
   // --- kontrol tab Waktu & Utilisasi (mode rata-rata/total) ---
   bindWaktuModeButtons();
+  // --- kontrol tab Analisa Biaya (mode total / rata-rata per aktivitas / per hari) ---
+  bindBiayaModeButtons();
 
   // --- kontrol tab Index Solar ---
   const idxSearch = $('#indexSearch');

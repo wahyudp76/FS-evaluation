@@ -598,45 +598,111 @@
                     <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-amber-50/70 to-white p-5 md:p-6 shadow-soft">
                         <div>
                             <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Analisa Biaya Irigasi</h2>
-                            <p class="mt-1 max-w-2xl text-[12px] text-slate-500">Rincian biaya operasi irigasi total maupun per wilayah: biaya solar, upah, alat, Rp/Ha, Rp/Jam operasi, Rp/liter, komposisi &amp; tren biaya per periode.</p>
+                            <p class="mt-1 max-w-2xl text-[12px] text-slate-500">Rincian biaya irigasi per wilayah dengan kartu biaya, grafik perbandingan metrik, tabel per wilayah (kolom Wilayah beku), komposisi solar/upah/alat, serta tren biaya per periode.</p>
                         </div>
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-amber-700 ring-1 ring-amber-200">Rupiah / Ha</span>
                     </div>
-                <!-- Row 3c - Analisa Biaya Irigasi: Total & per Wilayah -->
-                <section class="rounded-[20px] border border-slate-200/70 bg-white shadow-soft overflow-hidden">
-                    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 p-5 md:p-6">
+
+                <!-- Rincian biaya (kartu biaya + mode tampilan) -->
+                <section class="rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                            <h3 class="text-[14px] font-semibold text-slate-900 flex items-center gap-2">
-                                <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-amber-50 text-amber-600"><i data-lucide="wallet" class="h-3.5 w-3.5"></i></span>
-                                Analisa Biaya Irigasi - Total &amp; per Wilayah
-                            </h3>
-                            <p class="mt-1 text-[12px] text-slate-500">Rincian biaya solar, upah, alat &amp; Rp/Ha total maupun per afdeling selama periode terpilih</p>
+                            <h3 class="text-[14px] font-semibold text-slate-900 flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-amber-50 text-amber-600"><i data-lucide="wallet" class="h-3.5 w-3.5"></i></span> Rincian Biaya Irigasi</h3>
+                            <p id="biayaModeNote" class="mt-1 text-[11px] text-slate-500">Total seluruh komponen biaya pada periode terpilih (solar, upah, alat) &amp; rasio efisiensi biaya.</p>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
-                            <select id="biayaGran" class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium outline-none focus:border-amber-300">
-                                <option value="all">Seluruh Periode</option>
-                                <option value="daily">Per Hari</option>
-                                <option value="weekly">Per Minggu</option>
-                                <option value="monthly">Per Bulan</option>
-                            </select>
-                            <select id="biayaSort" class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium outline-none focus:border-amber-300">
-                                <option value="totalBiaya">Total Biaya Tertinggi</option>
-                                <option value="rpPerHa">Rp/Ha Tertinggi</option>
-                                <option value="rpPerHaAsc">Rp/Ha Terendah</option>
-                                <option value="biayaSolar">Biaya Solar Tertinggi</option>
-                                <option value="biayaUpah">Biaya Upah Tertinggi</option>
-                                <option value="biayaAlat">Biaya Alat Tertinggi</option>
-                                <option value="totalLuas">Luas Siram Tertinggi</option>
-                            </select>
+                            <div class="inline-flex flex-wrap rounded-full border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Mode tampilan biaya">
+                                <button type="button" data-biaya="total" aria-pressed="true" class="rounded-full bg-slate-900 px-3 py-1 text-[10px] font-semibold text-white transition">Total</button>
+                                <button type="button" data-biaya="avgAkt" aria-pressed="false" class="rounded-full px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:bg-white">Rata-rata / Aktivitas</button>
+                                <button type="button" data-biaya="avgHari" aria-pressed="false" class="rounded-full px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:bg-white">Rata-rata / Hari</button>
+                            </div>
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 ring-1 ring-slate-200">Kolom biaya A&ndash;AI</span>
                         </div>
                     </div>
+                    <div id="biayaCards" class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6"></div>
 
-                    <!-- Ringkasan biaya total -->
+                    <div class="mt-5 rounded-2xl border border-slate-200/70 bg-white p-4 md:p-5">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <h4 class="text-[12px] font-semibold text-slate-700 flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-amber-50 text-amber-600"><i data-lucide="bar-chart-3" class="h-3.5 w-3.5"></i></span> Performa Biaya per Wilayah</h4>
+                                <p class="mt-1 text-[11px] text-slate-500">Perbandingan antarfolding untuk komponen biaya &amp; efisiensi — nilainya ditulis pada tiap batang.</p>
+                            </div>
+                            <label class="inline-flex items-center gap-2 text-[11px] text-slate-500">
+                                <span class="hidden sm:inline">Metrik</span>
+                                <select id="biayaMetric" class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-700 outline-none focus:border-slate-300 focus:bg-white"></select>
+                            </label>
+                        </div>
+                        <div id="biayaMetricChips" class="mt-3 flex flex-wrap gap-1.5"></div>
+                        <div class="relative mt-3 h-[360px]"><canvas id="chartBiayaPerforma"></canvas></div>
+                        <p id="chartBiayaPerformaNote" class="mt-2 text-[10px] text-slate-400"></p>
+                    </div>
+
+                    <div class="mt-6">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <h4 class="text-[12px] font-semibold text-slate-700 mb-1">Rincian Biaya per Wilayah</h4>
+                                <p class="text-[11px] text-slate-500 mb-1">Seluruh komponen biaya, rasio efisiensi (Rp/Ha, Rp/Jam, Rp/Liter), pemakaian solar, serta penilaian hemat/mahal per afdeling</p>
+                                <p id="biayaWilayahNote" class="text-[11px] text-slate-500 mb-3"></p>
+                            </div>
+                            <label class="inline-flex items-center gap-2 text-[11px] text-slate-500">
+                                <span class="hidden sm:inline">Urutkan</span>
+                                <select id="biayaSort" class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium outline-none focus:border-amber-300">
+                                    <option value="totalBiaya">Total Biaya Tertinggi</option>
+                                    <option value="rpPerHa">Rp/Ha Tertinggi</option>
+                                    <option value="rpPerHaAsc">Rp/Ha Terendah</option>
+                                    <option value="biayaSolar">Biaya Solar Tertinggi</option>
+                                    <option value="biayaUpah">Biaya Upah Tertinggi</option>
+                                    <option value="biayaAlat">Biaya Alat Tertinggi</option>
+                                    <option value="totalLuas">Luas Siram Tertinggi</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="overflow-x-auto wide-table rounded-xl border border-slate-200">
+                            <table class="wide-table min-w-full text-[11px] text-slate-600 tabular-nums">
+                                <thead class="bg-slate-50 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                                    <tr id="biayaWilayahHead">
+                                        <th class="px-3 py-3 text-left whitespace-nowrap">Wilayah</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap">Rec</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap">Hari</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap">Luas Ha</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="rp" data-label="Biaya Solar">Biaya Solar</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="rp" data-label="Biaya Upah">Biaya Upah</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="rp" data-label="Biaya Alat">Biaya Alat</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="rp" data-label="Biaya Total">Biaya Total</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap">% dr Total</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap">Rp/Ha</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap">Rp/Jam</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap">Rp/Liter</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap" data-unit="rr" data-label="Rp/Record">Rp/Record</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap">Solar L/Ha</th>
+                                        <th class="px-3 py-3 text-center whitespace-nowrap">Efisiensi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="biayaWilayahBody" class="divide-y divide-slate-100">
+                                    <tr><td colspan="15" class="px-4 py-8 text-center text-slate-400">Memuat analisa biaya...</td></tr>
+                                </tbody>
+                                <tfoot id="biayaWilayahFoot" class="border-t-2 border-slate-200"></tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Komposisi & tren biaya -->
+                <section class="rounded-[20px] border border-slate-200/70 bg-white shadow-soft overflow-hidden">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5 md:p-6">
+                        <div>
+                            <h3 class="text-[14px] font-semibold text-slate-900 flex items-center gap-2">
+                                <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-amber-50 text-amber-600"><i data-lucide="pie-chart" class="h-3.5 w-3.5"></i></span>
+                                Komposisi &amp; Tren Biaya
+                            </h3>
+                            <p class="mt-1 text-[12px] text-slate-500">Susunan biaya solar, upah &amp; alat per wilayah maupun total, serta pergerakan biaya per periode</p>
+                        </div>
+                    </div>
                     <div class="grid grid-cols-12 gap-6 p-5 md:p-6">
                         <div class="col-span-12 xl:col-span-7">
-                            <h4 class="text-[12px] font-semibold text-slate-900 mb-3">Total Biaya per Wilayah (Rp)</h4>
-                            <div class="relative h-[280px]"><canvas id="chartBiayaWilayah"></canvas></div>
-                            <div id="biayaTotalCards" class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2.5"></div>
+                            <h4 class="text-[12px] font-semibold text-slate-900 mb-1">Komposisi Biaya per Wilayah</h4>
+                            <p class="text-[11px] text-slate-500 mb-3">Tumpukan biaya solar + upah + alat per afdeling (tanpa angka pada batang) &amp; garis Rp/Ha</p>
+                            <div class="relative h-[300px]"><canvas id="chartBiayaWilayah"></canvas></div>
                         </div>
                         <div class="col-span-12 xl:col-span-5 space-y-6">
                             <div>
@@ -646,75 +712,51 @@
                             </div>
                             <div>
                                 <h4 class="text-[12px] font-semibold text-slate-900 mb-1">Tren Biaya Irigasi <span id="biayaTrendGranLabel" class="font-normal text-slate-400">(bulanan)</span></h4>
-                                <p class="text-[11px] text-slate-500 mb-3">Biaya total (bar) &amp; Rp/Ha (garis) per periode</p>
+                                <p class="text-[11px] text-slate-500 mb-1">Biaya total (bar) &amp; Rp/Ha (garis) per periode</p>
+                                <p class="text-[10px] text-slate-400 mb-3">Akumulasi per periode (tidak mengikuti mode rata-rata/total)</p>
                                 <div class="relative h-[190px]"><canvas id="chartBiayaTrend"></canvas></div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Tabel biaya per wilayah -->
-                    <div class="border-t border-slate-100">
-                        <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 px-5 py-3 md:px-6">
-                            <h4 class="text-[12px] font-semibold text-slate-900">Rincian Biaya Irigasi per Wilayah</h4>
-                            <span class="text-[10px] text-slate-500">Solar + Upah + Alat = Biaya Total • Rp/Ha = Biaya Total ÷ Luas Siram • geser tabel untuk kolom lainnya</span>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="wide-table w-full text-left text-[11px]">
-                                <thead class="bg-slate-50/80 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                                    <tr>
-                                        <th class="px-4 py-3 whitespace-nowrap">Wilayah</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-center">Rec</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Luas Ha</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Solar Rp</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Upah Rp</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Alat Rp</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Total Rp</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">% dr Total</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Ha</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Liter Solar</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Solar L/Ha</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-center">Efisiensi Biaya</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="biayaWilayahBody" class="divide-y divide-slate-100">
-                                    <tr><td colspan="13" class="px-4 py-8 text-center text-slate-400">Memuat analisa biaya...</td></tr>
-                                </tbody>
-                                <tfoot id="biayaWilayahFoot" class="bg-slate-900 text-white text-[11px] font-semibold"></tfoot>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Rincian biaya per periode -->
                     <div class="border-t border-slate-100">
                         <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 px-5 py-3 md:px-6">
                             <h4 class="text-[12px] font-semibold text-slate-900">Rincian Biaya Irigasi per Periode</h4>
-                            <span id="biayaPeriodeInfo" class="text-[10px] text-slate-500">Pilih granularitas di atas</span>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span id="biayaPeriodeInfo" class="text-[10px] text-slate-500">Pilih granularitas</span>
+                                <select id="biayaGran" class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-medium outline-none focus:border-amber-300">
+                                    <option value="all">Seluruh Periode</option>
+                                    <option value="daily">Per Hari</option>
+                                    <option value="weekly">Per Minggu</option>
+                                    <option value="monthly">Per Bulan</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="space-y-5 p-5 md:p-6">
                             <div>
-                                <h4 class="text-[12px] font-semibold text-slate-900 mb-1">Total Biaya &amp; Rp/Ha per Periode</h4>
-                                <p class="text-[11px] text-slate-500 mb-3">Mengikuti granularitas yang dipilih — batang = total biaya, garis = Rp/Ha</p>
+                                <h4 id="biayaGranJudul" class="text-[12px] font-semibold text-slate-900 mb-1">Total Biaya &amp; Rp/Ha per Periode</h4>
+                                <p class="text-[11px] text-slate-500 mb-3">Mengikuti granularitas &amp; mode tampilan — batang = biaya (angka pada batang), garis = Rp/Ha</p>
                                 <div class="relative h-[300px]"><canvas id="chartBiayaGran"></canvas></div>
                             </div>
                             <div>
                                 <div class="max-h-[360px] overflow-y-auto overflow-x-auto rounded-xl border border-slate-200">
-                            <table class="wide-table w-full text-left text-[11px]">
-                                <thead class="sticky top-0 bg-slate-50/95 backdrop-blur text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                                    <tr>
-                                        <th class="px-4 py-3 whitespace-nowrap">Periode</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-center">Rec</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Luas Ha</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Solar Rp</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Upah Rp</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Alat Rp</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Biaya Total Rp</th>
-                                        <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Ha</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="biayaPeriodeBody" class="divide-y divide-slate-100">
-                                    <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Memuat rincian biaya per periode...</td></tr>
-                                </tbody>
-                            </table>
+                                    <table class="wide-table w-full text-left text-[11px]">
+                                        <thead class="sticky top-0 bg-slate-50/95 backdrop-blur text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                                            <tr id="biayaPeriodeHead">
+                                                <th class="px-4 py-3 whitespace-nowrap">Periode</th>
+                                                <th class="px-4 py-3 whitespace-nowrap text-center">Rec</th>
+                                                <th class="px-4 py-3 whitespace-nowrap text-right">Luas Ha</th>
+                                                <th class="px-4 py-3 whitespace-nowrap text-right" data-unit="rp" data-label="Biaya Solar">Biaya Solar</th>
+                                                <th class="px-4 py-3 whitespace-nowrap text-right" data-unit="rp" data-label="Biaya Upah">Biaya Upah</th>
+                                                <th class="px-4 py-3 whitespace-nowrap text-right" data-unit="rp" data-label="Biaya Alat">Biaya Alat</th>
+                                                <th class="px-4 py-3 whitespace-nowrap text-right" data-unit="rp" data-label="Biaya Total">Biaya Total</th>
+                                                <th class="px-4 py-3 whitespace-nowrap text-right">Rp/Ha</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="biayaPeriodeBody" class="divide-y divide-slate-100">
+                                            <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Memuat rincian biaya per periode...</td></tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>

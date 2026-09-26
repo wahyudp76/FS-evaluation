@@ -157,11 +157,39 @@ Permintaan: pelajari ulang struktur sheet **ZPAS637** & **Index Solar**, karena 
 - Kolom **AJ–AL** sengaja tetap diabaikan sesuai arahan.
 - Sheet **Index Solar** tidak perlu disesuaikan — struktur dan seluruh 151 engine terbaca tanpa perubahan.
 
+## 3h. Tab "Analisa Biaya" disamakan dengan "Waktu & Utilisasi" (v1.8.3)
+
+Permintaan: pada tab **Analisa Biaya**, ubah tampilannya agar **data yang ditampilkan seperti tab Waktu & Utilisasi** — beserta filter/mode dan tampilan per wilayahnya — tetapi **isinya mengenai biaya**.
+
+### Yang diadopsi dari tab Waktu & Utilisasi
+
+| Elemen tab Waktu & Utilisasi | Padanan pada tab Analisa Biaya |
+|---|---|
+| Judul + pemilih **mode** (Rata-rata/Aktivitas • Rata-rata/Hari • Total) + catatan mode | Pemilih mode **Total (bawaan) • Rata-rata/Aktivitas • Rata-rata/Hari** di kanan judul **"Rincian Biaya Irigasi"** + catatan `#biayaModeNote` |
+| **12 kartu** kolom waktu | **12 kartu biaya**: Biaya Total, Solar, Upah, Alat, Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record, Luas Siram, Solar Terpakai, Komponen Terbesar, Wilayah Termahal (masing-masing menampilkan total • per aktivitas • per hari) |
+| Chart **"Performa Waktu per Wilayah"** (bar horizontal, label angka, dropdown metrik + chip cepat) | Chart **"Performa Biaya per Wilayah"**: 11 metrik (biaya total/solar/upah/alat, Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record, % dari total, luas, solar) + **6 tombol cepat** |
+| **Tabel "Rincian Waktu per Wilayah"** dengan **kolom Wilayah beku** + baris kaki total | **Tabel "Rincian Biaya per Wilayah"** (15 kolom, **kolom Wilayah beku**, baris kaki) + kolom baru **Hari** |
+| Mode memengaruhi kartu, tabel, chart & catatan | Mode memengaruhi kartu, tabel per wilayah, chart Performa Biaya, chart & tabel per periode |
+
+### Keputusan penting
+
+- **Yang ikut dibagi mode:** semua **nominal rupiah** (biaya solar/upah/alat/total) dan **volume** (Luas Siram, Solar Terpakai/`L`). Wilayah dibagi data wilayah itu sendiri; tabel periode dibagi data periode itu sendiri; kartu memakai total keseluruhan.
+- **Yang tetap rasio (tidak dibagi):** Rp/Ha, Rp/Jam Operasi, Rp/Liter Solar, Rp/Record, `% dr Total`, dan Solar L/Ha — diberi keterangan otomatis di bawah tabel, di catatan chart, dan pada judul kartu.
+- **Bawaan = Total** (analisa biaya umumnya dibaca sebagai akumulasi rupiah), berbeda dari tab waktu yang bawaannya rata-rata.
+- Struktur lama yang dipertahankan (hanya dipindah/diberi gaya baru): komposisi biaya per wilayah (stacked, tetap **tanpa** angka batang sesuai aturan v1.7.2), doughnut komposisi total, tren biaya per periode, tabel biaya per periode (kini mengikuti mode & granularitas), dan insight biaya.
+- Ditambahkan agregasi baru `getBiayaTotal()` (satu lintasan) + kolom **Hari** pada agregasi wilayah & periode agar mode "Rata-rata / Hari" akurat per kelompok.
+- Chip metrik tidak dibuat memaksa mengganti mode; keduanya independen seperti pada tab waktu.
+
+### Contoh angka hasil uji (periode penuh)
+
+- Mode **Total**: kartu Biaya Total **Rp 70,31 M** (per aktivitas Rp 5.522.789 • per hari Rp 606.078.474); Rp/Ha **Rp 1.549.662**; Rp/Jam **Rp 388.566**; Rp/Liter **Rp 46.802**; komponen terbesar **Solar 48,1%**; wilayah termahal **AW09 Rp 1.859.528/Ha** vs termurah **AW11 Rp 1.362.841/Ha** (selisih 36,4%).
+- Mode **Rata-rata / Hari**: kolom Biaya Solar AW12 **Rp 47.197.373/hari** = total Rp 5.333.303.197 ÷ 113 hari (cocok dengan nilai pada chart Performa Biaya).
+
 ## 4. Hasil uji (Chrome headless, lokal)
 
 | Skrip | Hasil |
 |---|---|
-| `tools/qa-index-solar.js` | **42/42 lulus** (7 pemeriksaan mode rata-rata/total + **5 pemeriksaan baru v1.8.1**: chart Performa Waktu terisi 8 batang & terurut, satuan mengikuti mode & label sumbu, pemilih 15 metrik + chip cepat, ganti metrik ke % Utilization mengubah data, kolom Wilayah `sticky` di thead/tbody/tfoot & posisinya tidak bergeser saat tabel digeser `scrollLeft=700`) — 6 tab, semua 24 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail **35 kolom A–AI**, export CSV **35 kolom** × 12.730 baris, 0 error |
+| `tools/qa-index-solar.js` | **52/52 lulus** (7 pemeriksaan mode rata-rata/total + **5 pemeriksaan baru v1.8.1**: chart Performa Waktu terisi 8 batang & terurut, satuan mengikuti mode & label sumbu, pemilih 15 metrik + chip cepat, ganti metrik ke % Utilization mengubah data, kolom Wilayah `sticky` di thead/tbody/tfoot & posisinya tidak bergeser saat tabel digeser `scrollLeft=700`) — 6 tab, semua 24 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail **35 kolom A–AI**, export CSV **35 kolom** × 12.730 baris, 0 error |
 | `tools/qa-bar-labels.js` (baru) | **10/10 lulus** — 6 chart single berlabel, 4 chart stacked tanpa label, bukti piksel, aturan harian/bulanan/mingguan |
 | `tools/qa.js` (regresi, kini dinamis) | **42/42 lulus** — filter tanggal/bulan/wilayah, pencarian teks & angka, paginasi, sort, granularitas, biaya, export, sync, offline, fallback |
 | `tools/layout-test.js` | **24/24 lulus** — laci filter mobile tetap menempel di bawah header, sticky desktop, resize, Esc/backdrop, fokus |
@@ -177,6 +205,6 @@ Permintaan: pelajari ulang struktur sheet **ZPAS637** & **Index Solar**, karena 
 
 ## 6. Status rilis
 
-- Service worker dinaikkan ke **v1.8.2** (cache aset lama dibersihkan otomatis).
+- Service worker dinaikkan ke **v1.8.3** (cache aset lama dibersihkan otomatis).
 - Catatan rilis: commit `bac0f74` sempat gagal pada langkah *Deploy to GitHub Pages* (langkah unggah artefak sukses) — kemungkinan gangguan sesaat GitHub Pages; **dijalankan ulang (attempt 2) dan sukses**, situs live memuat v1.8.2. Uji langsung ke situs live: **42/42 lulus**.
 - Push ke `wahyudp76/FS-evaluation` → GitHub Actions → <https://wahyudp76.github.io/FS-evaluation/>

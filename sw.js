@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.8.2 — penyesuaian struktur sheet terbaru (kolom A..AI): kolom tanggal pindah ke B + deteksi otomatis
-const VERSION = 'v1.8.2';
+// v1.8.3 — tab Analisa Biaya: kartu biaya + mode Total/Rata-rata, chart Performa Biaya, tabel per wilayah kolom beku
+const VERSION = 'v1.8.3';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 
