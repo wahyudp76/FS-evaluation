@@ -486,7 +486,8 @@ function parseIndexSolar(csvText) {
   const cWil = colIndex(headers, ['Wilayah']);
   const cLok = colIndex(headers, ['Lokasi']);
   const cIri = colIndex(headers, ['Kode Irrigator', 'Irigator']);
-  const cJenis = colIndex(headers, ['Jenis Engine']);
+  const cJenis = colIndex(headers, ['Jenis Engine', 'Jenis Engine (Kategori)']);
+  const cJIri = colIndex(headers, ['Jenis Irrigator']);
   const cSolar = colIndex(headers, ['Pemakaian Solar', 'Solar Terpakai']);
   const cJam = colIndex(headers, ['Jam Operaton', 'Jam Operation', 'Jam Operasi', 'Jam']);
   const cLpj = colIndex(headers, ['Liter/jam', 'Liter per jam']);
@@ -527,6 +528,7 @@ function parseIndexSolar(csvText) {
       lokasi: g(cLok),
       irigator: g(cIri),
       jenis: g(cJenis) || '-',
+      jenisIrigator: g(cJIri) || '-',
       solar, jam, kalibrasi, lpjSheet, lpjAktual,
       selisih: parseSelisih(g(cSel)),
       deviasi: kalibrasi > 0 ? lpjAktual - kalibrasi : 0,
@@ -957,6 +959,37 @@ function getWaktuWilayah() {
     return out;
   });
 }
+// Agregasi kolom waktu per JENIS ENGINE (SPC/DEC/DED/DEM/SPE) - gaya sama dengan per wilayah
+function getWaktuPerJenis() {
+  return memo('waktuJenis', () => {
+    const groups = {};
+    for (let i = 0; i < filteredData.length; i++) {
+      const d = filteredData[i];
+      const key = d.jenisEngine || '-';
+      let g = groups[key];
+      if (!g) g = groups[key] = { nama: key, count: 0, plan: 0, prepare: 0, operating: 0, waiting: 0, repair: 0, down: 0, standby: 0, off: 0, totOper: 0, totalAvail: 0, totalTime: 0, air: 0, luas: 0, solar: 0, avail: 0, util: 0, _hari: new Set() };
+      g.count++;
+      if (d.date) g._hari.add(d.date.getTime());
+      g.plan += d.planTime || 0; g.prepare += d.prepareTime || 0; g.operating += d.operatingTime || 0;
+      g.waiting += d.waitingTime || 0; g.repair += d.repair || 0; g.down += d.downTime || 0;
+      g.standby += d.standby || 0; g.off += d.offTime || 0; g.totOper += d.totOperTime || 0;
+      g.totalAvail += d.totalAvail || 0; g.totalTime += d.totalTime || 0; g.air += d.air || 0;
+      g.luas += d.luasSiram || 0; g.solar += d.solarTerpakai || 0;
+      g.avail += d.availability || 0; g.util += d.utilization || 0;
+    }
+    const out = Object.keys(groups).map(k => {
+      const g = groups[k], n = g.count || 1;
+      g.avgAvail = g.avail / n; g.avgUtil = g.util / n;
+      g.literPerHa = g.luas ? g.air / g.luas : 0;
+      g.hari = g._hari ? g._hari.size : 0;
+      delete g._hari;
+      return g;
+    });
+    out.sort((a, b) => b.operating - a.operating);
+    return out;
+  });
+}
+
 // Total waktu pemakaian alat (untuk kartu ringkas) - satu lintasan
 function getWaktuTotal() {
   return memo('waktuTotal', () => {
@@ -1066,6 +1099,69 @@ function getIndexSolarView() {
   });
 }
 
+// Kategori jenis engine dari kode engine: 3 huruf awal (SPC0138 -> SPC)
+function jenisEngineDariKode(kode) {
+  const k = String(kode || '').trim().toUpperCase();
+  const m = k.match(/^[A-Z]{3}/);
+  return m ? m[0] : (k || '-');
+}
+// Peta kode engine -> jenis engine menurut sheet ZPAS637 (dipakai bila kodenya tidak berpola 3 huruf)
+function petaJenisEngine() {
+  return memo('petaJenisEngine', () => {
+    const m = {};
+    for (let i = 0; i < rawData.length; i++) {
+      const d = rawData[i];
+      if (d.engine) m[d.engine] = d.jenisEngine || jenisEngineDariKode(d.engine);
+    }
+    return m;
+  });
+}
+
+// Kategori jenis engine untuk satu baris sheet Index Solar.
+// Diutamakan kolom "Jenis Engine" resmi dari sheet (DEC/DED/SPC/DEM/SPE/SPM);
+// bila kosong dipakai peta dari sheet ZPAS637, lalu 3 huruf awal kode engine.
+function kategoriJenisEngine(r, peta) {
+  const dariSheet = String(r.jenis || '').trim();
+  if (dariSheet && dariSheet !== '-') return dariSheet.toUpperCase();
+  return peta[r.engine] || jenisEngineDariKode(r.engine);
+}
+
+// Agregasi sheet Index Solar per JENIS ENGINE (mengikuti filter tab Index Solar)
+function getIndexPerJenis() {
+  return memo('indexJenis:' + indexJust + ':' + indexSearch, () => {
+    const iv = getIndexSolarView();
+    const peta = petaJenisEngine();
+    const groups = {};
+    iv.rows.forEach(r => {
+      const key = kategoriJenisEngine(r, peta);
+      let g = groups[key];
+      if (!g) g = groups[key] = { nama: key, n: 0, aktif: 0, terukur: 0, hemat: 0, boros: 0, nol: 0, anomali: 0, solar: 0, jam: 0, selisih: 0, _kal: 0, _kalN: 0, _solarTerukur: 0, _jamTerukur: 0 };
+      g.n++;
+      if (r.anomali) g.anomali++;
+      if (!r.aktif) return;
+      g.aktif++;
+      g.solar += r.solar; g.jam += r.jam; g.selisih += r.selisih;
+      if (r.kalibrasi > 0) { g._kal += r.kalibrasi; g._kalN++; }
+      if (r.solar > 0 && !r.anomali) {
+        g.terukur++;
+        g._solarTerukur += r.solar; g._jamTerukur += r.jam;
+        if (r.justifikasi === 'Boros') g.boros++; else g.hemat++;
+      } else if (r.solar === 0) g.nol++;
+    });
+    return Object.keys(groups).map(k => {
+      const g = groups[k];
+      g.ltrPerJam = g._jamTerukur ? g._solarTerukur / g._jamTerukur : 0;   // L/jam tertimbang (aktual)
+      g.kalibrasiAvg = g._kalN ? g._kal / g._kalN : 0;                     // rata-rata kalibrasi per engine
+      g.deviasi = g.kalibrasiAvg ? g.ltrPerJam - g.kalibrasiAvg : 0;       // + = boros, - = hemat
+      g.devPct = g.kalibrasiAvg ? g.deviasi / g.kalibrasiAvg * 100 : 0;
+      g.pctHemat = (g.hemat + g.boros) ? g.hemat / (g.hemat + g.boros) * 100 : 0;
+      g.solarPerEngine = g.aktif ? g.solar / g.aktif : 0;
+      delete g._kal; delete g._kalN; delete g._solarTerukur; delete g._jamTerukur;
+      return g;
+    }).sort((a, b) => b.solar - a.solar);
+  });
+}
+
 function getBiayaWilayahStats() {
   return memo('biaya:' + biayaSort, () => getBiayaWilayahStatsRaw());
 }
@@ -1144,6 +1240,50 @@ function getBiayaWilayahStatsRaw() {
   totals.pctLuas = grandTotal ? 100 : 0;
   return { list, totals };
 }
+
+// Agregasi biaya per JENIS ENGINE - gaya sama dengan per wilayah (dipakai chart Performa Biaya per Jenis Engine)
+function getBiayaPerJenisRaw() {
+  const groups = {};
+  filteredData.forEach(d => {
+    const key = d.jenisEngine || '-';
+    if (!groups[key]) groups[key] = {
+      nama: key, count: 0, hari: 0, luas: 0, biayaSolar: 0, biayaUpah: 0, biayaAlat: 0,
+      biayaTotal: 0, solar: 0, operating: 0, air: 0, _hari: new Set()
+    };
+    const g = groups[key];
+    g.count++;
+    if (d.date) g._hari.add(d.date.getTime());
+    g.luas += d.luasSiram || 0;
+    g.biayaSolar += d.biayaSolar || 0;
+    g.biayaUpah += d.biayaUpah || 0;
+    g.biayaAlat += d.biayaAlat || 0;
+    g.biayaTotal += d.biayaTotal || ((d.biayaSolar||0) + (d.biayaUpah||0) + (d.biayaAlat||0));
+    g.solar += d.solarTerpakai || 0;
+    g.operating += d.operatingTime || 0;
+    g.air += d.air || 0;
+  });
+  const list = Object.values(groups).map(g => {
+    const total = g.biayaTotal || (g.biayaSolar + g.biayaUpah + g.biayaAlat);
+    g.hari = g._hari ? g._hari.size : 0;
+    delete g._hari;
+    return Object.assign(g, {
+      biayaTotal: total,
+      rpPerHa: g.luas ? total / g.luas : 0,
+      rpPerJam: g.operating ? total / g.operating : 0,
+      rpPerLiter: g.solar ? total / g.solar : 0,
+      rpPerRec: g.count ? total / g.count : 0,
+      pctSolar: total ? g.biayaSolar / total * 100 : 0,
+      pctUpah: total ? g.biayaUpah / total * 100 : 0,
+      pctAlat: total ? g.biayaAlat / total * 100 : 0,
+      share: 0
+    });
+  });
+  const grandTotal = list.reduce((s, x) => s + x.biayaTotal, 0);
+  list.forEach(x => { x.share = grandTotal ? x.biayaTotal / grandTotal * 100 : 0; });
+  list.sort((a, b) => b.biayaTotal - a.biayaTotal);
+  return list;
+}
+function getBiayaPerJenis() { return memo('biayaJenis', () => getBiayaPerJenisRaw()); }
 
 // Total biaya seluruh periode terpilih (untuk kartu biaya & pembagi mode) - satu lintasan
 function getBiayaTotal() {
@@ -1343,16 +1483,16 @@ function renderBiayaCards() {
 // ===== Chart bar "Performa Biaya per Wilayah" (gaya sama dengan Performa Waktu / Performance Wilayah) =====
 // rp & vol: ikut mode (total / Rp per aktivitas / Rp per hari) • rasio (Rp/Ha, %, dst) tetap
 const BIAYA_METRIC = {
-  total:      { label:'Biaya Total',        k:'biayaTotal', tipe:'rp',   warna:'rgba(245,158,11,0.85)', color:'#b45309' },
-  solar:      { label:'Biaya Solar',        k:'biayaSolar', tipe:'rp',   warna:'rgba(251,191,36,0.85)', color:'#92400e' },
-  upah:       { label:'Biaya Upah',         k:'biayaUpah',  tipe:'rp',   warna:'rgba(59,130,246,0.8)',  color:'#1d4ed8' },
-  alat:       { label:'Biaya Alat',         k:'biayaAlat',  tipe:'rp',   warna:'rgba(139,92,246,0.75)', color:'#6d28d9' },
-  rpPerHa:    { label:'Rp/Ha (efisiensi)',  k:'rpPerHa',    tipe:'rr',   unit:'Rp/Ha',    warna:'rgba(16,185,129,0.85)', color:'#047857' },
-  rpPerJam:   { label:'Rp/Jam Operasi',     k:'rpPerJam',   tipe:'rr',   unit:'Rp/Jam',   warna:'rgba(14,165,233,0.85)', color:'#0369a1' },
-  rpPerLiter: { label:'Rp/Liter Solar',     k:'rpPerLiter', tipe:'rr',   unit:'Rp/Liter', warna:'rgba(244,63,94,0.8)',  color:'#be123c' },
-  rpPerRec:   { label:'Rp/Record',          k:'rpPerRec',   tipe:'rr',   unit:'Rp/Record',warna:'rgba(20,184,166,0.85)',color:'#0f766e' },
-  share:      { label:'% dari Total Biaya', k:'share',      tipe:'pct',  warna:'rgba(15,23,42,0.75)',  color:'#0f172a' },
-  solarL:     { label:'Solar Terpakai',     k:'solar',      tipe:'vol',  satVol:'L',  warna:'rgba(245,158,11,0.8)', color:'#b45309' }
+  total:      { label:'Biaya Total',        k:'biayaTotal', tipe:'rp',   fmt:'rpshort', warna:'rgba(245,158,11,0.85)', color:'#b45309' },
+  solar:      { label:'Biaya Solar',        k:'biayaSolar', tipe:'rp',   fmt:'rpshort', warna:'rgba(251,191,36,0.85)', color:'#92400e' },
+  upah:       { label:'Biaya Upah',         k:'biayaUpah',  tipe:'rp',   fmt:'rpshort', warna:'rgba(59,130,246,0.8)',  color:'#1d4ed8' },
+  alat:       { label:'Biaya Alat',         k:'biayaAlat',  tipe:'rp',   fmt:'rpshort', warna:'rgba(139,92,246,0.75)', color:'#6d28d9' },
+  rpPerHa:    { label:'Rp/Ha (efisiensi)',  k:'rpPerHa',    tipe:'rr',   unit:'Rp/Ha',    fmt:'rpshort', warna:'rgba(16,185,129,0.85)', color:'#047857' },
+  rpPerJam:   { label:'Rp/Jam Operasi',     k:'rpPerJam',   tipe:'rr',   unit:'Rp/Jam',   fmt:'rpshort', warna:'rgba(14,165,233,0.85)', color:'#0369a1' },
+  rpPerLiter: { label:'Rp/Liter Solar',     k:'rpPerLiter', tipe:'rr',   unit:'Rp/Liter', fmt:'rpshort', warna:'rgba(244,63,94,0.8)',  color:'#be123c' },
+  rpPerRec:   { label:'Rp/Record',          k:'rpPerRec',   tipe:'rr',   unit:'Rp/Record',fmt:'rpshort', warna:'rgba(20,184,166,0.85)',color:'#0f766e' },
+  share:      { label:'% dari Total Biaya', k:'share',      tipe:'pct',  fmt:'pct1',    warna:'rgba(15,23,42,0.75)',  color:'#0f172a' },
+  solarL:     { label:'Solar Terpakai',     k:'solar',      tipe:'vol',  satVol:'L', fmt:'int', warna:'rgba(245,158,11,0.8)', color:'#b45309' }
 };
 const BIAYA_METRIC_CEPAT = ['total', 'solar', 'alat', 'rpPerHa', 'rpPerJam', 'share'];
 
@@ -1367,7 +1507,7 @@ function renderBiayaPerformaChart() {
   const satuan = satuanMetrikBiaya(m);
   // label batang: rupiah ringkas (Rp 1,2 M / Rp 350 Rb), persen 1 desimal, atau angka
   // label batang: rupiah selalu ringkas (Rp 1,2 M / Rp 422 Rb) supaya tidak terpotong pada batang pendek
-  const fmtLabel = m.tipe === 'pct' ? 'pct1' : (m.tipe === 'vol' ? (m.k === 'luas' ? 'ha1' : 'int') : 'rpshort');
+  const fmtLabel = m.fmt || 'rpshort';
   const satVolMode = m.tipe === 'vol' ? m.satVol + (biayaMode === 'avgAkt' ? '/aktivitas' : (biayaMode === 'avgHari' ? '/hari' : '')) : '';
   const judulMetrik = m.label + (m.tipe === 'rp' ? ' (' + satuan + ')' : (m.tipe === 'vol' ? ' (' + satVolMode + ')' : (m.tipe === 'pct' ? ' (%)' : '')));
 
@@ -1455,7 +1595,218 @@ function renderBiayaPerformaChart() {
   }
 }
 
-// ===== TABEL "Rincian Biaya per Wilayah" (kolom Wilayah beku, gaya tabel waktu) =====
+// ===== CHART BAR PER JENIS ENGINE (SPC/DEC/DED/DEM/SPE) =====
+// Dipakai tab Analisa Biaya, Waktu & Utilisasi, dan Index Solar.
+// Satu fungsi gambar yang sama supaya gaya, label angka, kontrol metrik, dan catatannya konsisten.
+function gambarBarEngine(cfg) {
+  const cv = document.getElementById(cfg.canvasId);
+  if (!cv) return;
+  const rows = cfg.rows();
+  const map = cfg.metrik;
+  const kunci = cfg.getKey();
+  const m = map[kunci] || map[cfg.bawaan];
+
+  const gambarKontrol = () => {
+    const sel = document.getElementById(cfg.selectId);
+    if (sel && !sel.dataset.bound) {
+      sel.dataset.bound = '1';
+      sel.innerHTML = Object.keys(map).map(k => `<option value="${k}">${esc(map[k].label)}</option>`).join('');
+      sel.value = cfg.getKey();
+      sel.addEventListener('change', (e) => { cfg.setKey(e.target.value); gambarBarEngine(cfg); });
+    } else if (sel) sel.value = cfg.getKey();
+
+    const chips = document.getElementById(cfg.chipsId);
+    if (chips && !chips.dataset.bound) {
+      chips.dataset.bound = '1';
+      chips.innerHTML = cfg.cepat.map(k =>
+        `<button type="button" data-engine-metric="${k}" class="rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50">${esc(map[k].label)}</button>`).join('');
+      chips.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-engine-metric]');
+        if (!btn) return;
+        cfg.setKey(btn.dataset.engineMetric);
+        gambarBarEngine(cfg);
+      });
+    }
+    if (chips) {
+      chips.querySelectorAll('[data-engine-metric]').forEach(btn => {
+        const aktif = btn.dataset.engineMetric === cfg.getKey();
+        btn.className = aktif
+          ? 'rounded-full border border-slate-900 bg-slate-900 px-3 py-1 text-[10px] font-semibold text-white transition'
+          : 'rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50';
+        btn.setAttribute('aria-pressed', aktif ? 'true' : 'false');
+      });
+    }
+  };
+
+  if (!rows.length) {
+    ensureChart(cfg.canvasId, { type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false } });
+    gambarKontrol();
+    const n0 = document.getElementById(cfg.noteId); if (n0) n0.textContent = 'Belum ada data untuk filter ini.';
+    return;
+  }
+
+  const data = rows.map(r => ({ r, v: (r[m.k] || 0) / (cfg.bagi ? cfg.bagi(r, m) : 1) }))
+                   .filter(d => isFinite(d.v))
+                   .sort((a, b) => b.v - a.v);
+  const satuan = cfg.satuan(m);
+  const fmtLabel = m.fmt || 'num1';
+  ensureChart(cfg.canvasId, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.r.nama),
+      datasets: [{
+        label: cfg.judul(m, satuan),
+        data: data.map(d => d.v),
+        backgroundColor: m.warna,
+        borderRadius: 8,
+        borderSkipped: false
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: 'y',
+      layout: { padding: { right: 96 } },
+      plugins: {
+        legend: { display: false },
+        barLabels: { display: true, fmt: fmtLabel, color: m.color || '#0f172a', maxBars: 45 },
+        tooltip: {
+          backgroundColor: '#0f172a', cornerRadius: 12,
+          callbacks: { label: (ctx) => cfg.tooltip(data[ctx.dataIndex], m, satuan) }
+        }
+      },
+      scales: {
+        x: { beginAtZero: true, grace: '18%', grid: { color: '#f1f5f9' },
+             ticks: { font: { size: 10 }, maxTicksLimit: 5, callback: v => cfg.tick(v, m) },
+             title: { display: true, text: cfg.xtitle(m, satuan), font: { size: 10 } } },
+        y: { grid: { display: false }, ticks: { font: { size: 12 } } }
+      }
+    }
+  });
+
+  gambarKontrol();
+  const note = document.getElementById(cfg.noteId);
+  if (note) note.textContent = cfg.note(m, satuan, data);
+}
+
+// --- tab Waktu & Utilisasi: performa waktu per jenis engine (pakai metrik & mode yang sama) ---
+let waktuEngineMetric = 'operating';
+function renderWaktuEngineChart() {
+  gambarBarEngine({
+    canvasId: 'chartWaktuEngine', selectId: 'waktuEngineMetric', chipsId: 'waktuEngineChips', noteId: 'chartWaktuEngineNote',
+    metrik: WAKTU_METRIC, bawaan: 'operating',
+    cepat: ['operating', 'util', 'avail', 'waiting', 'air', 'literPerHa'],
+    getKey: () => waktuEngineMetric,
+    setKey: (k) => { waktuEngineMetric = k; },
+    rows: getWaktuPerJenis,
+    bagi: (r, m) => (m.tipe === 'rasio' ? 1 : bagiWaktu(r)),
+    satuan: satuanMetrikWaktu,
+    judul: (m, satuan) => m.label + ' (' + satuan + ')',
+    tick: (v, m) => (m.tipe === 'rasio' ? v + '%' : (m.tipe === 'air' ? formatInt(v) : formatNumber(v, 0))),
+    xtitle: (m, satuan) => satuan,
+    tooltip: (d, m, satuan) => {
+      const nilai = tulisMetrikWaktu(m, d.v, satuan);
+      return `${m.label}: ${nilai} • ${formatInt(d.r.count)} rec, ${formatInt(d.r.hari)} hari, ${formatInt(d.r.operating)} jam operasi`;
+    },
+    note: (m, satuan, data) => {
+      const atas = data[0], bawah = data[data.length - 1];
+      const tulis = (d) => tulisMetrikWaktu(m, d.v, satuan);
+      const awalan = (m.tipe === 'rasio'
+        ? 'Rasio per jenis engine (tidak mengikuti mode rata-rata/total). '
+        : (waktuMode === 'total' ? 'Nilai = total per jenis engine. ' : `Nilai = rata-rata ${satuan} per jenis engine (dibagi data jenis engine itu sendiri). `));
+      return awalan + (atas ? `Tertinggi: ${atas.r.nama} — ${tulis(atas)}` : '') + (bawah && bawah !== atas ? ` • Terendah: ${bawah.r.nama} — ${tulis(bawah)}.` : '.');
+    }
+  });
+}
+
+// --- tab Analisa Biaya: performa biaya per jenis engine (nominal ikut mode biaya) ---
+let biayaEngineMetric = 'total';
+function renderBiayaEngineChart() {
+  gambarBarEngine({
+    canvasId: 'chartBiayaEngine', selectId: 'biayaEngineMetric', chipsId: 'biayaEngineChips', noteId: 'chartBiayaEngineNote',
+    metrik: BIAYA_METRIC, bawaan: 'total',
+    cepat: ['total', 'solar', 'upah', 'alat', 'rpPerHa', 'rpPerJam'],
+    getKey: () => biayaEngineMetric,
+    setKey: (k) => { biayaEngineMetric = k; },
+    rows: getBiayaPerJenis,
+    bagi: (r, m) => (ikutModeBiaya(m) ? bagiBiaya(r) : 1),
+    satuan: satuanMetrikBiaya,
+    judul: (m, satuan) => {
+      if (m.tipe === 'rp') return m.label + ' (' + satuan + ')';
+      if (m.tipe === 'rr') return m.label;
+      if (m.tipe === 'vol') return m.label + ' (' + m.satVol + ')';
+      return m.label + ' (%)';
+    },
+    tick: (v, m) => ((m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiahShort(v) : (m.tipe === 'pct' ? v + '%' : formatNumber(v, 2))),
+    xtitle: (m) => (m.tipe === 'rp' ? satuanMetrikBiaya(m) : (m.tipe === 'rr' ? m.unit : (m.tipe === 'vol' ? m.satVol : '% dari total'))),
+    tooltip: (d, m, satuan) => {
+      const nilai = (m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + m.satVol);
+      const komp = m.k === 'biayaTotal' ? ` • solar ${formatRupiahShort(d.r.biayaSolar)} + upah ${formatRupiahShort(d.r.biayaUpah)} + alat ${formatRupiahShort(d.r.biayaAlat)}` : '';
+      return `${m.label}: ${nilai}${komp} • ${formatInt(d.r.count)} rec, ${formatInt(d.r.hari)} hari`;
+    },
+    note: (m, satuan, data) => {
+      const atas = data[0], bawah = data[data.length - 1];
+      const tulis = (d) => ((m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + m.satVol));
+      const awalan = (!ikutModeBiaya(m)
+        ? 'Rasio per jenis engine (tidak mengikuti mode rata-rata/total). '
+        : (biayaMode === 'total' ? 'Nilai = total per jenis engine. ' : `Nilai = rata-rata ${satuan} per jenis engine (dibagi data jenis engine itu sendiri). `));
+      return awalan + (atas ? `Tertinggi: ${atas.r.nama} — ${tulis(atas)}` : '') + (bawah && bawah !== atas ? ` • Terendah: ${bawah.r.nama} — ${tulis(bawah)}.` : '.');
+    }
+  });
+}
+
+// --- tab Index Solar: performa aktual vs kalibrasi per jenis engine ---
+const INDEX_ENGINE_METRIC = {
+  ltrPerJam:  { label:'L/jam Aktual',      k:'ltrPerJam',     fmt:'num2',    warna:'rgba(245,158,11,0.85)', color:'#b45309', sat:'L/jam' },
+  kalibrasi:  { label:'Kalibrasi (L/jam)', k:'kalibrasiAvg',  fmt:'num2',    warna:'rgba(100,116,139,0.8)', color:'#475569', sat:'L/jam' },
+  deviasi:    { label:'Deviasi (L/jam)',   k:'deviasi',       fmt:'signed2', warna:'rgba(239,68,68,0.8)',   color:'#b91c1c', sat:'L/jam' },
+  devPct:     { label:'% Deviasi',         k:'devPct',        fmt:'signed2', warna:'rgba(217,70,239,0.7)',  color:'#a21caf', sat:'%' },
+  pctHemat:   { label:'% Engine Hemat',    k:'pctHemat',      fmt:'pct1',    warna:'rgba(16,185,129,0.8)',  color:'#047857', sat:'%' },
+  hemat:      { label:'Jumlah Hemat',      k:'hemat',         fmt:'int',     warna:'rgba(52,211,153,0.85)', color:'#047857', sat:'engine' },
+  boros:      { label:'Jumlah Boros',      k:'boros',         fmt:'int',     warna:'rgba(248,113,113,0.85)',color:'#b91c1c', sat:'engine' },
+  n:          { label:'Jumlah Engine',     k:'n',             fmt:'int',     warna:'rgba(148,163,184,0.9)', color:'#475569', sat:'engine' },
+  solar:      { label:'Pemakaian Solar',   k:'solar',         fmt:'Lint',    warna:'rgba(251,191,36,0.85)', color:'#92400e', sat:'L' },
+  jam:        { label:'Jam Operasi',       k:'jam',           fmt:'num1',    warna:'rgba(59,130,246,0.8)',  color:'#1d4ed8', sat:'jam' },
+  selisih:    { label:'Total Selisih',     k:'selisih',       fmt:'Lint',    warna:'rgba(244,63,94,0.8)',   color:'#be123c', sat:'L' },
+  solarPerEngine: { label:'Solar per Engine', k:'solarPerEngine', fmt:'Lint', warna:'rgba(14,165,233,0.8)', color:'#0369a1', sat:'L' }
+};
+let indexEngineMetric = 'ltrPerJam';
+function renderIndexEngineChart() {
+  gambarBarEngine({
+    canvasId: 'chartIndexEngine', selectId: 'indexEngineMetric', chipsId: 'indexEngineChips', noteId: 'chartIndexEngineNote',
+    metrik: INDEX_ENGINE_METRIC, bawaan: 'ltrPerJam',
+    cepat: ['ltrPerJam', 'kalibrasi', 'deviasi', 'pctHemat', 'solar', 'n'],
+    getKey: () => indexEngineMetric,
+    setKey: (k) => { indexEngineMetric = k; },
+    rows: getIndexPerJenis,
+    bagi: null,
+    satuan: (m) => m.sat,
+    judul: (m, satuan) => m.label + (satuan && satuan !== '%' ? ' (' + satuan + ')' : ''),
+    tick: (v, m) => (m.sat === '%' ? formatNumber(v, 1) + '%' : (m.sat === 'L' ? formatInt(v) : formatNumber(v, m.fmt === 'int' ? 0 : 2))),
+    xtitle: (m, satuan) => satuan,
+    tooltip: (d, m, satuan) => `${m.label}: ${formatNumber(d.v, 2)} ${satuan} • ${formatInt(d.r.aktif)} engine aktif • ${formatInt(d.r.hemat)} hemat / ${formatInt(d.r.boros)} boros`,
+    note: (m, satuan, data) => {
+      const atas = data[0], bawah = data[data.length - 1];
+      const bulat = (m.k === 'n' || m.k === 'hemat' || m.k === 'boros');
+      const tulis = (d) => (satuan === '%' ? formatNumber(d.v, 2) + '%' : (bulat ? `${formatInt(d.v)} ${satuan}` : `${formatNumber(d.v, 2)} ${satuan}`));
+      const adaNol = data.some(d => !d.v);
+      const awalan = (m.k === 'kalibrasiAvg'
+        ? 'Kalibrasi rata-rata per engine pada setiap jenis (acuan, bukan capaian aktual). '
+        : (m.k === 'n' ? 'Jumlah engine pada setiap jenis kategori (mengikuti filter tab Index Solar). '
+          : (m.k === 'hemat' || m.k === 'boros' ? 'Jumlah engine hasil evaluasi Hemat / Boros per jenis kategori. '
+            : (m.k === 'pctHemat' ? 'Persentase engine kategori Hemat dari engine terukur pada jenis itu. '
+              : (m.k === 'deviasi' || m.k === 'devPct'
+                ? 'Nilai positif = pemakaian di atas kalibrasi (boros), negatif = di bawah kalibrasi (hemat). '
+                : (m.k === 'selisih' || m.k === 'solar' || m.k === 'solarPerEngine'
+                  ? 'Nilai akumulasi pemakaian solar pada jenis engine tersebut. '
+                  : 'Nilai L/jam dihitung tertimbang (total solar ÷ total jam) per jenis engine' + (adaNol ? '; nilai 0,00 = belum ada pemakaian solar terukur pada jenis itu. ' : '. ')))))));
+      return awalan + (atas ? `Tertinggi: ${atas.r.nama} — ${tulis(atas)}` : '') +
+        (bawah && bawah !== atas ? ` • Terendah: ${bawah.r.nama} — ${tulis(bawah)}.` : '.') +
+        ' Kategori mengikuti kolom "Jenis Engine" pada sheet Index Solar.';
+    }
+  });
+}
+
+// ===== TABEL "Rincian Biaya per Wilayah" (kolom Wilayah beku, gaya tabel waktu) ====
 function renderBiayaWilayahTable() {
   const tbody = $('#biayaWilayahBody');
   if (!tbody) return;
@@ -1567,6 +1918,7 @@ function renderBiaya() {
   // Kartu biaya (gaya tab Waktu & Utilisasi), chart Performa Biaya, & tabel per wilayah (kolom beku)
   safeRender('biayaCards', renderBiayaCards);
   safeRender('chartBiayaPerforma', renderBiayaPerformaChart);
+  safeRender('chartBiayaEngine', renderBiayaEngineChart);
   safeRender('biayaWilayah', renderBiayaWilayahTable);
   if (!list.length) return;
 
@@ -2200,30 +2552,36 @@ function renderWaktuWilayahTable() {
 
 // ===== Chart bar "Performa Waktu per Wilayah" (gaya sama dengan tab Performance Wilayah) =====
 // jam: ikut mode (per aktivitas / per hari / total) • rasio (L/Ha, %Avail, %Util) tetap
+// fmt = format label batang (dipakai plugin barLabels) • sat = satuan tetap untuk metrik rasio non-persen
 const WAKTU_METRIC = {
-  operating:  { label:'Jam Operasi',        k:'operating',  tipe:'jam',  ich:'activity',     warna:'rgba(59,130,246,0.85)',  color:'#1d4ed8' },
-  plan:       { label:'Plan Time',          k:'plan',       tipe:'jam',  ich:'calendar-clock',warna:'rgba(100,116,139,0.85)', color:'#475569' },
-  prepare:    { label:'Prepare Time',       k:'prepare',    tipe:'jam',  ich:'wrench',       warna:'rgba(148,163,184,0.85)', color:'#475569' },
-  waiting:    { label:'Waiting Time',       k:'waiting',    tipe:'jam',  ich:'hourglass',    warna:'rgba(245,158,11,0.85)',  color:'#b45309' },
-  repair:     { label:'Repair',             k:'repair',     tipe:'jam',  ich:'hammer',       warna:'rgba(239,68,68,0.8)',    color:'#b91c1c' },
-  down:       { label:'Down Time',          k:'down',       tipe:'jam',  ich:'alert-octagon', warna:'rgba(220,38,38,0.75)',  color:'#991b1b' },
-  standby:    { label:'Standby',            k:'standby',    tipe:'jam',  ich:'pause-circle', warna:'rgba(139,92,246,0.8)',   color:'#6d28d9' },
-  off:        { label:'Off Time',           k:'off',        tipe:'jam',  ich:'moon',         warna:'rgba(203,213,225,0.95)', color:'#475569' },
-  totOper:    { label:'Tot. Oper. Time',    k:'totOper',    tipe:'jam',  ich:'timer',        warna:'rgba(37,99,235,0.8)',     color:'#1e40af' },
-  totalAvail: { label:'Total Avail',        k:'totalAvail', tipe:'jam',  ich:'shield-check', warna:'rgba(16,185,129,0.8)',   color:'#047857' },
-  totalTime:  { label:'Total Time',         k:'totalTime',  tipe:'jam',  ich:'clock',        warna:'rgba(71,85,105,0.8)',    color:'#334155' },
-  air:        { label:'Air Terpakai',       k:'air',        tipe:'air',  ich:'droplets',     warna:'rgba(14,165,233,0.85)',  color:'#0369a1' },
-  literPerHa: { label:'L/Ha (efisiensi)',   k:'literPerHa',tipe:'rasio',ich:'gauge',        warna:'rgba(239,68,68,0.7)',    color:'#b91c1c' },
-  avail:      { label:'% Availability',     k:'avgAvail',  tipe:'rasio',ich:'check-circle',  warna:'rgba(16,185,129,0.85)',  color:'#047857' },
-  util:       { label:'% Utilization',      k:'avgUtil',   tipe:'rasio',ich:'trending-up',   warna:'rgba(15,23,42,0.75)',    color:'#0f172a' }
+  operating:  { label:'Jam Operasi',        k:'operating',  tipe:'jam',  fmt:'num1', ich:'activity',     warna:'rgba(59,130,246,0.85)',  color:'#1d4ed8' },
+  plan:       { label:'Plan Time',          k:'plan',       tipe:'jam',  fmt:'num1', ich:'calendar-clock',warna:'rgba(100,116,139,0.85)', color:'#475569' },
+  prepare:    { label:'Prepare Time',       k:'prepare',    tipe:'jam',  fmt:'num1', ich:'wrench',       warna:'rgba(148,163,184,0.85)', color:'#475569' },
+  waiting:    { label:'Waiting Time',       k:'waiting',    tipe:'jam',  fmt:'num1', ich:'hourglass',    warna:'rgba(245,158,11,0.85)',  color:'#b45309' },
+  repair:     { label:'Repair',             k:'repair',     tipe:'jam',  fmt:'num2', ich:'hammer',       warna:'rgba(239,68,68,0.8)',    color:'#b91c1c' },
+  down:       { label:'Down Time',          k:'down',       tipe:'jam',  fmt:'num2', ich:'alert-octagon', warna:'rgba(220,38,38,0.75)',  color:'#991b1b' },
+  standby:    { label:'Standby',            k:'standby',    tipe:'jam',  fmt:'num1', ich:'pause-circle', warna:'rgba(139,92,246,0.8)',   color:'#6d28d9' },
+  off:        { label:'Off Time',           k:'off',        tipe:'jam',  fmt:'num1', ich:'moon',         warna:'rgba(203,213,225,0.95)', color:'#475569' },
+  totOper:    { label:'Tot. Oper. Time',    k:'totOper',    tipe:'jam',  fmt:'num1', ich:'timer',        warna:'rgba(37,99,235,0.8)',     color:'#1e40af' },
+  totalAvail: { label:'Total Avail',        k:'totalAvail', tipe:'jam',  fmt:'num1', ich:'shield-check', warna:'rgba(16,185,129,0.8)',   color:'#047857' },
+  totalTime:  { label:'Total Time',         k:'totalTime',  tipe:'jam',  fmt:'num1', ich:'clock',        warna:'rgba(71,85,105,0.8)',    color:'#334155' },
+  air:        { label:'Air Terpakai',       k:'air',        tipe:'air',  fmt:'int',  ich:'droplets',     warna:'rgba(14,165,233,0.85)',  color:'#0369a1' },
+  literPerHa: { label:'L/Ha (efisiensi)',   k:'literPerHa',tipe:'rasio',fmt:'num1', sat:'L/Ha', ich:'gauge', warna:'rgba(239,68,68,0.7)', color:'#b91c1c' },
+  avail:      { label:'% Availability',     k:'avgAvail',  tipe:'rasio',fmt:'pct1', sat:'%',    ich:'check-circle', warna:'rgba(16,185,129,0.85)', color:'#047857' },
+  util:       { label:'% Utilization',      k:'avgUtil',   tipe:'rasio',fmt:'pct1', sat:'%',    ich:'trending-up', warna:'rgba(15,23,42,0.75)', color:'#0f172a' }
 };
+// Nilai satu metrik waktu/air/rasio ditulis dalam teks (tooltip & catatan)
+function tulisMetrikWaktu(m, v, satuan) {
+  if (m.tipe === 'jam') return formatNumber(v, m.fmt === 'num2' ? 2 : 1) + ' ' + satuan;
+  if (m.tipe === 'air') return formatInt(v) + ' ' + satuan;
+  return formatNumber(v, m.fmt === 'num2' ? 2 : 1) + ' ' + (m.sat || '%');
+}
 const WAKTU_METRIC_CEPAT = ['operating', 'waiting', 'air', 'totalAvail', 'util', 'literPerHa'];
 
 function satuanMetrikWaktu(m) {
   if (m.tipe === 'jam')  return modeWaktu().satPendek;   // jam/akt | jam/hari | jam
   if (m.tipe === 'air')  return modeWaktu().satAir.replace(/^L/, 'L'); // L/aktivitas | L/hari | L
-  if (m.k === 'literPerHa') return 'L/Ha';
-  return '%';
+  return m.sat || '%';                                   // L/Ha atau %
 }
 
 function renderWaktuWilayahChart() {
@@ -2236,7 +2594,7 @@ function renderWaktuWilayahChart() {
   const nilai = (w) => (w[m.k] || 0) / f(w);
   const data = rows.map(w => ({ w, v: nilai(w) })).sort((a, b) => b.v - a.v);
   const satuan = satuanMetrikWaktu(m);
-  const fmtLabel = m.tipe === 'rasio' ? 'pct1' : (m.tipe === 'air' ? 'int' : 'num1');
+  const fmtLabel = m.fmt || 'num1';
 
   ensureChart('chartWaktuWilayah', {
     type: 'bar',
@@ -2262,7 +2620,7 @@ function renderWaktuWilayahChart() {
           callbacks: {
             label: (ctx) => {
               const d = data[ctx.dataIndex];
-              return `${m.label}: ${m.tipe === 'rasio' ? formatNumber(d.v, 1) + '%' : (m.tipe === 'air' ? formatInt(d.v) + ' L' : formatNumber(d.v, 2) + ' ' + satuan)} • ${formatInt(d.w.count)} rec, ${formatInt(d.w.hari)} hari`;
+              return `${m.label}: ${tulisMetrikWaktu(m, d.v, satuan)} • ${formatInt(d.w.count)} rec, ${formatInt(d.w.hari)} hari`;
             }
           }
         }
@@ -2313,7 +2671,8 @@ function renderWaktuWilayahChart() {
       ? `Rasio per wilayah (tidak mengikuti mode rata-rata/total). `
       : (waktuMode === 'total' ? `Nilai = total ${modeWaktu().satJam} per wilayah. `
         : `Nilai = rata-rata ${satuan} per wilayah (dibagi data wilayah itu sendiri). `)) +
-      (nilaiTertinggi ? `Tertinggi: ${nilaiTertinggi.w.wilayah} — ${m.tipe === 'rasio' ? formatNumber(nilaiTertinggi.v, 1) + '%' : (m.tipe === 'air' ? formatInt(nilaiTertinggi.v) + ' L' : formatNumber(nilaiTertinggi.v, 2) + ' ' + satuan)}.` : '');
+      (nilaiTertinggi ? `Tertinggi: ${nilaiTertinggi.w.wilayah} — ${tulisMetrikWaktu(m, nilaiTertinggi.v, satuan)}` : '') +
+      (data.length > 1 ? ` • Terendah: ${data[data.length - 1].w.wilayah} — ${tulisMetrikWaktu(m, data[data.length - 1].v, satuan)}.` : '.');
   }
 }
 
@@ -2321,6 +2680,7 @@ function renderUtilisasiTab() {
   safeRender('charts-util', () => renderCharts('utilisasi'));
   safeRender('waktuCards', renderWaktuCards);
   safeRender('chartWaktuWilayah', renderWaktuWilayahChart);
+  safeRender('chartWaktuEngine', renderWaktuEngineChart);
   safeRender('waktuWilayah', renderWaktuWilayahTable);
 }
 
@@ -2338,6 +2698,7 @@ function bindWaktuModeButtons() {
       });
       safeRender('waktuCards', renderWaktuCards);
       safeRender('chartWaktuWilayah', renderWaktuWilayahChart);
+      safeRender('chartWaktuEngine', renderWaktuEngineChart);
       safeRender('waktuWilayah', renderWaktuWilayahTable);
       safeRender('charts-util', () => renderCharts('utilisasi'));
     };
@@ -2430,6 +2791,7 @@ function renderIndexTable() {
 function renderIndexSolar() {
   safeRender('indexKpi', renderIndexKPI);
   safeRender('charts-index', () => renderCharts('indexsolar'));
+  safeRender('chartIndexEngine', renderIndexEngineChart);
   safeRender('indexTable', renderIndexTable);
 }
 
@@ -2789,7 +3151,8 @@ const CHART_TAB_OF = {
   chartJenisEngine:'utilisasi', chartAvail:'utilisasi', chartScatter:'utilisasi',
   chartWaktuKomposisi:'utilisasi', chartAir:'utilisasi', chartWaktuWilayah:'utilisasi',
   chartIndexBoros:'indexsolar', chartIndexHasil:'indexsolar', chartIndexWilayah:'indexsolar', chartIndexScatter:'indexsolar',
-  chartBiayaWilayah:'biaya', chartBiayaKomposisi:'biaya', chartBiayaTrend:'biaya', chartBiayaGran:'biaya', chartBiayaPerforma:'biaya'
+  chartBiayaWilayah:'biaya', chartBiayaKomposisi:'biaya', chartBiayaTrend:'biaya', chartBiayaGran:'biaya', chartBiayaPerforma:'biaya',
+  chartBiayaEngine:'biaya', chartWaktuEngine:'utilisasi', chartIndexEngine:'indexsolar'
 };
 // Keterangan kecil di bawah chart: menjelaskan kapan angka pada batang tampil
 function renderBarLabelNotes() {

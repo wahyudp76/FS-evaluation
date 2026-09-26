@@ -96,17 +96,19 @@ const GVIZ_URL  = GVIZ_BASE + `?tqx=out:json&sheet=ZPAS637`;                    
 
 > **Catatan kolom A ("R Bulan")** — kolom A kini berisi kolom bantu bulan (Mei…Sep), sehingga kolom tanggal ada di **kolom B ("Date")**. Dashboard mengambil tanggal dari kolom B dan **mendeteksi sendiri huruf kolom `Date`** dari header CSV: bila sheet diubah lagi (kolom disisipkan/dipindah), dashboard otomatis menyesuaikan tanpa perlu diperbaiki manual. Bila seluruh pembacaan tanggal gagal, angka dari CSV tetap dipakai — dashboard tidak akan diam-diam menampilkan data contoh. Bila tidak dibutuhkan, kolom A bisa dihapus/dikosongkan dan dashboard tetap berjalan (kolom tanggal akan terdeteksi kembali secara otomatis).
 
-**Sheet baru "Index Solar"** (12 kolom, 151 engine) kini dianalisa di dashboard:
-`Kode Engine, Tanggal Siram, Wilayah, Lokasi, Kode Irrigator, Jenis Engine, Pemakaian Solar, Jam Operaton, Liter/jam, Kalibrasi, Justifikasi, Selisih`
+**Sheet baru "Index Solar"** (13 kolom, 151 engine) kini dianalisa di dashboard:
+`Kode Engine, Jenis Engine, Tanggal Siram, Wilayah, Lokasi, Kode Irrigator, Jenis Irrigator, Pemakaian Solar, Jam Operaton, Liter/jam, Kalibrasi, Justifikasi, Selisih`
+
+> Kolom **Jenis Engine** (kolom ke-2) memuat kategori engine: **DEC 15 • DED 19 • DEM 21 • SPC 74 • SPE 20 • SPM 2**. Dashboard memakai kolom ini sebagai sumber kategori untuk rekap maupun chart per jenis engine.
 
 ### Tab dashboard (6 tab)
 | Tab | Isi |
 |---|---|
 | **Overview** | KPI utama, ringkasan 8 wilayah, chart solar / luas (angka pada batang tampil untuk tampilan **Mingguan & Bulanan**; pada **Harian** angka disembunyikan otomatis karena batang terlalu rapat dan diberi keterangan), chart jam / kecepatan / efisiensi |
 | **Performance Wilayah** | Perbandingan metrik antar afdeling dengan **angka ditulis langsung pada tiap batang** (18 metrik: luas, solar, biaya, Rp/Ha, Ha/Jam, Ltr/Ha, util, kecepatan, tebal, dll.), tabel detail wilayah, bubble & compare |
-| **Analisa Biaya** | **Tampilan disamakan dengan tab Waktu & Utilisasi**: **12 kartu biaya** (biaya total, solar, upah, alat, Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record, luas, solar, komponen terbesar, wilayah termahal) dengan **3 mode: Total (bawaan) / Rata-rata per Aktivitas / Rata-rata per Hari**; **chart "Performa Biaya per Wilayah"** (batang horizontal berlabel angka, 11 metrik + 6 tombol cepat, nominal ikut mode & rasio tetap); **tabel Rincian Biaya per Wilayah** dengan **kolom Wilayah beku** (15 kolom: Rec, Hari, Luas, biaya solar/upah/alat/total, % dr Total, Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record, Solar L/Ha, badge Hemat/Normal/Mahal) + pemilih urutan; komposisi solar/upah/alat per wilayah (stacked — tanpa angka) & doughnut total, tren per periode, serta tabel biaya per periode (mengikuti granularitas & mode, angka pada batang) |
-| **Waktu & Utilisasi** | **Rincian seluruh kolom waktu** (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + **Air** dalam 12 kartu dengan **3 mode tampilan: Rata-rata / Aktivitas (bawaan), Rata-rata / Hari, atau Total** — kartu & tabel & chart komposisi ikut mode; tabel per wilayah punya kolom **Hari**, plus **chart Performa Waktu per Wilayah**: batang horizontal berlabel angka, 15 metrik + 6 tombol cepat, mengikuti mode rata-rata/total), chart komposisi waktu per bulan, air vs luas vs solar, availability/utilization |
-| **Index Solar** *(baru)* | Chart penyimpangan dengan **angka deviasi (+7,13 / −8,19 L/jam)** pada tiap batang; pemakaian solar per engine vs **kalibrasi**: L/jam aktual, deviasi, selisih (L), verdict Hemat/Boros, penanda **Solar 0 L** & **Anomali** (>5× kalibrasi), rekap per wilayah & jenis engine, scatter aktual vs kalibrasi, tabel per engine + filter/urut/paginasi/pencarian |
+| **Analisa Biaya** | **Tampilan disamakan dengan tab Waktu & Utilisasi**: **12 kartu biaya** (biaya total, solar, upah, alat, Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record, luas, solar, komponen terbesar, wilayah termahal) dengan **3 mode: Total (bawaan) / Rata-rata per Aktivitas / Rata-rata per Hari**; **chart "Performa Biaya per Wilayah"** (batang horizontal berlabel angka, 11 metrik + 6 tombol cepat, nominal ikut mode & rasio tetap); **tabel Rincian Biaya per Wilayah** dengan **kolom Wilayah beku** (15 kolom: Rec, Hari, Luas, biaya solar/upah/alat/total, % dr Total, Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record, Solar L/Ha, badge Hemat/Normal/Mahal) + pemilih urutan; **chart "Performa Biaya per Jenis Engine"** (10 metrik + 6 tombol cepat), komposisi solar/upah/alat per wilayah (stacked — tanpa angka) & doughnut total, tren per periode, serta tabel biaya per periode (mengikuti granularitas & mode, angka pada batang) |
+| **Waktu & Utilisasi** | **Rincian seluruh kolom waktu** (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + **Air** dalam 12 kartu dengan **3 mode tampilan: Rata-rata / Aktivitas (bawaan), Rata-rata / Hari, atau Total** — kartu & tabel & chart komposisi ikut mode; tabel per wilayah punya kolom **Hari**, plus **chart Performa Waktu per Wilayah** dan **chart Performa Waktu per Jenis Engine**: batang horizontal berlabel angka, 15 metrik + 6 tombol cepat, mengikuti mode rata-rata/total), chart komposisi waktu per bulan, air vs luas vs solar, availability/utilization |
+| **Index Solar** *(baru)* | Chart penyimpangan dengan **angka deviasi (+7,13 / −8,19 L/jam)** pada tiap batang; pemakaian solar per engine vs **kalibrasi**: L/jam aktual, deviasi, selisih (L), verdict Hemat/Boros, penanda **Solar 0 L** & **Anomali** (>5× kalibrasi), **chart Performa Index Solar per Jenis Engine** (12 metrik + 6 tombol cepat), rekap per wilayah & jenis engine, scatter aktual vs kalibrasi, tabel per engine + filter/urut/paginasi/pencarian |
 | **Detail Data Harian** | Tabel **35 kolom A–AI** (bisa digeser horizontal, **kolom tanggal & kolom wilayah beku**), termasuk kolom **Bulan** dari sheet, sort klik header, paginasi, export CSV 35 kolom urut sheet (dibuka dengan `R Bulan, Date, …`) |
 
 ### Mode tampilan waktu (v1.8.0)
@@ -139,8 +141,23 @@ Tab **Analisa Biaya** kini berbentuk sama dengan tab **Waktu & Utilisasi**:
 - Metrik **Rp/Jam Operasi** tampil otomatis sebagai rasio (`Rp/jam` pada sumbu, tidak ikut dibagi mode): **AW12 Rp 422.763/jam** (tertinggi) → **AW11 Rp 357.755/jam** (terendah).
 - Contoh angka (periode penuh, mode Total): **Rp 70,31 M** total biaya (solar Rp 33,79 M • alat Rp 28,19 M • upah Rp 8,32 M) • **Rp 1.549.662/Ha** • Rp 388.566/jam operasi • Rp 46.802/liter solar; wilayah biaya terbesar **AW12 Rp 10,25 M**, Rp/Ha termahal **AW09 Rp 1.859.528** (termurah AW11 Rp 1.362.841).
 
+### Chart performa per jenis engine (v1.8.5)
+Tiga tab kini punya **chart batang horizontal per kategori engine** sehingga performa tiap jenis engine bisa dipantau langsung:
+
+| Tab | Chart | Kategori | Metrik |
+|---|---|---|---|
+| Analisa Biaya | **Performa Biaya per Jenis Engine** | Biaya Total, Biaya Solar, Biaya Upah, Biaya Alat, Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record, % dari Total, Solar Terpakai (10) |
+| Waktu & Utilisasi | **Performa Waktu per Jenis Engine** | 15 metrik waktu (Plan … Total Time) + Air Terpakai, L/Ha, % Availability, % Utilization |
+| Index Solar | **Performa Index Solar per Jenis Engine** | L/jam Aktual, Kalibrasi (L/jam), Deviasi (L/jam), % Engine Hemat, Pemakaian Solar, Jumlah Engine (12 metrik) |
+
+- **Kategori diambil dari kolom "Jenis Engine" pada sheet**: untuk Index Solar langsung dari kolom ke-2 sheet tersebut (bila sel kategori kosong baru memakai peta kode engine / awalan kode); untuk ZPAS637 dari kolom **AI `Jenis Engine`** dengan peta kode sebagai cadangan.
+- Masing-masing chart punya dropdown **Metrik** + **6 tombol cepat**; urutan batang terurut otomatis (terbesar → terkecil) dan **angka ditulis pada tiap batang**.
+- Aturan pembagi mengikuti tabnya: chart biaya mengikuti mode **Total / Rata-rata** (metrik rasio Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record tidak dibagi), chart waktu mengikuti mode **Rata-rata/Aktivitas, Rata-rata/Hari, Total** (rasio L/Ha, % Avail, % Util tidak dibagi), sedangkan chart Index Solar berupa rasio (L/jam tertimbang = total solar ÷ total jam per jenis engine).
+- Contoh angka (periode penuh): **Biaya Rp/Ha** SPC Rp 1,77 Jt (tertinggi) → DEM Rp 1,05 Jt (terendah); **Jam Operasi** DEC 14,8 → SPE 13,6 jam/akt; **L/jam** DEC 10,38 → SPC 8,81 (SPE & SPM 0,00 = belum ada pemakaian solar terukur).
+- Bukti tangkapan layar: `dokumentasi-v1.7.0/21-engine-biaya.png`, `22-engine-waktu.png`, `23-engine-index-solar.png`.
+
 ### Aturan label angka pada batang (v1.7.2)
-- **Chart bar single** → angka ditulis pada batang: Overview (Luas, Solar), Analisa Biaya (biaya per periode), Index Solar (deviasi per engine), Performance Wilayah (18 metrik + chart pembanding).
+- **Chart bar single** → angka ditulis pada batang: Overview (Luas, Solar), Analisa Biaya (biaya per periode), Index Solar (deviasi per engine), Performance Wilayah (18 metrik + chart pembanding), serta ketiga chart **per jenis engine** (biaya, waktu, index solar).
 - **Chart bar bertumpuk (stacked)** → tanpa angka: Jam Efektif Siram, Komposisi Waktu per Bulan, Hasil per Wilayah (Index Solar), Biaya per Wilayah pada tab Analisa Biaya.
 - Angka otomatis: menghindari tumpang tindih antar label **dan** menghindari garis tren; bila tidak muat di luar batang, angka dipindah ke dalam batang (ukuran huruf mengecil) atau ditulis vertikal 90°.
 - Tampilan **Harian** pada Overview tidak diberi angka (116 batang terlalu rapat) — ada keterangan kecil di bawah judul chart agar pengguna tahu harus beralih ke Mingguan/Bulanan.

@@ -249,6 +249,62 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   }));
   check('biaya: kembali ke mode Total & metrik Biaya Total', balik.mode === 'Total' && /Biaya Total \(Rp\)/.test(balik.satuan), JSON.stringify(balik));
 
+  // ---- CHART BAR PER JENIS ENGINE (v1.8.5) di ketiga tab ----
+  const cekEngine = async (tab, chartId, selId, chipsId, noteId, kodeChip) => {
+    await page.evaluate((t) => document.querySelector(`[data-tab="${t}"]`).click(), tab);
+    await new Promise(r => setTimeout(r, 1600));
+    const awal = await page.evaluate((o) => {
+      const c = window.Chart.getChart(document.getElementById(o.chartId));
+      if (!c) return null;
+      const sel = document.getElementById(o.selId);
+      return {
+        label: c.data.labels, nilai: c.data.datasets[0].data.slice(),
+        urut: c.data.datasets[0].data.every((v, i, a) => i === 0 || a[i - 1] >= v),
+        dataset: c.data.datasets[0].label, xtitle: c.options.scales.x.title.text,
+        tertulis: c.$labelInfo.tertulis, batang: c.$labelInfo.batang,
+        opsiMetrik: sel ? sel.options.length : 0,
+        chip: Array.from(document.querySelectorAll(o.chipsId + ' [data-engine-metric]')).map(b => b.textContent),
+        note: (document.getElementById(o.noteId) || {}).textContent || ''
+      };
+    }, { chartId, selId, chipsId, noteId });
+    await page.evaluate((k) => document.querySelector(`[data-engine-metric="${k}"]`).click(), kodeChip);
+    await new Promise(r => setTimeout(r, 900));
+    const ganti = await page.evaluate((o) => {
+      const c = window.Chart.getChart(document.getElementById(o.chartId));
+      return { dataset: c.data.datasets[0].label, atas: c.data.labels[0], nilai: c.data.datasets[0].data[0], note: document.getElementById(o.noteId).textContent };
+    }, { chartId, noteId });
+    return { awal, ganti };
+  };
+
+  const engBiaya = await cekEngine('biaya', 'chartBiayaEngine', 'biayaEngineMetric', '#biayaEngineChips', 'chartBiayaEngineNote', 'rpPerJam');
+  check('engine: chart performa biaya per jenis engine terisi & terurut', !!engBiaya.awal && engBiaya.awal.label.length >= 3 && engBiaya.awal.urut && engBiaya.awal.tertulis === engBiaya.awal.batang && engBiaya.awal.opsiMetrik === 10, JSON.stringify(engBiaya.awal).slice(0, 150));
+  check('engine: metrik biaya per jenis engine bisa diganti (chips + satuan rasio)', /Rp\/Jam/.test(engBiaya.ganti.dataset) && engBiaya.ganti.nilai > 0 && /Rasio per jenis engine/.test(engBiaya.ganti.note), `${engBiaya.ganti.dataset} • tertinggi ${engBiaya.ganti.atas} = ${Math.round(engBiaya.ganti.nilai)}`);
+
+  const engWaktu = await cekEngine('utilisasi', 'chartWaktuEngine', 'waktuEngineMetric', '#waktuEngineChips', 'chartWaktuEngineNote', 'util');
+  check('engine: chart performa waktu per jenis engine terisi & terurut', !!engWaktu.awal && engWaktu.awal.label.length >= 3 && engWaktu.awal.urut && engWaktu.awal.tertulis === engWaktu.awal.batang && engWaktu.awal.opsiMetrik === 15, JSON.stringify(engWaktu.awal).slice(0, 150));
+  check('engine: chart waktu per jenis engine ikut mode rata-rata & ganti metrik', /% Utilization/.test(engWaktu.ganti.dataset) && engWaktu.ganti.nilai > 50 && engWaktu.ganti.nilai <= 100, `${engWaktu.ganti.dataset} • tertinggi ${engWaktu.ganti.atas} = ${engWaktu.ganti.nilai.toFixed(1)}%`);
+
+  const engIndex = await cekEngine('indexsolar', 'chartIndexEngine', 'indexEngineMetric', '#indexEngineChips', 'chartIndexEngineNote', 'pctHemat');
+  check('engine: chart performa index solar per jenis engine terisi & terurut', !!engIndex.awal && engIndex.awal.label.length >= 3 && engIndex.awal.label.every(l => /^[A-Z]{2,4}$/.test(l)) && engIndex.awal.urut && engIndex.awal.opsiMetrik === 12, JSON.stringify(engIndex.awal.label) + ' • ' + engIndex.awal.opsiMetrik + ' metrik');
+  // kategori harus sama dengan kolom "Jenis Engine" pada sheet Index Solar
+  const jenisSheet = await page.evaluate(async () => {
+    const t = await (await fetch('https://docs.google.com/spreadsheets/d/1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o/gviz/tq?tqx=out:csv&sheet=Index%20Solar&cb=' + Math.random())).text();
+    const baris = t.split(/\r?\n/).filter(l => l.trim());
+    const kepala = baris[0].split(',').map(x => x.replace(/"/g, '').trim());
+    const idx = kepala.indexOf('Jenis Engine');
+    const set = {};
+    for (let i = 1; i < baris.length; i++) {
+      const kolom = baris[i].split(',');
+      const v = (kolom[idx] || '').replace(/"/g, '').trim();
+      if (v) set[v] = (set[v] || 0) + 1;
+    }
+    return { kolomJenis: idx, set, jumlahKolom: kepala.length };
+  });
+  const semuaTerpakai = engIndex.awal.label.every(l => jenisSheet.set[l] !== undefined);
+  check('engine: kategori chart = kolom "Jenis Engine" sheet Index Solar', jenisSheet.kolomJenis === 1 && semuaTerpakai && engIndex.awal.label.length === Object.keys(jenisSheet.set).length, `kolom ke-${jenisSheet.kolomJenis + 1} dari ${jenisSheet.jumlahKolom} kolom • chart ${engIndex.awal.label.join('/')} vs sheet ${Object.keys(jenisSheet.set).join('/')}`);
+  check('engine: metrik index solar per jenis engine (aktual vs kalibrasi) berfungsi', /Hemat/.test(engIndex.ganti.dataset) && engIndex.ganti.nilai >= 0 && /Persentase engine/.test(engIndex.ganti.note), `${engIndex.ganti.dataset} • tertinggi ${engIndex.ganti.atas} = ${Math.round(engIndex.ganti.nilai)}%`);
+  check('engine: tiga chart memakai kontrol & catatan terpisah per tab', engBiaya.awal.chip.length === 6 && engWaktu.awal.chip.length === 6 && engIndex.awal.chip.length === 6, ['biaya:' + engBiaya.awal.chip.join('/'), 'waktu:' + engWaktu.awal.chip.join('/'), 'index:' + engIndex.awal.chip.join('/')].join(' | '));
+
   // ---- tab Index Solar ----
   await page.click('#tabbtn-indexsolar');
   await new Promise(r => setTimeout(r, 1200));

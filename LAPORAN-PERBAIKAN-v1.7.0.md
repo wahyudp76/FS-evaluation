@@ -195,11 +195,63 @@ Permintaan: pada tab Analisa Biaya, chart **Performa Biaya per Wilayah**, metrik
 - Perbaikan tampilan label: angka rupiah pada batang pada metrik rasio (Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record) kini ditulis **ringkas** (`Rp 423 Rb`) — sebelumnya tertulis penuh (`Rp 422.763`) sehingga terpotong pada batang pendek. Jumlah tick sumbu X juga dibatasi (maks. 5) agar tidak bertumpuk.
 - Hasil uji: **AW12 Rp 422.763/jam** (tertinggi) → **AW09 Rp 402.435** → AW13 Rp 393.504 → AW15 Rp 387.910 → AW10 Rp 384.341 → AW14 Rp 383.542 → AW08 Rp 377.969 → **AW11 Rp 357.755/jam** (terendah); catatan chart menuliskan tertinggi & terendah otomatis. Bukti: `dokumentasi-v1.7.0/20-biaya-metrik-rpjam.png`.
 
+## 3j. Chart performa per jenis engine (v1.8.5)
+
+Permintaan: tambahkan **chart bar performa per jenis engine** pada tab **Analisa Biaya**, **Waktu & Utilisasi**, dan **Index Solar**, agar performa tiap jenis engine dapat termonitor.
+
+### Pembacaan ulang struktur sheet "Index Solar" (setelah perbaikan kolom oleh pengguna)
+
+Sheet dibaca ulang langsung dari spreadsheet (26 Sep 2026): kini **13 kolom × 151 baris engine**.
+
+| Kol | Judul | Isi |
+|---|---|---|
+| A | Kode Engine | contoh `DEC0001`, `SPC0143`, `DED0019` |
+| B | **Jenis Engine** | **kategori engine: DEC 15 • DED 19 • DEM 21 • SPC 74 • SPE 20 • SPM 2** |
+| C | Tanggal Siram | `M/D/YYYY` |
+| D | Wilayah | AW08…AW15 |
+| E | Lokasi | kode lokasi |
+| F | Kode Irrigator | kode irrigator |
+| G | Jenis Irrigator | ITI 106 • BTI 25 • (kosong) 20 |
+| H | Pemakaian Solar | liter |
+| I | Jam Operaton | jam operasi |
+| J | Liter/jam | nilai sheet (dashboard menghitung ulang H ÷ I) |
+| K | Kalibrasi | L/jam acuan |
+| L | Justifikasi | catatan |
+| M | Selisih | selisih |
+
+- Sudah diperiksa: kolom **B (Jenis Engine)** bukan duplikat kolom F lama (`B == F` nol dari 151 baris), jadi kategori memang sumber baru yang benar.
+- **Dashboard sekarang memakai kolom B sebagai sumber kategori** (fungsi `kategoriJenisEngine`): nilai kolom sheet dipakai apa adanya; peta kode engine / awalan kode hanya dipakai bila sel kategori **kosong**. Untuk ZPAS637, kategori diambil dari kolom **AI `Jenis Engine`** dengan cadangan peta kode yang sama.
+- Parser juga membaca kolom **G `Jenis Irrigator`** (`jenisIrigator`) sehingga struktur sheet 13 kolom terbaca lengkap (urutan kolom dideteksi dari header, bukan posisi tetap).
+
+### Tiga chart baru
+
+| Tab | Judul chart | Metrik (dropdown + 6 tombol cepat) |
+|---|---|---|
+| Analisa Biaya | **Performa Biaya per Jenis Engine** | 10 metrik: Biaya Total, Biaya Solar, Biaya Upah, Biaya Alat, Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record, % dari Total Biaya, Solar Terpakai |
+| Waktu & Utilisasi | **Performa Waktu per Jenis Engine** | 15 metrik: seluruh kolom waktu (Plan, Prepare, Operating, Waiting, Repair, Down, Standby, Off, Tot. Oper., Total Avail, Total Time) + Air Terpakai, L/Ha, % Availability, % Utilization |
+| Index Solar | **Performa Index Solar per Jenis Engine** | 12 metrik: L/jam Aktual, Kalibrasi (L/jam), Deviasi (L/jam), % Engine Hemat, Pemakaian Solar, Jumlah Engine |
+
+- Semua chart: batang **horizontal**, urut terbesar → terkecil, **angka ditulis pada tiap batang** (`tertulis === batang`), tooltip, dan catatan otomatis berisi tertinggi/terendah di bawah chart.
+- Kategori tampil apa adanya dari sheet; deskripsi tiap kartu menerangkan bahwa kategori mengikuti kolom `Jenis Engine` pada sheet.
+- **Aturan pembagi mengikuti tabnya**: chart biaya ikut mode **Total / Rata-rata Aktivitas / Rata-rata Hari** (rasio Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record tidak dibagi); chart waktu ikut mode **Rata-rata/Aktivitas • Rata-rata/Hari • Total** (rasio L/Ha, % Avail, % Util tidak dibagi); chart Index Solar berupa rasio (L/jam = total solar ÷ total jam per jenis engine, metrik `Jumlah Engine` berupa cacah).
+
+### Contoh angka hasil uji (periode penuh, 12.730 baris)
+
+- **Biaya per jenis engine** (Rp/Ha): SPC **Rp 1,8 Jt** → DEC Rp 1,4 Jt → DED Rp 1,3 Jt → SPE Rp 1,3 Jt → DEM **Rp 1,1 Jt**; biaya total terbesar SPC **Rp 44.411.070.734** → SPE Rp 3.902.695.257.
+- **Waktu per jenis engine** (rata-rata/aktivitas): Jam Operasi DEC **14,8** → DEM 14,5 → SPC 14,2 → DED 13,8 → SPE **13,6** jam/akt; % Utilization tertinggi DEM **84,0%**.
+- **Index Solar per jenis engine** (L/jam): DEC **10,38** → DEM 10,03 → DED 9,97 → SPC **8,81**; SPE & SPM **0,00** (belum ada pemakaian solar terukur — diberi keterangan di bawah chart); % Engine Hemat tertinggi DED **92,9%**.
+
+### Perbaikan ikutan (temuan saat uji visual)
+
+- Angka pada metrik **waktu** dan **biaya** sebelumnya tidak diringkas: label pada batang tampil penuh (`44.411.070.734,0`) dan satuan **L/Ha tertulis sebagai `%`**. Kini tiap metrik membawa format & satuan sendiri (`fmt` / `sat`): rupiah ringkas (`Rp 44,41 M`, `Rp 1,8 Jt`, `Rp 423 Rb`), L/Ha `200,7 L/Ha`, utilization `84,0%`. Berlaku juga untuk chart **per wilayah** pada tab yang sama.
+- Catatan bawah chart Index Solar dirapikan (ada spasi antar kalimat: `… pada jenis itu. Tertinggi: …`).
+- Bukti tangkapan layar: `dokumentasi-v1.7.0/21-engine-biaya.png`, `22-engine-waktu.png`, `23-engine-index-solar.png`.
+
 ## 4. Hasil uji (Chrome headless, lokal)
 
 | Skrip | Hasil |
 |---|---|
-| `tools/qa-index-solar.js` | **54/54 lulus** (7 pemeriksaan mode rata-rata/total + **5 pemeriksaan baru v1.8.1**: chart Performa Waktu terisi 8 batang & terurut, satuan mengikuti mode & label sumbu, pemilih 15 metrik + chip cepat, ganti metrik ke % Utilization mengubah data, kolom Wilayah `sticky` di thead/tbody/tfoot & posisinya tidak bergeser saat tabel digeser `scrollLeft=700`) — 6 tab, semua 24 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail **35 kolom A–AI**, export CSV **35 kolom** × 12.730 baris, 0 error |
+| `tools/qa-index-solar.js` | **62/62 lulus** (7 pemeriksaan mode rata-rata/total + **5 pemeriksaan baru v1.8.1**: chart Performa Waktu terisi 8 batang & terurut, satuan mengikuti mode & label sumbu, pemilih 15 metrik + chip cepat, ganti metrik ke % Utilization mengubah data, kolom Wilayah `sticky` di thead/tbody/tfoot & posisinya tidak bergeser saat tabel digeser `scrollLeft=700`) — termasuk **7 pemeriksaan baru v1.8.5** (kategori chart = kolom "Jenis Engine" sheet Index Solar dibandingkan langsung dengan data sheet via `gviz` CSV, 3 chart per jenis engine terisi & terurut, angka tertulis pada semua batang, format & satuan tiap metrik benar) — 6 tab, semua 26 chart terisi, 12 kartu waktu, tabel waktu 8 wilayah + TOTAL, Index Solar 151 engine, filter Boros=27/anomali=2, urut & pencarian & paginasi, filter sidebar AW08 = 19 engine, tabel detail **35 kolom A–AI**, export CSV **35 kolom** × 12.730 baris, 0 error; keluaran pemeriksaan kategori: *kolom ke-2 dari 13 kolom • chart DEC/DEM/DED/SPC/SPE/SPM vs sheet DEC/DED/DEM/SPC/SPE/SPM* |
 | `tools/qa-bar-labels.js` (baru) | **10/10 lulus** — 6 chart single berlabel, 4 chart stacked tanpa label, bukti piksel, aturan harian/bulanan/mingguan |
 | `tools/qa.js` (regresi, kini dinamis) | **42/42 lulus** — filter tanggal/bulan/wilayah, pencarian teks & angka, paginasi, sort, granularitas, biaya, export, sync, offline, fallback |
 | `tools/layout-test.js` | **24/24 lulus** — laci filter mobile tetap menempel di bawah header, sticky desktop, resize, Esc/backdrop, fokus |
@@ -215,6 +267,6 @@ Permintaan: pada tab Analisa Biaya, chart **Performa Biaya per Wilayah**, metrik
 
 ## 6. Status rilis
 
-- Service worker dinaikkan ke **v1.8.4** (cache aset lama dibersihkan otomatis).
+- Service worker dinaikkan ke **v1.8.5** (cache aset lama dibersihkan otomatis).
 - Catatan rilis: commit `bac0f74` sempat gagal pada langkah *Deploy to GitHub Pages* (langkah unggah artefak sukses) — kemungkinan gangguan sesaat GitHub Pages; **dijalankan ulang (attempt 2) dan sukses**, situs live memuat v1.8.2. Uji langsung ke situs live: **42/42 lulus**.
 - Push ke `wahyudp76/FS-evaluation` → GitHub Actions → <https://wahyudp76.github.io/FS-evaluation/>
