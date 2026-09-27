@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.8.6 — Rasio operasional tertimbang + probe sync hemat bandwidth + fallback offline sample-data
-const VERSION = 'v1.8.6';
+// v1.8.7 — Parameter L/Ha operasional pada tab Index Solar (KPI, tabel, urut, chart per jenis engine)
+const VERSION = 'v1.8.7';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 

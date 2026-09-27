@@ -285,7 +285,7 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   check('engine: chart waktu per jenis engine ikut mode rata-rata & ganti metrik', /% Utilization/.test(engWaktu.ganti.dataset) && engWaktu.ganti.nilai > 50 && engWaktu.ganti.nilai <= 100, `${engWaktu.ganti.dataset} • tertinggi ${engWaktu.ganti.atas} = ${engWaktu.ganti.nilai.toFixed(1)}%`);
 
   const engIndex = await cekEngine('indexsolar', 'chartIndexEngine', 'indexEngineMetric', '#indexEngineChips', 'chartIndexEngineNote', 'pctHemat');
-  check('engine: chart performa index solar per jenis engine terisi & terurut', !!engIndex.awal && engIndex.awal.label.length >= 3 && engIndex.awal.label.every(l => /^[A-Z]{2,4}$/.test(l)) && engIndex.awal.urut && engIndex.awal.opsiMetrik === 12, JSON.stringify(engIndex.awal.label) + ' • ' + engIndex.awal.opsiMetrik + ' metrik');
+  check('engine: chart performa index solar per jenis engine terisi & terurut', !!engIndex.awal && engIndex.awal.label.length >= 3 && engIndex.awal.label.every(l => /^[A-Z]{2,4}$/.test(l)) && engIndex.awal.urut && engIndex.awal.opsiMetrik === 13, JSON.stringify(engIndex.awal.label) + ' • ' + engIndex.awal.opsiMetrik + ' metrik');
   // kategori harus sama dengan kolom "Jenis Engine" pada sheet Index Solar
   const jenisSheet = await page.evaluate(async () => {
     const t = await (await fetch('https://docs.google.com/spreadsheets/d/1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o/gviz/tq?tqx=out:csv&sheet=Index%20Solar&cb=' + Math.random())).text();
@@ -323,10 +323,19 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   console.log('KPI index:', idx.kpi.join(' || '));
   console.log('sample baris:', idx.rowsSample.join(' // '));
   console.log('legend:', (idx.legend || '').replace(/\n/g, ' | '));
-  check('index solar: 5 kartu KPI', idx.kpiCount === 5, String(idx.kpiCount));
+  check('index solar: 6 kartu KPI (+ L/Ha)', idx.kpiCount === 6, String(idx.kpiCount));
   check('index solar: 151 engine terbaca', idx.count === '151', String(idx.count));
   check('index solar: tabel terisi (12 baris/halaman)', idx.rowsShown === 12, String(idx.rowsShown));
   check('index solar: legend hasil evaluasi terisi', /Hemat/.test(idx.legend || '') && /Boros/.test(idx.legend || ''));
+  const lha = await page.evaluate(() => ({
+    th: Array.from(document.querySelectorAll('#tab-indexsolar thead th')).map(th => th.textContent.trim()),
+    kpi: (document.getElementById('indexKpiGrid') || {}).innerText || '',
+    sortOpts: Array.from(document.querySelectorAll('#indexSort option')).map(o => o.value),
+    metOpts: Array.from(document.querySelectorAll('#indexEngineMetric option')).map(o => o.value)
+  }));
+  check('index solar: kolom L/Ha operasi ada di tabel', lha.th.indexOf('L/Ha operasi') !== -1, lha.th.join(' | '));
+  check('index solar: kartu KPI L/Ha tampil', /Solar per Hektare/.test(lha.kpi) && /L\/Ha/.test(lha.kpi));
+  check('index solar: urut + metrik L/Ha tersedia', lha.sortOpts.indexOf('ltrPerHa') !== -1 && lha.metOpts.indexOf('ltrPerHa') !== -1, 'sort:' + lha.sortOpts.join(',') + ' metrik:' + lha.metOpts.length);
   await page.screenshot({ path: '/tmp/qa/v17-index-solar.png', fullPage: false });
 
   // filter hasil: Boros

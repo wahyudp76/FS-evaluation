@@ -146,7 +146,7 @@
 </head>
 <body class="bg-[#fcfdfc] text-slate-800 font-sans antialiased selection:bg-emerald-100 selection:text-emerald-900">
     <!-- Safelist: kelas warna dinamis yang disuntik renderKPIs() via JS -->
-    <div class="hidden bg-emerald-50 text-emerald-600 ring-emerald-200/50 bg-amber-50 text-amber-600 ring-amber-200/50 bg-blue-50 text-blue-600 ring-blue-200/50 bg-violet-50 text-violet-600 ring-violet-200/50" aria-hidden="true"></div>
+    <div class="hidden bg-emerald-50 text-emerald-600 ring-emerald-200/50 ring-emerald-100 bg-amber-50 text-amber-600 ring-amber-200/50 ring-amber-100 bg-blue-50 text-blue-600 ring-blue-200/50 ring-blue-100 bg-violet-50 text-violet-600 ring-violet-200/50 ring-violet-100 bg-slate-50 text-slate-600 ring-slate-200/50 ring-slate-100 bg-red-50 text-red-600 ring-red-200/50 ring-red-100 bg-rose-50 text-rose-600 ring-rose-200/50 ring-rose-100 bg-sky-50 text-sky-600 ring-sky-200/50 ring-sky-100 bg-teal-50 text-teal-600 ring-teal-200/50 ring-teal-100" aria-hidden="true"></div>
     <!-- Top Navigation -->
     <header class="sticky top-0 z-40 border-b border-slate-200/70 bg-white/80 glass">
         <div class="mx-auto max-w-[1600px] px-6 lg:px-8">
@@ -946,7 +946,7 @@
                     <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-amber-50/60 to-white p-5 md:p-6 shadow-soft">
                         <div>
                             <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Index Solar per Engine</h2>
-                            <p class="mt-1 max-w-3xl text-[12px] text-slate-500">Analisa pemakaian solar per engine dari sheet <span class="font-mono text-slate-700">Index Solar</span>: pemakaian aktual (L/jam) dibanding <span class="font-medium text-slate-700">kalibrasi standar</span> tiap engine, verdict Hemat/Boros, selisih liter, serta rekap per wilayah dan jenis engine. Data aktivitas pembanding diambil dari sheet ZPAS637 (mengikuti filter di panel kiri).</p>
+                            <p class="mt-1 max-w-3xl text-[12px] text-slate-500">Analisa pemakaian solar per engine dari sheet <span class="font-mono text-slate-700">Index Solar</span>: pemakaian aktual (L/jam) dibanding <span class="font-medium text-slate-700">kalibrasi standar</span> tiap engine, verdict Hemat/Boros, selisih liter, <span class="font-medium text-slate-700">L/Ha operasional</span>, serta rekap per wilayah dan jenis engine. Data aktivitas pembanding diambil dari sheet ZPAS637 (mengikuti filter di panel kiri).</p>
                         </div>
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-amber-700 ring-1 ring-amber-200">Kalibrasi vs Aktual</span>
                     </div>
@@ -954,12 +954,13 @@
                     <!-- KPI -->
                     <section>
                         <h3 class="text-[14px] font-semibold text-slate-900 mb-3">Ringkasan Evaluasi Solar</h3>
-                        <div id="indexKpiGrid" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5"></div>
+                        <div id="indexKpiGrid" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"></div>
                         <p class="mt-3 text-[11px] leading-relaxed text-slate-500">
                             <span class="font-medium text-slate-600">Catatan:</span>
                             <span class="font-mono">L/jam aktual</span> dihitung sendiri dari Pemakaian Solar ÷ Jam Operasi (bukan angka pada kolom sheet) agar konsisten.
                             Engine dengan pemakaian 0 L ditandai <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600">Solar 0 L</span>,
                             dan pemakaian &gt; 5× kalibrasi ditandai <span class="rounded-full bg-violet-50 px-2 py-0.5 font-medium text-violet-700">Anomali</span> lalu dikecualikan dari rata-rata &amp; total selisih.
+                            Kolom <span class="font-medium text-slate-600">L/Ha operasi</span> = solar ÷ luas siram operasional engine tersebut dari ZPAS637 (total ÷ total, mengikuti filter); strip (-) berarti engine itu tidak punya data operasi pada filter aktif.
                         </p>
                     </section>
 
@@ -1029,6 +1030,7 @@
                                     <option value="selisih">Urut: Selisih terbesar</option>
                                     <option value="deviasi">Urut: Deviasi L/jam terbesar</option>
                                     <option value="lpj">Urut: L/jam aktual tertinggi</option>
+                                    <option value="ltrPerHa">Urut: L/Ha operasional tertinggi</option>
                                     <option value="solar">Urut: Pemakaian solar terbesar</option>
                                     <option value="jam">Urut: Jam operasi terbanyak</option>
                                     <option value="engine">Urut: Kode engine (A-Z)</option>
@@ -1054,6 +1056,7 @@
                                         <th class="px-3 py-3 text-right whitespace-nowrap">Kalibrasi</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">Deviasi L/jam</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">Selisih (L)</th>
+                                        <th class="px-3 py-3 text-right whitespace-nowrap">L/Ha operasi</th>
                                         <th class="px-3 py-3 text-center whitespace-nowrap">Hasil</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">ZPAS637</th>
                                     </tr>

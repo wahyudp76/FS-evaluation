@@ -1076,7 +1076,8 @@ function getIndexSolarView() {
         zpJam: z ? z.jam : 0,
         zpSolar: z ? z.solar : 0,
         zpLuas: z ? z.luas : 0,
-        zpLtrPerJam: z && z.jam ? z.solar / z.jam : 0
+        zpLtrPerJam: z && z.jam ? z.solar / z.jam : 0,
+        zpLtrPerHa: z && z.luas ? z.solar / z.luas : 0
       }));
     }
     const sorters = {
@@ -1085,6 +1086,7 @@ function getIndexSolarView() {
       solar: (a, b) => b.solar - a.solar,
       jam: (a, b) => b.jam - a.jam,
       lpj: (a, b) => b.lpjAktual - a.lpjAktual,
+      ltrPerHa: (a, b) => b.zpLtrPerHa - a.zpLtrPerHa,
       engine: (a, b) => a.engine.localeCompare(b.engine)
     };
     rows.sort(sorters[indexSort] || sorters.selisih);
@@ -1115,6 +1117,14 @@ function getIndexSolarView() {
     };
     const jamTerukur = terukur.reduce((a, r) => a + r.jam, 0);
     ringkas.ltrPerJam = jamTerukur ? terukur.reduce((a, r) => a + r.solar, 0) / jamTerukur : 0;
+    // L/Ha operasional tertimbang: total solar ÷ total luas (ZPAS637, periode & filter aktif)
+    let _zpS = 0, _zpL = 0, _zpN = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.zpLuas > 0) { _zpS += r.zpSolar; _zpL += r.zpLuas; _zpN++; }
+    }
+    ringkas.zpSolar = _zpS; ringkas.zpLuas = _zpL; ringkas.zpN = _zpN;
+    ringkas.ltrPerHa = _zpL ? _zpS / _zpL : 0;
     ringkas.kalibrasiAvg = ringkas.kalibrasiN ? ringkas.kalibrasi / ringkas.kalibrasiN : 0;
     // rekap per wilayah & per jenis engine
     const perWilayah = {}, perJenis = {};
@@ -1173,13 +1183,15 @@ function getIndexPerJenis() {
     iv.rows.forEach(r => {
       const key = kategoriJenisEngine(r, peta);
       let g = groups[key];
-      if (!g) g = groups[key] = { nama: key, n: 0, aktif: 0, terukur: 0, hemat: 0, boros: 0, nol: 0, anomali: 0, solar: 0, jam: 0, selisih: 0, _kal: 0, _kalN: 0, _solarTerukur: 0, _jamTerukur: 0 };
+      if (!g) g = groups[key] = { nama: key, n: 0, aktif: 0, terukur: 0, hemat: 0, boros: 0, nol: 0, anomali: 0, solar: 0, jam: 0, selisih: 0, _kal: 0, _kalN: 0, _solarTerukur: 0, _jamTerukur: 0, _zpSolar: 0, _zpLuas: 0 };
       g.n++;
       if (r.anomali) g.anomali++;
       if (!r.aktif) return;
       g.aktif++;
       g.solar += r.solar; g.jam += r.jam; g.selisih += r.selisih;
       if (r.kalibrasi > 0) { g._kal += r.kalibrasi; g._kalN++; }
+      // L/Ha operasional: SEMUA engine aktif non-anomali (termasuk solar 0 seperti SPE elektrik)
+      if (!r.anomali && r.zpLuas > 0) { g._zpSolar += r.zpSolar; g._zpLuas += r.zpLuas; }
       if (r.solar > 0 && !r.anomali) {
         g.terukur++;
         g._solarTerukur += r.solar; g._jamTerukur += r.jam;
@@ -1194,7 +1206,8 @@ function getIndexPerJenis() {
       g.devPct = g.kalibrasiAvg ? g.deviasi / g.kalibrasiAvg * 100 : 0;
       g.pctHemat = (g.hemat + g.boros) ? g.hemat / (g.hemat + g.boros) * 100 : 0;
       g.solarPerEngine = g.aktif ? g.solar / g.aktif : 0;
-      delete g._kal; delete g._kalN; delete g._solarTerukur; delete g._jamTerukur;
+      g.ltrPerHa = g._zpLuas ? g._zpSolar / g._zpLuas : 0;   // L/Ha operasional tertimbang (ZPAS637)
+      delete g._kal; delete g._kalN; delete g._solarTerukur; delete g._jamTerukur; delete g._zpSolar; delete g._zpLuas;
       return g;
     }).sort((a, b) => b.solar - a.solar);
   });
@@ -1805,7 +1818,8 @@ const INDEX_ENGINE_METRIC = {
   solar:      { label:'Pemakaian Solar',   k:'solar',         fmt:'Lint',    warna:'rgba(251,191,36,0.85)', color:'#92400e', sat:'L' },
   jam:        { label:'Jam Operasi',       k:'jam',           fmt:'num1',    warna:'rgba(59,130,246,0.8)',  color:'#1d4ed8', sat:'jam' },
   selisih:    { label:'Total Selisih',     k:'selisih',       fmt:'Lint',    warna:'rgba(244,63,94,0.8)',   color:'#be123c', sat:'L' },
-  solarPerEngine: { label:'Solar per Engine', k:'solarPerEngine', fmt:'Lint', warna:'rgba(14,165,233,0.8)', color:'#0369a1', sat:'L' }
+  solarPerEngine: { label:'Solar per Engine', k:'solarPerEngine', fmt:'Lint', warna:'rgba(14,165,233,0.8)', color:'#0369a1', sat:'L' },
+  ltrPerHa: { label:'L/Ha Operasional', k:'ltrPerHa', fmt:'num1', warna:'rgba(16,185,129,0.8)', color:'#047857', sat:'L/Ha' }
 };
 let indexEngineMetric = 'ltrPerJam';
 function renderIndexEngineChart() {
@@ -1836,7 +1850,9 @@ function renderIndexEngineChart() {
                 ? 'Nilai positif = pemakaian di atas kalibrasi (boros), negatif = di bawah kalibrasi (hemat). '
                 : (m.k === 'selisih' || m.k === 'solar' || m.k === 'solarPerEngine'
                   ? 'Nilai akumulasi pemakaian solar pada jenis engine tersebut. '
-                  : 'Nilai L/jam dihitung tertimbang (total solar ÷ total jam) per jenis engine' + (adaNol ? '; nilai 0,00 = belum ada pemakaian solar terukur pada jenis itu. ' : '. ')))))));
+                  : (m.k === 'ltrPerHa'
+                    ? 'Solar ÷ luas siram operasional dari sheet ZPAS637 (total ÷ total per jenis engine, mengikuti filter periode & wilayah). ' + (adaNol ? 'Nilai 0 = tidak ada pemakaian solar tercatat pada jenis itu dalam filter aktif. ' : '')
+                    : 'Nilai L/jam dihitung tertimbang (total solar ÷ total jam) per jenis engine' + (adaNol ? '; nilai 0,00 = belum ada pemakaian solar terukur pada jenis itu. ' : '. '))))))));
       return awalan + (atas ? `Tertinggi: ${atas.r.nama} — ${tulis(atas)}` : '') +
         (bawah && bawah !== atas ? ` • Terendah: ${bawah.r.nama} — ${tulis(bawah)}.` : '.') +
         ' Kategori mengikuti kolom "Jenis Engine" pada sheet Index Solar.';
@@ -2771,7 +2787,9 @@ function renderIndexKPI() {
     { label:'Hasil Evaluasi', value:`${formatInt(r.hemat)} / ${formatInt(r.boros)}`, unit:'hemat / boros',
       sub:`dari ${formatInt(r.terukur)} engine dengan pemakaian terukur (${formatNumber(r.terukur ? r.hemat / r.terukur * 100 : 0, 0)}% hemat)`, icon:'clipboard-check', color:'emerald' },
     { label:'Total Selisih', value:formatInt(r.selisih), unit:'L',
-      sub: selisihTotal > r.selisih ? `+${formatInt(selisihTotal - r.selisih)} L dari ${formatInt(r.anomaly)} data anomali` : 'selisih terhadap kalibrasi', icon:'scale', color:'red' }
+      sub: selisihTotal > r.selisih ? `+${formatInt(selisihTotal - r.selisih)} L dari ${formatInt(r.anomaly)} data anomali` : 'selisih terhadap kalibrasi', icon:'scale', color:'red' },
+    { label:'Solar per Hektare', value:`${formatNumber(r.ltrPerHa,1)}`, unit:'L/Ha',
+      sub:`operasional ZPAS637 • ${formatInt(r.zpN)} engine berdata • ${formatInt(r.zpSolar)} L ÷ ${formatNumber(r.zpLuas,1)} Ha`, icon:'droplet', color:'sky' }
   ];
   host.innerHTML = cards.map(c => `
     <div class="rounded-[18px] border border-slate-200/70 bg-white p-4 shadow-soft">
@@ -2799,7 +2817,7 @@ function renderIndexTable() {
   const next = $('#indexNextPage'); if (next) next.disabled = indexPage >= totalPages;
 
   if (!pageRows.length) {
-    tbody.innerHTML = '<tr><td colspan="13" class="px-4 py-10 text-center text-slate-400">Tidak ada engine yang cocok</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" class="px-4 py-10 text-center text-slate-400">Tidak ada engine yang cocok</td></tr>';
     return;
   }
   const badge = (r) => {
@@ -2825,6 +2843,7 @@ function renderIndexTable() {
       <td class="px-3 py-2.5 text-right text-slate-500">${r.kalibrasi ? formatNumber(r.kalibrasi, 2) : '-'}</td>
       <td class="px-3 py-2.5 text-right ${devWarna}">${r.kalibrasi ? (r.deviasi > 0 ? '+' : '') + formatNumber(r.deviasi, 1) : '-'}</td>
       <td class="px-3 py-2.5 text-right ${r.selisih ? 'font-medium text-slate-700' : 'text-slate-400'}">${formatNumber(r.selisih, 0)}</td>
+      <td class="px-3 py-2.5 text-right ${r.zpLuas ? 'font-medium text-emerald-700' : 'text-slate-400'}">${r.zpLuas ? formatNumber(r.zpLtrPerHa, 1) : '-'}</td>
       <td class="px-3 py-2.5 whitespace-nowrap text-center">${badge(r)}</td>
       <td class="px-3 py-2.5 text-right text-[11px] text-slate-500">${r.zpN ? formatInt(r.zpN) + ' act • ' + formatNumber(r.zpLtrPerJam, 1) + ' L/j' : '-'}</td>
     </tr>`;
