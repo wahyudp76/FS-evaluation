@@ -73,6 +73,11 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
       catatanKartu: (document.getElementById('waktuModeNote') || {}).textContent || '',
       catatanTabel: (document.getElementById('waktuWilayahNote') || {}).textContent || '',
       catatanChart: (document.getElementById('chartWaktuNote') || {}).textContent || '',
+      airSumbuY: (() => { const a = window.Chart.getChart(document.getElementById('chartAir')); return a ? a.options.scales.y.title.text : ''; })(),
+      airNilai1: (() => { const a = window.Chart.getChart(document.getElementById('chartAir')); return a ? a.data.datasets[0].data[1] : null; })(),
+      airCatatan: (document.getElementById('chartAirNote') || {}).textContent || '',
+      donatSub: (document.getElementById('jenisEngineSub') || {}).textContent || '',
+      topEng: (document.getElementById('topEngine') || {}).innerText || '',
       aktif: Array.from(document.querySelectorAll('[data-waktu]')).filter(x => x.getAttribute('aria-pressed') === 'true').map(x => x.dataset.waktu)
     };
   });
@@ -80,18 +85,23 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   check('waktu: bawaan = rata-rata per aktivitas', /jam\/aktivitas/.test(mDefault.kartu1) && /jam\/akt/.test(mDefault.head) && mDefault.aktif[0] === 'avgAkt', mDefault.kartu1.split('\n')[0] + ' | ' + mDefault.aktif.join(','));
   check('waktu: kartu tetap menampilkan total & per hari sebagai pendukung', /total /.test(mDefault.kartu1) && /jam\/hari/.test(mDefault.kartu1), mDefault.kartu1.replace(/\n/g, ' | '));
   check('waktu: tabel & chart ikut mode rata-rata', /AKTIVITAS/.test(mDefault.foot) && mDefault.sumbuY === 'Jam/aktivitas' && /per AKTIVITAS/.test(mDefault.catatanChart), mDefault.foot + ' | ' + mDefault.sumbuY);
+  check('waktu: chart Air/Luas/Solar ikut rata-rata per aktivitas', mDefault.airSumbuY === 'Air (m³/aktivitas)' && /per AKTIVITAS/.test(mDefault.airCatatan), mDefault.airSumbuY + ' | ' + mDefault.airCatatan);
+  check('waktu: donat jenis engine & top lists tampilkan rata-rata', /per aktivitas/.test(mDefault.donatSub) && /\/akt/.test(mDefault.topEng), mDefault.donatSub + ' | ' + mDefault.topEng.split('\n')[0]);
 
   await page.evaluate(() => document.querySelector('[data-waktu="total"]').click());
   await new Promise(r => setTimeout(r, 1200));
   const mTotal = await bacaWaktu();
   check('waktu: mode Total mengembalikan angka akumulasi', mTotal.foot === 'TOTAL' && mTotal.sumbuY === 'Jam' && /225\.424/.test(mTotal.kartu1), mTotal.kartu1.replace(/\n/g, ' | ').slice(0, 90));
   check('waktu: nilai chart Total jauh lebih besar dari rata-rata', mTotal.selBulan1 > mDefault.selBulan1 * 5, `${mDefault.selBulan1} -> ${mTotal.selBulan1}`);
+  check('waktu: chart Air mode Total = akumulasi bulanan', mTotal.airSumbuY === 'Air (m³)' && mTotal.airNilai1 > mDefault.airNilai1 * 5, `${mDefault.airNilai1} -> ${mTotal.airNilai1}`);
+  check('waktu: donat mode Total = kontribusi', /Kontribusi/.test(mTotal.donatSub), mTotal.donatSub);
 
   await page.evaluate(() => document.querySelector('[data-waktu="avgHari"]').click());
   await new Promise(r => setTimeout(r, 1200));
   const mHari = await bacaWaktu();
   check('waktu: mode Rata-rata / Hari memakai jam/hari di kartu, tabel, chart', /jam\/hari/.test(mHari.kartu1) && /jam\/hari/.test(mHari.head) && mHari.sumbuY === 'Jam/hari' && /HARI/.test(mHari.foot), mHari.sumbuY + ' | ' + mHari.foot);
   check('waktu: keterangan ikut berubah di ketiga tempat', /HARI/.test(mHari.catatanTabel) && /per HARI/.test(mHari.catatanChart) && /HARI/.test(mHari.catatanKartu), mHari.catatanKartu.slice(0, 60));
+  check('waktu: chart Air & donat ikut rata-rata per hari', mHari.airSumbuY === 'Air (m³/hari)' && /per hari/.test(mHari.donatSub) && /per HARI/.test(mHari.airCatatan), mHari.airSumbuY + ' | ' + mHari.donatSub);
 
   // ---- chart bar "Performa Waktu per Wilayah" + kolom Wilayah beku ----
   await page.evaluate(() => document.querySelector('[data-waktu="avgAkt"]').click());

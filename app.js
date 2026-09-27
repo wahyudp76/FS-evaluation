@@ -3413,11 +3413,21 @@ function renderCharts(tab) {
   const jenisGroups = {};
   filteredData.forEach(d=>{
     const k = d.jenisEngine || 'Unknown';
-    if (!jenisGroups[k]) jenisGroups[k]=0;
-    jenisGroups[k]+=d.luasSiram;
+    if (!jenisGroups[k]) jenisGroups[k] = { luas: 0, count: 0, _hari: new Set() };
+    const g = jenisGroups[k];
+    g.luas += d.luasSiram || 0; g.count++;
+    if (d.date) g._hari.add(d.date.getTime());
   });
   const jenisLabels = Object.keys(jenisGroups);
-  const jenisValues = jenisLabels.map(k=>jenisGroups[k]);
+  // Donat mengikuti mode tab: rata-rata per aktivitas / per hari / total (v1.8.8)
+  const mwJenis = modeWaktu();
+  const sufJenis = mwJenis.id === 'total' ? '' : (mwJenis.id === 'avgHari' ? '/hari' : '/aktivitas');
+  const satJenis = 'Ha' + sufJenis;
+  const jenisValues = jenisLabels.map(k => {
+    const g = jenisGroups[k];
+    const f = mwJenis.id === 'total' ? 1 : (mwJenis.id === 'avgHari' ? (g._hari.size || 1) : (g.count || 1));
+    return g.luas / f;
+  });
   const colors = ['#10b981','#3b82f6','#f59e0b','#8b5cf6','#06b6d4','#ef4444','#64748b'];
   if (want('chartJenisEngine')) ensureChart('chartJenisEngine', {
     type: 'doughnut',
@@ -3427,9 +3437,18 @@ function renderCharts(tab) {
     },
     options:{
       responsive:true, maintainAspectRatio:false, cutout:'68%',
-      plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#0f172a',cornerRadius:12} }
+      plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#0f172a',cornerRadius:12, callbacks:{ label: (ctx) => {
+        const tot = jenisValues.reduce((a,b)=>a+b,0) || 1;
+        return `${ctx.label}: ${formatNumber(ctx.raw,2)} ${satJenis} (${formatNumber(ctx.raw/tot*100,1)}%)`;
+      } } } }
     }
   });
+  const subJenis = $('#jenisEngineSub');
+  if (subJenis) subJenis.textContent = mwJenis.id === 'total'
+    ? 'Kontribusi luas siram per jenis engine'
+    : (mwJenis.id === 'avgHari'
+      ? 'Rata-rata luas siram per hari per jenis engine'
+      : 'Rata-rata luas siram per aktivitas per jenis engine');
   $('#jenisEngineLegend').innerHTML = jenisLabels.map((l,i)=>{
     const pct = jenisValues[i]/ (jenisValues.reduce((a,b)=>a+b,0) ||1) *100;
     return `<div class="flex items-center justify-between text-[11px]"><div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full" style="background:${colors[i%colors.length]}"></span><span class="font-medium text-slate-700">${esc(l)}</span></div><span class="font-mono text-slate-500">${formatNumber(pct,1)}%</span></div>`;
@@ -3438,21 +3457,25 @@ function renderCharts(tab) {
   const engineMap = {};
   const irigatorMap = {};
   filteredData.forEach(d=>{
-    engineMap[d.engine] = (engineMap[d.engine]||0)+d.luasSiram;
-    irigatorMap[d.irigator] = (irigatorMap[d.irigator]||0)+d.luasSiram;
+    if (!engineMap[d.engine]) engineMap[d.engine] = { luas: 0, n: 0 };
+    engineMap[d.engine].luas += d.luasSiram || 0; engineMap[d.engine].n++;
+    if (!irigatorMap[d.irigator]) irigatorMap[d.irigator] = { luas: 0, n: 0 };
+    irigatorMap[d.irigator].luas += d.luasSiram || 0; irigatorMap[d.irigator].n++;
   });
-  const topEngine = Object.entries(engineMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  const topIrigator = Object.entries(irigatorMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  // Peringkat tetap by TOTAL (makna "Top"), tetapi tiap baris menampilkan rata-rata/aktivitas (v1.8.8)
+  const topEngine = Object.entries(engineMap).sort((a,b)=>b[1].luas-a[1].luas).slice(0,5);
+  const topIrigator = Object.entries(irigatorMap).sort((a,b)=>b[1].luas-a[1].luas).slice(0,5);
+  const tulisTop = (v) => `${formatNumber(v.luas,2)} Ha <span class="text-[10px] font-normal text-slate-400">(\u00f8${formatNumber(v.luas/(v.n||1),2)}/akt)</span>`;
   $('#topEngine').innerHTML = topEngine.map(([k,v],i)=>`
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2.5"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">${i+1}</span><span class="text-[12px] font-medium text-slate-800 font-mono">${esc(k)}</span></div>
-      <span class="text-[12px] font-semibold text-slate-900">${formatNumber(v,2)} Ha</span>
+      <span class="text-[12px] font-semibold text-slate-900 whitespace-nowrap">${tulisTop(v)}</span>
     </div>
   `).join('') || '<div class="text-[11px] text-slate-400">No data</div>';
   $('#topIrigator').innerHTML = topIrigator.map(([k,v],i)=>`
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2.5"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">${i+1}</span><span class="text-[12px] font-medium text-slate-800 font-mono">${esc(k)}</span></div>
-      <span class="text-[12px] font-semibold text-slate-900">${formatNumber(v,2)} Ha</span>
+      <span class="text-[12px] font-semibold text-slate-900 whitespace-nowrap">${tulisTop(v)}</span>
     </div>
   `).join('') || '<div class="text-[11px] text-slate-400">No data</div>';
 
@@ -3529,25 +3552,38 @@ function renderCharts(tab) {
   }
   if (want('chartAir')) {
     const wb = getWaktuBulanan();
+    // Ikuti mode tab: rata-rata per aktivitas / per hari / total (v1.8.8)
+    const mwAir = modeWaktu();
+    const sufAir = mwAir.id === 'total' ? '' : (mwAir.id === 'avgHari' ? '/hari' : '/aktivitas');
+    const bagiAir = (w) => bagiWaktu(w);
     ensureChart('chartAir', {
       type: 'line',
       data: {
         labels: wb.map(w=>w.label),
         datasets: [
-          { label:'Air Terpakai (m³)', data: wb.map(w=>w.air/1000), borderColor:'#0ea5e9', backgroundColor:'rgba(14,165,233,0.12)', fill:true, tension:0.35, pointRadius:0, borderWidth:2, yAxisID:'y' },
-          { label:'Luas Siram (Ha)', data: wb.map(w=>w.luas), borderColor:'#10b981', backgroundColor:'transparent', tension:0.35, pointRadius:0, borderWidth:2, yAxisID:'y1' },
-          { label:'Solar (L)', data: wb.map(w=>w.solar/1000), borderColor:'#f59e0b', borderDash:[4,4], tension:0.35, pointRadius:0, borderWidth:1.5, yAxisID:'y1' }
+          { label:'Air Terpakai (m³' + sufAir + ')', data: wb.map(w=>(w.air/1000)/bagiAir(w)), borderColor:'#0ea5e9', backgroundColor:'rgba(14,165,233,0.12)', fill:true, tension:0.35, pointRadius:0, borderWidth:2, yAxisID:'y' },
+          { label:'Luas Siram (Ha' + sufAir + ')', data: wb.map(w=>w.luas/bagiAir(w)), borderColor:'#10b981', backgroundColor:'transparent', tension:0.35, pointRadius:0, borderWidth:2, yAxisID:'y1' },
+          { label:'Solar (ribu L' + sufAir + ')', data: wb.map(w=>(w.solar/1000)/bagiAir(w)), borderColor:'#f59e0b', borderDash:[4,4], tension:0.35, pointRadius:0, borderWidth:1.5, yAxisID:'y1' }
         ]
       },
       options: {
         responsive:true, maintainAspectRatio:false,
         interaction:{ mode:'index', intersect:false },
-        plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, font:{size:10} }}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12 } },
+        plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, font:{size:10} }}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12, callbacks:{ label: (ctx) => {
+          const unit = ctx.datasetIndex === 0 ? 'm³' + sufAir : (ctx.datasetIndex === 1 ? 'Ha' + sufAir : 'ribu L' + sufAir);
+          return `${ctx.dataset.label}: ${formatNumber(ctx.raw, ctx.datasetIndex === 1 ? 2 : 1)} ${unit}`;
+        } } } },
         scales:{ x:{ grid:{display:false}, ticks:{font:{size:9}, maxTicksLimit:10} },
-                 y:{ beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}, title:{display:true,text:'Air (m³)',font:{size:10}} },
-                 y1:{ beginAtZero:true, position:'right', grid:{display:false}, ticks:{font:{size:10}}, title:{display:true,text:'Ha / ribu L solar',font:{size:10}} } }
+                 y:{ beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}}, title:{display:true,text:'Air (m³' + sufAir + ')',font:{size:10}} },
+                 y1:{ beginAtZero:true, position:'right', grid:{display:false}, ticks:{font:{size:10}}, title:{display:true,text:'Ha / ribu L solar' + sufAir,font:{size:10}} } }
       }
     });
+    const noteAir = $('#chartAirNote');
+    if (noteAir) noteAir.textContent = mwAir.id === 'total'
+      ? 'Nilai = total volume setiap bulan.'
+      : (mwAir.id === 'avgHari'
+        ? 'Nilai = rata-rata volume per HARI pada setiap bulan.'
+        : 'Nilai = rata-rata volume per AKTIVITAS pada setiap bulan.');
   }
 
   // ===== TAB INDEX SOLAR: pemakaian solar per engine vs kalibrasi =====

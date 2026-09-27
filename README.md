@@ -125,7 +125,7 @@ Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rinci
 - Berlaku serentak untuk **kartu 12 kolom waktu**, **tabel Rincian Waktu per Wilayah** (wilayah dibagi data wilayah itu sendiri — jumlah hari per wilayah ditampilkan di kolom **Hari**), dan **chart Komposisi Waktu per Bulan** (dibagi per bulan).
 - Setiap kartu tetap menampilkan angka pendukung: total, per aktivitas, dan per hari sekaligus — jadi tidak perlu bolak-balik mengganti mode untuk membandingkan.
 - Kolom **L/Ha, % Avail, % Util** tetap berupa rasio (tidak dibagi).
-- Chart "Air, Luas Siram & Solar per Bulan" sengaja tetap akumulasi bulanan (diberi keterangan di bawah judul).
+- Chart "Air, Luas Siram & Solar per Bulan" mengikuti mode (rata-rata per aktivitas/hari atau total) — begitu pula donat Jenis Engine; daftar Top Engine/Irigator tetap berperingkat total tetapi tiap baris menampilkan rata-rata per aktivitas (v1.8.8).
 
 ### Kolom beku & chart Performa Waktu (v1.8.1)
 - **Kolom Wilayah beku** pada tabel *Rincian Waktu per Wilayah* (tab Waktu & Utilisasi): saat tabel digeser horizontal untuk melihat kolom waktu berikutnya, kolom **Wilayah** tetap menempel di kiri (latar solid, garis pemisah + bayangan) — berlaku juga untuk baris kepala dan baris kaki rata-rata. Tabel memakai `border-collapse: separate` agar `sticky` berfungsi benar di Chrome.
