@@ -337,6 +337,25 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   check('index solar: 151 engine terbaca', idx.count === '151', String(idx.count));
   check('index solar: tabel terisi (12 baris/halaman)', idx.rowsShown === 12, String(idx.rowsShown));
   check('index solar: legend hasil evaluasi terisi', /Hemat/.test(idx.legend || '') && /Boros/.test(idx.legend || ''));
+  const fz = await page.evaluate(() => {
+    const t = document.getElementById('indexTable');
+    const cs = (sel) => getComputedStyle(document.querySelector(sel));
+    const thL = [0, 1, 2, 3].map(i => cs('#indexTable thead th.fz' + i).left);
+    const tdL = [0, 1, 2, 3].map(i => cs('#indexTable tbody td.fz' + i).left);
+    const pos = cs('#indexTable tbody td.fz0').position;
+    return { pos, left: getComputedStyle(t).getPropertyValue('--fz1'), thSticky: cs('#indexTable thead th.fz3').position, thL, tdL };
+  });
+  const lpx = (a) => a.map(v => parseFloat(v) || 0);
+  const mono = (a) => a[0] === 0 && a[1] > 0 && a[2] > a[1] && a[3] > a[2];
+  check('freeze: 4 kolom sticky + offset kiri monoton', fz.pos === 'sticky' && fz.thSticky === 'sticky' && mono(lpx(fz.thL)) && mono(lpx(fz.tdL)), 'th:' + fz.thL.join(',') + ' td:' + fz.tdL.join(','));
+  await page.evaluate(() => { document.getElementById('indexTableWrap').scrollLeft = 400; });
+  await new Promise(r => setTimeout(r, 300));
+  const fzSc = await page.evaluate(() => {
+    const w = document.getElementById('indexTableWrap').getBoundingClientRect();
+    const c = document.querySelector('#indexTable tbody td.fz3').getBoundingClientRect();
+    return { sl: document.getElementById('indexTableWrap').scrollLeft, left: c.left - w.left };
+  });
+  check('freeze: kolom Jenis menempel saat scroll 400px', fzSc.sl >= 390 && fzSc.left > -2 && fzSc.left < 320, 'scrollLeft=' + fzSc.sl + ' jenisOff=' + Math.round(fzSc.left));
   const lha = await page.evaluate(() => ({
     th: Array.from(document.querySelectorAll('#tab-indexsolar thead th')).map(th => th.textContent.trim()),
     kpi: (document.getElementById('indexKpiGrid') || {}).innerText || '',

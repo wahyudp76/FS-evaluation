@@ -82,6 +82,16 @@
         table.wide-table tbody td:first-child{position:sticky;left:0;z-index:1;background:#fff;border-right:1px solid #e2e8f0;box-shadow:6px 0 8px -6px rgba(15,23,42,.12)}
         table.wide-table tbody tr:hover td:first-child{background:#f8fafc}
         table.wide-table tfoot td:first-child{position:sticky;left:0;z-index:1;background:#f8fafc;border-right:1px solid #e2e8f0;box-shadow:6px 0 8px -6px rgba(15,23,42,.18)}
+        /* ===== Tabel Index Solar: 4 kolom pertama beku (Kode Engine s.d. Jenis) ===== */
+        /* border-collapse:collapse membuat sel sticky tidak stabil -> paksa separate */
+        #indexTable{border-collapse:separate;border-spacing:0}
+        #indexTable th.fz,#indexTable td.fz{position:sticky;z-index:1;background:#fff}
+        #indexTable thead th.fz{z-index:2;background:#f8fafc}
+        #indexTable tbody tr:hover td.fz{background:#f8fafc}
+        #indexTable .fz0{left:0}
+        #indexTable .fz1{left:var(--fz1,0px)}
+        #indexTable .fz2{left:var(--fz2,0px)}
+        #indexTable .fz3{left:var(--fz3,0px);border-right:1px solid #e2e8f0;box-shadow:6px 0 8px -6px rgba(15,23,42,.18)}
         /* Panel tab: animasi halus */
         .tab-panel{animation:tabIn .22s ease}
         @keyframes tabIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -1016,7 +1026,7 @@
                         <div class="flex flex-wrap items-center justify-between gap-3">
                             <div>
                                 <h3 class="text-[14px] font-semibold text-slate-900">Daftar Evaluasi per Engine</h3>
-                                <p class="mt-1 text-[11px] text-slate-500">Menampilkan <span id="indexCount" class="font-mono">0</span> engine • kolom ZPAS637 = rekap aktivitas engine yang sama pada periode &amp; filter aktif</p>
+                                <p class="mt-1 text-[11px] text-slate-500">Menampilkan <span id="indexCount" class="font-mono">0</span> engine • kolom ZPAS637 = rekap aktivitas engine yang sama pada periode &amp; filter aktif • 4 kolom pertama (Kode Engine–Jenis) tetap terlihat saat digeser</p>
                             </div>
                             <div class="flex flex-wrap items-center gap-2">
                                 <select id="indexJustifikasi" class="rounded-full border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-700 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
@@ -1041,14 +1051,14 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="mt-4 overflow-x-auto wide-table rounded-xl border border-slate-200">
-                            <table class="min-w-full text-[11px] tabular-nums">
+                        <div id="indexTableWrap" class="mt-4 overflow-x-auto wide-table rounded-xl border border-slate-200">
+                            <table id="indexTable" class="min-w-full text-[11px] tabular-nums">
                                 <thead class="bg-slate-50 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                                     <tr>
-                                        <th class="px-3 py-3 text-left whitespace-nowrap">Kode Engine</th>
-                                        <th class="px-3 py-3 text-left whitespace-nowrap">Wilayah</th>
-                                        <th class="px-3 py-3 text-left whitespace-nowrap">Lokasi</th>
-                                        <th class="px-3 py-3 text-left whitespace-nowrap">Jenis (sheet)</th>
+                                        <th class="px-3 py-3 text-left whitespace-nowrap fz fz0">Kode Engine</th>
+                                        <th class="px-3 py-3 text-left whitespace-nowrap fz fz1">Wilayah</th>
+                                        <th class="px-3 py-3 text-left whitespace-nowrap fz fz2">Lokasi</th>
+                                        <th class="px-3 py-3 text-left whitespace-nowrap fz fz3">Jenis (sheet)</th>
                                         <th class="px-3 py-3 text-left whitespace-nowrap">Tanggal</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">Solar (L)</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">Jam</th>

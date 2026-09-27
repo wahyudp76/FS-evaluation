@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.8.8 — Semua parameter chart/grafik tab Waktu & Utilisasi memakai rata-rata (donat, Air, Top)
-const VERSION = 'v1.8.8';
+// v1.8.9 — 4 kolom pertama tabel Index Solar beku (Kode Engine s.d. Jenis)
+const VERSION = 'v1.8.9';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 

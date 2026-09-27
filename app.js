@@ -2802,6 +2802,36 @@ function renderIndexKPI() {
     </div>`).join('');
   refreshIcons();
 }
+// Offset kolom beku tabel Index Solar: ukur lebar aktual 4 kolom pertama lalu simpan
+// sebagai --fz1..--fz3 pada <table> agar sel sticky menempel berurutan tanpa celah.
+let _indexFreezeBound = false;
+function syncIndexFreeze() {
+  if (!_indexFreezeBound) {
+    _indexFreezeBound = true;
+    window.addEventListener('resize', debounce(syncIndexFreeze, 200));
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => syncIndexFreeze()).catch(() => {});
+  }
+  const table = document.getElementById('indexTable');
+  if (!table || !table.offsetWidth) return;   // tab tersembunyi -> pertahankan offset lama
+  const ths = table.querySelectorAll('thead th');
+  if (ths.length < 4) return;
+  // Dalam auto-layout, offsetWidth sel = lebar kolomnya; pakai maks header & baris pertama.
+  // Abaikan baris colspan (status kosong) agar tidak mengacaukan pengukuran.
+  const firstCells = table.querySelectorAll('tbody tr:first-child td');
+  const pakaiBody = firstCells.length >= 4;
+  const widths = [];
+  for (let i = 0; i < 4; i++) {
+    const wTh = ths[i] ? ths[i].offsetWidth : 0;
+    const wTd = pakaiBody && firstCells[i] ? firstCells[i].offsetWidth : 0;
+    widths.push(Math.max(wTh, wTd));
+  }
+  if (!widths[0]) return;
+  let acc = 0;
+  for (let i = 0; i < 4; i++) {
+    if (i > 0) table.style.setProperty('--fz' + i, acc + 'px');
+    acc += widths[i];
+  }
+}
 function renderIndexTable() {
   const tbody = $('#indexTableBody');
   if (!tbody) return;
@@ -2818,6 +2848,7 @@ function renderIndexTable() {
 
   if (!pageRows.length) {
     tbody.innerHTML = '<tr><td colspan="14" class="px-4 py-10 text-center text-slate-400">Tidak ada engine yang cocok</td></tr>';
+    syncIndexFreeze();
     return;
   }
   const badge = (r) => {
@@ -2832,10 +2863,10 @@ function renderIndexTable() {
     const devWarna = !r.kalibrasi ? 'text-slate-400' : (r.deviasi > 0 ? 'text-red-600' : 'text-emerald-600');
     return `
     <tr class="hover:bg-slate-50/80 transition">
-      <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] font-semibold text-slate-900">${esc(r.engine)}</td>
-      <td class="px-3 py-2.5 whitespace-nowrap"><span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium">${esc(r.wilayah)}</span></td>
-      <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] text-slate-600">${esc(r.lokasi)}</td>
-      <td class="px-3 py-2.5 whitespace-nowrap text-[11px] text-slate-600">${esc(r.jenis)}</td>
+      <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] font-semibold text-slate-900 fz fz0">${esc(r.engine)}</td>
+      <td class="px-3 py-2.5 whitespace-nowrap fz fz1"><span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium">${esc(r.wilayah)}</span></td>
+      <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] text-slate-600 fz fz2">${esc(r.lokasi)}</td>
+      <td class="px-3 py-2.5 whitespace-nowrap text-[11px] text-slate-600 fz fz3">${esc(r.jenis)}</td>
       <td class="px-3 py-2.5 whitespace-nowrap text-[11px] text-slate-600">${esc(r.tanggalLabel || '-')}</td>
       <td class="px-3 py-2.5 text-right font-medium">${formatInt(r.solar)}</td>
       <td class="px-3 py-2.5 text-right">${formatNumber(r.jam, 1)}</td>
@@ -2848,6 +2879,7 @@ function renderIndexTable() {
       <td class="px-3 py-2.5 text-right text-[11px] text-slate-500">${r.zpN ? formatInt(r.zpN) + ' act • ' + formatNumber(r.zpLtrPerJam, 1) + ' L/j' : '-'}</td>
     </tr>`;
   }).join('');
+  syncIndexFreeze();
 }
 function renderIndexSolar() {
   safeRender('indexKpi', renderIndexKPI);
