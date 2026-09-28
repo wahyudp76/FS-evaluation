@@ -128,6 +128,7 @@ Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rinci
 - Chart "Air, Luas Siram & Solar per Bulan" mengikuti mode (rata-rata per aktivitas/hari atau total) — begitu pula donat Jenis Engine; daftar Top Engine/Irigator tetap berperingkat total tetapi tiap baris menampilkan rata-rata per aktivitas (v1.8.8).
 - Tabel "Daftar Evaluasi per Engine" membekukan 4 kolom identitas (Kode Engine, Wilayah, Lokasi, Jenis) saat scroll horizontal (v1.8.9).
 - Audit v1.9.0: parser mengenali desimal titik (`21.08` jam — Plan avg terkoreksi 111→16 jam); sidik jari hash penuh + probe baris terbawah (koreksi kecil pasti terdeteksi); tab Index mengikuti filter tahun/bulan; insight & scatter mengabaikan artefak rasio; CSS Tailwind statis + `app.js` minify saat deploy; animasi chart besar dimatikan; 5 titik XSS di-escape; ambang QA dinamis dari sheet live.
+- Peringatan kualitas data: nilai bertitik (`21.08`) yang terdeteksi saat sync memunculkan toast + badge di header; klik badge untuk panel rincian (sheet, kolom, baris, engine, nilai) (v1.10.0).
 
 ### Kolom beku & chart Performa Waktu (v1.8.1)
 - **Kolom Wilayah beku** pada tabel *Rincian Waktu per Wilayah* (tab Waktu & Utilisasi): saat tabel digeser horizontal untuk melihat kolom waktu berikutnya, kolom **Wilayah** tetap menempel di kiri (latar solid, garis pemisah + bayangan) — berlaku juga untuk baris kepala dan baris kaki rata-rata. Tabel memakai `border-collapse: separate` agar `sticky` berfungsi benar di Chrome.

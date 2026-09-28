@@ -369,6 +369,19 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
     return { sl: document.getElementById('indexTableWrap').scrollLeft, left: c.left - w.left };
   });
   check('freeze: kolom Jenis menempel saat scroll 400px', fzSc.sl >= 390 && fzSc.left > -2 && fzSc.left < 320, 'scrollLeft=' + fzSc.sl + ' jenisOff=' + Math.round(fzSc.left));
+  const dq = await page.evaluate(() => {
+    const b = document.getElementById('dqBadge');
+    return { tampil: !!b && !b.classList.contains('hidden'), teks: ((document.getElementById('dqBadgeText') || {}).textContent || '') };
+  });
+  check('kualitas data: badge peringatan titik tampil (data live mengandung nilai titik)', dq.tampil && /nilai titik/.test(dq.teks), dq.teks);
+  await page.evaluate(() => { const b = document.getElementById('dqBadge'); if (b) b.click(); });
+  await new Promise(r => setTimeout(r, 400));
+  const dqPanel = await page.evaluate(() => {
+    const ov = document.getElementById('dqOverlay');
+    return { tampil: !!ov && !ov.classList.contains('hidden'), isi: /ZPAS637/.test((document.getElementById('dqBody') || {}).innerText || '') };
+  });
+  check('kualitas data: panel rincian terbuka + memuat temuan sheet', dqPanel.tampil && dqPanel.isi);
+  await page.evaluate(() => { const x = document.getElementById('dqClose'); if (x) x.click(); });
   const lha = await page.evaluate(() => ({
     th: Array.from(document.querySelectorAll('#tab-indexsolar thead th')).map(th => th.textContent.trim()),
     kpi: (document.getElementById('indexKpiGrid') || {}).innerText || '',

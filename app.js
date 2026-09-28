@@ -293,6 +293,41 @@ function csvDateLetter(csv) {
   return null;
 }
 
+// ===== PERINGATAN KUALITAS DATA (v1.10.0) =====
+// Nilai bertitik ("21.08") terdeteksi saat parse; diringkas per kolom lalu ditampilkan
+// sebagai badge + panel rincian agar salah format di sheet cepat diperbaiki.
+let _dqCtx = null;        // konteks sel aktif {baris, kolom, tanggal, engine, wilayah}
+let _dqSheet = '';        // sheet yang sedang di-parse
+let _dqTemuan = [];       // contoh temuan mentah (dibatasi _DQ_BATAS)
+let _dqHitung = {};       // hitungan akurat per kolom (tak dibatasi)
+const _DQ_BATAS = 300;
+let dqRingkasan = null;   // {total, sheet: {nama: {total, kolom: {nama: {n, contoh:[...]}}}}}
+function _dqMulai(sheet) { _dqSheet = sheet; _dqTemuan = []; _dqHitung = {}; _dqCtx = null; }
+function _dqCatat(nilai) {
+  if (!_dqCtx) return;
+  const k = _dqCtx.kolom || '?';
+  _dqHitung[k] = (_dqHitung[k] || 0) + 1;
+  if (_dqTemuan.length >= _DQ_BATAS) return;
+  _dqTemuan.push({ baris: _dqCtx.baris, kolom: k, nilai: String(nilai).trim(),
+                   tanggal: _dqCtx.tanggal || '', engine: _dqCtx.engine || '', wilayah: _dqCtx.wilayah || '' });
+}
+function _dqSelesai() {
+  _dqCtx = null;
+  const keys = Object.keys(_dqHitung);
+  if (!keys.length) { _dqTemuan = []; return; }
+  if (!dqRingkasan) dqRingkasan = { total: 0, sheet: {} };
+  let S = dqRingkasan.sheet[_dqSheet];
+  if (!S) S = dqRingkasan.sheet[_dqSheet] = { total: 0, kolom: {} };
+  for (const k of keys) {
+    const contoh = [];
+    for (const t of _dqTemuan) { if (t.kolom === k && contoh.length < 5) contoh.push(t); }
+    S.kolom[k] = { n: _dqHitung[k], contoh };
+    S.total += _dqHitung[k];
+    dqRingkasan.total += _dqHitung[k];
+  }
+  _dqTemuan = []; _dqHitung = {};
+}
+
 // Angka gaya id-ID: "Rp2.332.240" -> 2332240 ; "2,05" -> 2.05 ; "1.234,5" -> 1234.5.
 // Sel pengecualian gaya EN ("21.08" jam, "16.5" liter) dibaca sebagai desimal (v1.9.0).
 // Dibuat manual (tanpa regex/replace/parseFloat) karena dipanggil >400.000x saat load.
@@ -345,6 +380,7 @@ function toNumFast(v) {
     }
   }
   if (!sawDigit) return 0;
+  if (decDot !== -1 && _dqCtx) _dqCatat(v);
   return sign * (int + frac);
 }
 
@@ -382,6 +418,7 @@ function buildRows(csvText, datesText) {
   const t0 = performance.now();
   const rows = parseCSVFast(csvText);
   if (rows.length < 2) throw new Error('CSV kosong / format tidak dikenal');
+  _dqMulai('ZPAS637');
   const header = rows[0].map(h => h.trim());
   const idx = {};
   for (let i = 0; i < header.length; i++) idx[header[i]] = i;
@@ -424,8 +461,13 @@ function buildRows(csvText, datesText) {
     const date = (ov && !isNaN(ov)) ? ov : parseShortDate(rawDate, fallbackYear);
     if (!date || isNaN(date)) continue;
     const g = (i) => (i === undefined || i < 0 || row[i] === undefined ? '' : row[i]);
-    const num = (i) => (i === undefined || i < 0 ? 0 : toNumFast(row[i]));
+    const num = (i) => {
+      if (i === undefined || i < 0) return 0;
+      if (_dqCtx) _dqCtx.kolom = header[i] || ('kolom ' + (i + 1));
+      return toNumFast(row[i]);
+    };
     const wilayah = g(cWil).trim(), engine = g(cEng).trim(), irigator = g(cIri).trim(), lokasi = g(cLok).trim();
+    _dqCtx = { baris: r + 1, kolom: '', tanggal: rawDate, engine, wilayah };
     const yr = date.getFullYear(), mo = date.getMonth();
     const d = {
       date,
@@ -460,6 +502,7 @@ function buildRows(csvText, datesText) {
       localStorage.setItem('pg2-year', String(maxY));
     } catch (e) {}
   }
+  _dqSelesai();
   console.debug('[data] CSV', rows.length - 1, 'baris ->', out.length, 'dipakai dalam', Math.round(performance.now() - t0), 'ms');
   return out;
 }
@@ -499,7 +542,8 @@ function parseIndexDate(str, fallbackYear) {
   return { label: t, date: fallback };
 }
 // Buang satuan "Liter" pada kolom Selisih -> angka
-function parseSelisih(v) {
+function parseSelisih(v, kolom) {
+  if (_dqCtx && kolom) _dqCtx.kolom = kolom;
   if (v === null || v === undefined || v === '') return 0;
   const t = String(v).replace(/[^0-9,.-]/g, '').trim();
   return toNumFast(t);
@@ -523,6 +567,7 @@ function parseIndexSolar(csvText) {
   const cJust = colIndex(headers, ['Justifikasi']);
   const cSel = colIndex(headers, ['Selisih']);
   if (cEngine < 0) { console.warn('[index solar] kolom "Kode Engine" tidak ditemukan'); return []; }
+  _dqMulai('Index Solar');
 
   let fallbackYear = new Date().getFullYear();
   try { const y = parseInt(localStorage.getItem('pg2-year'), 10); if (y) fallbackYear = y; } catch (e) {}
@@ -532,15 +577,17 @@ function parseIndexSolar(csvText) {
     const row = rows[r];
     if (!row || !row.length) continue;
     const g = (i) => (i < 0 || row[i] === undefined ? '' : String(row[i]).trim());
+    const numI = (i) => { if (_dqCtx) _dqCtx.kolom = (i >= 0 && headers[i]) ? headers[i] : '?'; return toNumFast(g(i)); };
     const engine = g(cEngine);
     if (!engine) continue;
-    const solar = toNumFast(g(cSolar));
-    const jam = toNumFast(g(cJam));
-    const kalibrasi = toNumFast(g(cKal));
+    _dqCtx = { baris: r + 1, kolom: '', tanggal: g(cDate), engine, wilayah: g(cWil) };
+    const solar = numI(cSolar);
+    const jam = numI(cJam);
+    const kalibrasi = numI(cKal);
     const justifikasiRaw = g(cJust);
     const wilayah = g(cWil);
     const tgl = parseIndexDate(g(cDate), fallbackYear);
-    const lpjSheet = toNumFast(g(cLpj));
+    const lpjSheet = numI(cLpj);
     const lpjAktual = jam > 0 ? solar / jam : 0;          // dihitung sendiri agar akurat
     const aktif = !/tidak/i.test(wilayah) && !/^tid$/i.test(g(cJenis)) && jam > 0;
     // Anomali: pemakaian jauh di atas kalibrasi (mis. salah input 46.258 L untuk 2 jam)
@@ -558,12 +605,13 @@ function parseIndexSolar(csvText) {
       jenis: g(cJenis) || '-',
       jenisIrigator: g(cJIri) || '-',
       solar, jam, kalibrasi, lpjSheet, lpjAktual,
-      selisih: parseSelisih(g(cSel)),
+      selisih: parseSelisih(g(cSel), (cSel >= 0 && headers[cSel]) ? headers[cSel] : '?'),
       deviasi: kalibrasi > 0 ? lpjAktual - kalibrasi : 0,
       justifikasi, aktif, anomali,
       _s: (engine + ' ' + g(cLok) + ' ' + g(cIri) + ' ' + wilayah + ' ' + g(cJenis) + ' ' + tgl.label).toLowerCase()
     });
   }
+  _dqSelesai();
   console.debug('[index solar]', out.length, 'engine dibaca (', out.filter(x => x.aktif).length, 'aktif )');
   return out;
 }
@@ -4319,6 +4367,74 @@ function buildExportCSV(rows) {
   return parts.join('\r\n');
 }
 
+// ===== UI PERINGATAN KUALITAS DATA =====
+let _dqToastSig = null;
+function renderDQBADGE() {
+  const badge = document.getElementById('dqBadge');
+  if (!badge) return;
+  if (!badge.dataset.bound) { badge.dataset.bound = '1'; badge.addEventListener('click', openDQPanel); }
+  const total = dqRingkasan ? dqRingkasan.total : 0;
+  if (!total) { badge.classList.add('hidden'); badge.classList.remove('inline-flex'); return; }
+  badge.classList.remove('hidden'); badge.classList.add('inline-flex');
+  const t = document.getElementById('dqBadgeText');
+  if (t) t.textContent = formatInt(total) + ' nilai titik';
+  refreshIcons();
+}
+function closeDQPanel() { const ov = document.getElementById('dqOverlay'); if (ov) ov.classList.add('hidden'); }
+function openDQPanel() {
+  if (!dqRingkasan || !dqRingkasan.total) return;
+  let ov = document.getElementById('dqOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'dqOverlay';
+    ov.className = 'fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm';
+    ov.innerHTML = '<div class="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-soft-lg" role="dialog" aria-modal="true" aria-label="Peringatan kualitas data">'
+      + '<div class="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">'
+      + '<div><div class="flex items-center gap-2 text-[14px] font-bold text-slate-900"><i data-lucide="alert-triangle" class="h-4 w-4 text-amber-500"></i>Peringatan Kualitas Data</div>'
+      + '<p class="mt-1 text-[11px] leading-relaxed text-slate-500">Nilai berikut memakai <b>titik</b> sebagai pemisah desimal (mis. <span class="font-mono">21.08</span>). Dashboard membacanya sebagai desimal (<span class="font-mono">21,08</span>) &mdash; tetapi format baku sheet adalah <b>koma</b>. Perbaiki di sheet agar konsisten; daftar ini diperbarui setiap sync.</p></div>'
+      + '<button id="dqClose" type="button" aria-label="Tutup" class="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"><i data-lucide="x" class="h-4 w-4"></i></button>'
+      + '</div><div id="dqBody" class="overflow-y-auto px-5 py-4"></div></div>';
+    document.body.appendChild(ov);
+    document.getElementById('dqClose').addEventListener('click', closeDQPanel);
+    ov.addEventListener('click', (e) => { if (e.target === ov) closeDQPanel(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDQPanel(); });
+  }
+  let html = '';
+  const sheets = dqRingkasan.sheet;
+  for (const nama of Object.keys(sheets)) {
+    const S = sheets[nama];
+    html += `<div class="mb-4"><div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Sheet ${esc(nama)} &bull; ${formatInt(S.total)} nilai</div>`;
+    for (const kolom of Object.keys(S.kolom)) {
+      const K = S.kolom[kolom];
+      html += `<div class="mt-2 rounded-xl border border-amber-200/70 bg-amber-50/50 px-3 py-2.5">`
+        + `<div class="flex items-center justify-between gap-2"><span class="text-[12px] font-semibold text-slate-800">${esc(kolom)}</span><span class="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-800">${formatInt(K.n)} nilai</span></div>`
+        + `<table class="mt-2 w-full text-[11px]"><thead><tr class="text-left text-[10px] uppercase tracking-wider text-slate-400"><th class="pb-1 pr-2 font-semibold">Baris</th><th class="pb-1 pr-2 font-semibold">Tanggal</th><th class="pb-1 pr-2 font-semibold">Engine</th><th class="pb-1 text-right font-semibold">Nilai</th></tr></thead><tbody>`;
+      for (const c of K.contoh) {
+        html += `<tr class="border-t border-amber-100/70"><td class="py-1 pr-2 font-mono text-slate-500">${c.baris}</td><td class="py-1 pr-2 text-slate-600">${esc(c.tanggal) || '-'}</td><td class="py-1 pr-2 font-mono text-slate-600">${esc(c.engine) || '-'}</td><td class="py-1 text-right font-mono font-semibold text-amber-700">${esc(c.nilai)}</td></tr>`;
+      }
+      html += `</tbody></table>${K.n > K.contoh.length ? `<div class="mt-1 text-[10px] text-slate-400">+ ${formatInt(K.n - K.contoh.length)} lagi (5 contoh pertama ditampilkan)</div>` : ''}</div>`;
+    }
+    html += `</div>`;
+  }
+  document.getElementById('dqBody').innerHTML = html;
+  ov.classList.remove('hidden');
+  refreshIcons();
+}
+function _dqSetelahParse(fromCache, awal) {
+  renderDQBADGE();
+  if (!dqRingkasan || !dqRingkasan.total) { _dqToastSig = '0'; return; }
+  const sig = dqRingkasan.total + '|' + Object.keys(dqRingkasan.sheet).map(s => s + ':' + dqRingkasan.sheet[s].total).join(',');
+  if (sig === _dqToastSig) return;   // temuan sama -> jangan toast berulang
+  _dqToastSig = sig;
+  if (!fromCache || awal) {
+    const sebut = Object.keys(dqRingkasan.sheet).map(s => {
+      const cols = Object.keys(dqRingkasan.sheet[s].kolom);
+      return s + ' (' + cols.slice(0, 2).join(', ') + (cols.length > 2 ? ', …' : '') + ')';
+    }).join('; ');
+    showToast(`Peringatan data: ${formatInt(dqRingkasan.total)} nilai memakai titik (bukan koma): ${sebut} — klik badge di header untuk rincian`, 'warn', 10000);
+  }
+}
+
 // Notifikasi ringan (tidak menutupi dashboard seperti overlay error)
 function showToast(message, type = 'info', ms = 6000) {
   let host = $('#toastHost');
@@ -4353,6 +4469,8 @@ function setSyncLabel(ts, fromCache) {
 // Terapkan payload ke dashboard: parse (sekali) + filter + render tab aktif
 function applyPayload(payload, { fromCache = false } = {}) {
   const t0 = performance.now();
+  const _awal = rawData.length === 0;
+  dqRingkasan = null;   // dihitung ulang tiap parse (peringatan kualitas data)
   let rows;
   if (payload.csv) { rows = buildRows(payload.csv, payload.dates); payload.csv = null; payload.dates = null; }
   else { rows = parseGvizJSON(payload.json); payload.json = null; }
@@ -4365,6 +4483,7 @@ function applyPayload(payload, { fromCache = false } = {}) {
   }
   payload.index = null;
   appliedSig = payload.sig;
+  _dqSetelahParse(fromCache, _awal);
   if (!filtersUIReady) { initFiltersUI(); initTabNav(); filtersUIReady = true; }
   lastMeta = { sig: payload.sig, ts: payload.ts, rows: rows.length, probe: payload.probe || null, fullTs: payload.ts };
   writeMeta(lastMeta);

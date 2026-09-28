@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.9.0 — audit: parser desimal EN, hash penuh, probe bawah, CSS statis, animasi hemat
-const VERSION = 'v1.9.0';
+// v1.10.0 — peringatan kualitas data: nilai bertitik terdeteksi saat sync + badge + panel rincian
+const VERSION = 'v1.10.0';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 
