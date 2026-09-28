@@ -2,6 +2,7 @@
 const puppeteer = require('/tmp/node/node_modules/puppeteer');
 const CHROME = '/home/user/.cache/puppeteer/chrome/linux-131.0.6778.204/chrome-linux64/chrome';
 const URL = process.argv[2] || 'http://localhost:8080/index.html';
+const GVIZ = 'https://docs.google.com/spreadsheets/d/1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o/gviz/tq';
 const fs = require('fs'); fs.mkdirSync('/tmp/qa', { recursive: true });
 const results = [];
 const check = (n, ok, extra = '') => { results.push({ n, ok: !!ok }); console.log((ok ? 'PASS  ' : 'FAIL  ') + n + (extra ? '  :: ' + extra : '')); };
@@ -21,7 +22,14 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   const total = await page.$eval('#rowCount', el => el.textContent.trim());
   console.log('rowCount:', total);
   const totalRows = parseInt(total.split('/')[1].replace(/\D/g, ''), 10);
-  check('data ZPAS637 baru termuat (12.730 baris)', totalRows === 12730, String(totalRows));
+  // v1.9.0: ambang dinamis dari sheet live (dulu angka mati 12730 yang usang)
+  let liveRows = 0;
+  try {
+    const probe = await (await fetch(`${GVIZ}?tq=${encodeURIComponent('select count(B)')}&tqx=out:json&sheet=ZPAS637`)).text();
+    liveRows = Number((probe.match(/"v":([\d.]+)/) || [])[1]) || 0;
+  } catch (e) {}
+  console.log('liveRows:', liveRows);
+  check('data ZPAS637 baru termuat (= jumlah baris sheet)', liveRows > 0 && totalRows === liveRows, `${totalRows} vs sheet ${liveRows}`);
 
   // ---- struktur tab ----
   const tabs = await page.$$eval('.tab-btn', els => els.map(e => e.dataset.tab));
@@ -334,7 +342,12 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   console.log('sample baris:', idx.rowsSample.join(' // '));
   console.log('legend:', (idx.legend || '').replace(/\n/g, ' | '));
   check('index solar: 6 kartu KPI (+ L/Ha)', idx.kpiCount === 6, String(idx.kpiCount));
-  check('index solar: 151 engine terbaca', idx.count === '151', String(idx.count));
+  let liveIndex = 0;
+  try {
+    const itx = await (await fetch(`${GVIZ}?tqx=out:csv&sheet=${encodeURIComponent('Index Solar')}`)).text();
+    liveIndex = itx.split('\n').filter(l => l.trim() !== '').length - 1;
+  } catch (e) {}
+  check('index solar: engine terbaca (= jumlah baris sheet)', liveIndex > 0 && parseInt(idx.count, 10) === liveIndex, `${idx.count} vs sheet ${liveIndex}`);
   check('index solar: tabel terisi (12 baris/halaman)', idx.rowsShown === 12, String(idx.rowsShown));
   check('index solar: legend hasil evaluasi terisi', /Hemat/.test(idx.legend || '') && /Boros/.test(idx.legend || ''));
   const fz = await page.evaluate(() => {

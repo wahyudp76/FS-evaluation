@@ -27,10 +27,14 @@
     <script>
       (function () {
         var base = 'https://docs.google.com/spreadsheets/d/1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o/gviz/tq';
-        var opts = { cache: 'no-store' };
         var grab = function (url) {
           try {
-            return fetch(url, opts).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); });
+            var ctrl = ('AbortController' in window) ? new AbortController() : null;
+            var p = fetch(url, ctrl ? { cache: 'no-store', signal: ctrl.signal } : { cache: 'no-store' })
+              .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); });
+            // v1.9.0: app.js dapat membatalkan unduhan awal sebelum mengulang (hindari unduhan ganda)
+            p.abort = function () { if (ctrl) { try { ctrl.abort(); } catch (e) {} } };
+            return p;
           } catch (e) { return null; }
         };
         window.__pgCsvEarly = grab(base + '?tqx=out:csv&sheet=ZPAS637');
@@ -43,28 +47,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter','system-ui','sans-serif'],
-                        mono: ['JetBrains Mono','monospace']
-                    },
-                    colors: {
-                        primary: { 50:'#f0fdf4', 100:'#dcfce7', 500:'#22c55e', 600:'#16a34a', 700:'#15803d' },
-                        ink: { 50:'#f8fafc', 100:'#f1f5f9', 800:'#1e293b', 900:'#0f172a' }
-                    },
-                    boxShadow: {
-                        'soft': '0 2px 20px -2px rgba(0,0,0,0.05), 0 1px 4px -1px rgba(0,0,0,0.03)',
-                        'soft-lg': '0 10px 40px -10px rgba(0,0,0,0.08), 0 4px 12px -4px rgba(0,0,0,0.05)'
-                    }
-                }
-            }
-        }
-    </script>
+    <!-- v1.9.0: CSS Tailwind statis (ganti Play CDN yang render-blocking + JIT saat runtime).
+         Dibangun ulang otomatis tiap deploy (lihat tailwind.config.js + .github/workflows/deploy.yml). -->
+    <link rel="stylesheet" href="./assets/tailwind.css">
     <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/lucide@0.454.0/dist/umd/lucide.min.js"></script>
     <style>
@@ -1181,10 +1166,19 @@
                             const newWorker = reg.installing;
                             newWorker.addEventListener('statechange', () => {
                                 if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                    // New content available, show prompt
-                                    if (confirm('Update dashboard tersedia! Reload untuk versi terbaru?')) {
-                                        window.location.reload();
-                                    }
+                                    // v1.9.0: banner non-blokir (ganti confirm() yang menghentikan interaksi)
+                                    try {
+                                        const bar = document.createElement('div');
+                                        bar.setAttribute('role', 'status');
+                                        bar.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:10px;background:#0f172a;color:#fff;font-size:12px;font-weight:500;padding:10px 12px 10px 16px;border-radius:999px;box-shadow:0 10px 30px -8px rgba(0,0,0,.35);';
+                                        bar.innerHTML = '<span>Update dashboard tersedia</span>';
+                                        const btn = document.createElement('button');
+                                        btn.textContent = 'Reload';
+                                        btn.style.cssText = 'background:#10b981;color:#fff;border:0;border-radius:999px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;';
+                                        btn.onclick = () => window.location.reload();
+                                        bar.appendChild(btn);
+                                        document.body.appendChild(bar);
+                                    } catch (e) { window.location.reload(); }
                                 }
                             });
                         });

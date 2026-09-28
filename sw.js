@@ -1,10 +1,12 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.8.9 — 4 kolom pertama tabel Index Solar beku (Kode Engine s.d. Jenis)
-const VERSION = 'v1.8.9';
+// v1.9.0 — audit: parser desimal EN, hash penuh, probe bawah, CSS statis, animasi hemat
+const VERSION = 'v1.9.0';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 
-const SHELL = ['./', './index.html', './app.js', './manifest.json', './assets/sample-data.csv'];
+// sample-data.csv (3,4 MB) TIDAK di-precache: hanya untuk fallback offline, diambil on-demand
+// (rute same-origin di bawah otomatis menyimpannya ke cache saat pertama dipakai).
+const SHELL = ['./', './index.html', './app.js', './manifest.json', './assets/tailwind.css'];
 
 const STATIC_ASSETS = [
   './assets/favicon.ico',

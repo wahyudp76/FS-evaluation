@@ -1,6 +1,6 @@
 // PG2 Irrigation Evaluation Dashboard - ZPAS637
 // Auto-sync to Google Sheets ID: 1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o
-// Updated: sheet ZPAS637 = 35 kolom A..AI (kolom bantu 'R Bulan' di A), parsing berbasis label
+// Updated: sheet ZPAS637 = 38 kolom A..AL (kolom bantu 'R ...' di A + 3 di ujung), parsing berbasis label
 const SPREADSHEET_ID = '1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o';
 const SHEET_NAME = 'ZPAS637';
 const GVIZ_BASE = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq`;
@@ -25,6 +25,7 @@ const META_KEY = 'pg2-meta-v1';
 const AUTO_SYNC_MS = 5 * 60 * 1000;
 const FULL_REFRESH_MS = 30 * 60 * 1000;   // unduhan penuh dipaksa maks. tiap 30 mnt (tangkap edit baris lama)
 const REQ_TIMEOUT_MS = 25000;
+const EARLY_GRACE_MS = 45000;   // unduhan awal sudah berjalan paling dulu -> tenggang longgar
 
 // State
 let rawData = [];
@@ -292,7 +293,8 @@ function csvDateLetter(csv) {
   return null;
 }
 
-// Angka gaya id-ID: "Rp2.332.240" -> 2332240 ; "2,05" -> 2.05 ; "1.234,5" -> 1234.5
+// Angka gaya id-ID: "Rp2.332.240" -> 2332240 ; "2,05" -> 2.05 ; "1.234,5" -> 1234.5.
+// Sel pengecualian gaya EN ("21.08" jam, "16.5" liter) dibaca sebagai desimal (v1.9.0).
 // Dibuat manual (tanpa regex/replace/parseFloat) karena dipanggil >400.000x saat load.
 function toNumFast(v) {
   if (v === null || v === undefined || v === '') return 0;
@@ -306,6 +308,22 @@ function toNumFast(v) {
   let c = v.charCodeAt(i);
   if (c === 45) { sign = -1; i++; }        // '-'
   else if (c === 43) { i++; }              // '+'
+  // Desimal gaya EN ("21.08", "16.5", "02.04"): tepat satu titik, tanpa koma, dan
+  // 1-2 digit setelah titik hingga akhir nilai -> titik adalah pemisah desimal.
+  // (v1.9.0: sebelumnya "21.08" terbaca 2108 sehingga rata-rata Plan 7x lipat.)
+  // "1.234" (3 digit) tetap dibaca 1234 mengikuti konvensi id-ID.
+  let decDot = -1;
+  if (v.indexOf(',', i) === -1) {
+    const d1 = v.indexOf('.', i);
+    if (d1 !== -1 && v.indexOf('.', d1 + 1) === -1) {
+      let digits = 0, j = d1 + 1;
+      while (j < n) { const cc = v.charCodeAt(j); if (cc < 48 || cc > 57) break; digits++; j++; }
+      if (digits === 1 || digits === 2) {
+        while (j < n && v.charCodeAt(j) === 32) j++;   // toleransi spasi akhir
+        if (j === n) decDot = d1;
+      }
+    }
+  }
   let int = 0, frac = 0, scale = 0, sawDigit = false, sawDec = false;
   for (; i < n; i++) {
     c = v.charCodeAt(i);
@@ -316,7 +334,8 @@ function toNumFast(v) {
       else int = int * 10 + dgt;
     } else if (c === 44) {                 // ',' = pemisah desimal (id-ID)
       if (!sawDec) sawDec = true;
-    } else if (c === 46) {                 // '.' = pemisah ribuan -> diabaikan
+    } else if (c === 46) {                 // '.' = pemisah ribuan -> diabaikan,
+      if (i === decDot && !sawDec) sawDec = true;  // kecuali desimal EN (terdeteksi di atas)
       continue;
     } else if (c === 32) {                 // spasi -> diabaikan
       continue;
@@ -625,26 +644,30 @@ function readMeta() {
   try { const m = JSON.parse(localStorage.getItem(META_KEY) || 'null'); return (m && m.sig) ? m : null; } catch (e) { return null; }
 }
 function writeMeta(meta) { try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {} }
-// Probe ringan (~2 KB): jumlah baris + 3 baris teratas kolom tanggal. Dipakai sync otomatis
-// agar unduhan penuh 4-5 MB dilewati bila data tidak berubah. Gagal probe = lanjut unduhan penuh.
+// Probe ringan (~3 KB, 3 kueri paralel): jumlah baris + 3 baris teratas + 3 baris terbawah
+// kolom tanggal. Baris teratas statis (data lama), baris terbawah menangkap data baru.
+// Dipakai sync otomatis agar unduhan penuh 4-5 MB dilewati bila data tidak berubah.
+// Gagal probe = lanjut unduhan penuh.
 const probeUrlFor = (q) => `${GVIZ_BASE}?tq=${encodeURIComponent(q)}&tqx=out:json&sheet=${SHEET_NAME}`;
 async function fetchProbeSig(letter) {
   try {
     const col = letter || DATE_COL;
-    const [a, b] = await Promise.all([
+    const [a, b, c] = await Promise.all([
       fetchText(probeUrlFor(`select count(${col})`), 12000),
-      fetchText(probeUrlFor(`select ${col} limit 3`), 12000)
+      fetchText(probeUrlFor(`select ${col} limit 3`), 12000),
+      fetchText(probeUrlFor(`select ${col} order by ${col} desc limit 3`), 12000)
     ]);
-    if (!a || !b) return null;
-    return fingerprint(a + '|' + b);
+    if (!a || !b || !c) return null;
+    return fingerprint(a + '|' + b + '|' + c);
   } catch (e) { return null; }
 }
 
-// Sidik jari ringan: panjang + sampel karakter (cukup untuk mendeteksi perubahan isi)
+// Sidik jari FNV-1a penuh atas seluruh isi: setiap perubahan 1 karakter terdeteksi.
+// (v1.9.0: sampling ~2.048 titik sebelumnya membuat koreksi kecil tak terdeteksi dan
+// tak pernah tampil; pindai penuh 4 MB hanya ~10-30 ms sekali per sync.)
 function fingerprint(text) {
   let h = 2166136261;
-  const step = Math.max(1, Math.floor(text.length / 2048));
-  for (let i = 0; i < text.length; i += step) { h ^= text.charCodeAt(i); h = (h * 16777619) >>> 0; }
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
   return text.length + ':' + h.toString(36);
 }
 
@@ -663,10 +686,13 @@ async function fetchPayload({ preferCache = false } = {}) {
   const earlyCsv = window.__pgCsvEarly, earlyDates = window.__pgDatesEarly;
   const indexPromise = fetchText(INDEX_URL).catch(() => null);   // ~13 KB, dijalankan paralel
   if (earlyCsv || earlyDates) {
-    const [c, d] = await Promise.all([
-      earlyCsv ? withTimeout(earlyCsv, REQ_TIMEOUT_MS, 'csv').catch(() => null) : Promise.resolve(null),
-      earlyDates ? withTimeout(earlyDates, REQ_TIMEOUT_MS, 'dates').catch(() => null) : Promise.resolve(null)
-    ]);
+    // Bila unduhan awal gagal, batalkan dulu sebelum mengulang (hindari dua unduhan
+    // besar berjalan bersamaan di jaringan lambat). promise awal membawa .abort().
+    const pakaiAwal = (p, nama) => p ? withTimeout(p, EARLY_GRACE_MS, nama).catch(() => {
+      try { if (p.abort) p.abort(); } catch (_e) {}
+      return null;
+    }) : Promise.resolve(null);
+    const [c, d] = await Promise.all([pakaiAwal(earlyCsv, 'csv'), pakaiAwal(earlyDates, 'dates')]);
     csv = c; dates = d;
     window.__pgCsvEarly = null; window.__pgDatesEarly = null;   // lepas teks besar dari memori
   }
@@ -1053,6 +1079,10 @@ function getIndexSolarView() {
   return memo('indexSolar:' + indexJust + ':' + indexSort + ':' + indexSearch, () => {
     const wFilter = filters.wilayah;
     const q = indexSearch ? indexSearch.toLowerCase() : null;
+    // v1.9.0: tab Index mengikuti filter tahun & bulan sidebar (rentang tanggal harian
+    // tidak diterapkan: baris Index adalah snapshot per engine, bukan aktivitas harian).
+    const yF = (filters.year !== 'all') ? parseInt(filters.year, 10) : null;
+    const mF = filters.months;
     const rows = [];
     // ringkasan aktivitas ZPAS637 per engine (mengikuti filter sidebar)
     const zp = {};
@@ -1065,6 +1095,8 @@ function getIndexSolarView() {
     for (let i = 0; i < indexData.length; i++) {
       const r = indexData[i];
       if (wFilter.size && !wFilter.has(r.wilayah)) continue;
+      if (yF !== null && !isNaN(yF) && r._y !== yF) continue;
+      if (mF.size && !mF.has(r._m)) continue;
       if (q && r._s.indexOf(q) === -1) continue;
       if (indexJust === 'Hemat' && !(r.aktif && r.justifikasi === 'Hemat' && !r.anomali)) continue;
       if (indexJust === 'Boros' && !(r.aktif && r.justifikasi === 'Boros' && !r.anomali)) continue;
@@ -2118,10 +2150,10 @@ function renderBiaya() {
       const termahal = [...list].filter(x=>x.luas>0).sort((a,b)=>b.rpPerHa-a.rpPerHa)[0];
       const terbesar = [...list].sort((a,b)=>b.biayaTotal-a.biayaTotal)[0];
       if (termurah && termahal) {
-        insights.push(`Biaya termurah <b>${termurah.wilayah}</b> ${formatRupiah(termurah.rpPerHa)}/Ha, termahal <b>${termahal.wilayah}</b> ${formatRupiah(termahal.rpPerHa)}/Ha (selisih ${formatNumber(termurah.rpPerHa ? (termahal.rpPerHa-termurah.rpPerHa)/termurah.rpPerHa*100 : 0,1)}%).`);
+        insights.push(`Biaya termurah <b>${esc(termurah.wilayah)}</b> ${formatRupiah(termurah.rpPerHa)}/Ha, termahal <b>${esc(termahal.wilayah)}</b> ${formatRupiah(termahal.rpPerHa)}/Ha (selisih ${formatNumber(termurah.rpPerHa ? (termahal.rpPerHa-termurah.rpPerHa)/termurah.rpPerHa*100 : 0,1)}%).`);
       }
       if (terbesar) {
-        insights.push(`Wilayah biaya terbesar: <b>${terbesar.wilayah}</b> ${formatRupiah(terbesar.biayaTotal)} (${formatNumber(terbesar.share,1)}% dari total) untuk ${formatNumber(terbesar.luas,1)} Ha.`);
+        insights.push(`Wilayah biaya terbesar: <b>${esc(terbesar.wilayah)}</b> ${formatRupiah(terbesar.biayaTotal)} (${formatNumber(terbesar.share,1)}% dari total) untuk ${formatNumber(terbesar.luas,1)} Ha.`);
       }
     }
     // komponen biaya dominan
@@ -2163,7 +2195,7 @@ function renderWilayahDetail() {
     miniCardsContainer.innerHTML = stats.slice(0,6).map(s=>`
       <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
         <div class="flex items-center justify-between">
-          <span class="text-[11px] font-bold text-slate-900">${s.wilayah}</span>
+          <span class="text-[11px] font-bold text-slate-900">${esc(s.wilayah)}</span>
           <span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200">${s.count} rec</span>
         </div>
         <div class="mt-2 grid grid-cols-2 gap-2 text-[10px]">
@@ -3223,11 +3255,20 @@ function ensureChart(id, config) {
   }
   // simpan konfigurasi label bar sebagai objek biasa (hindari proxy scriptable Chart.js)
   const cfgLabel = config && config.options && config.options.plugins && config.options.plugins.barLabels;
+  // Dataset besar (>60 titik): matikan animasi agar ganti filter/tab terasa instan.
+  // Chart kecil tetap beranimasi seperti biasa.
+  let _pts = 0;
+  try {
+    const _ds = (config.data && config.data.datasets) || [];
+    for (let i = 0; i < _ds.length; i++) _pts += ((_ds[i] && _ds[i].data && _ds[i].data.length) || 0);
+  } catch (_e) {}
+  const _big = _pts > 60;
+  if (_big && config.options) config.options.animation = false;
   if (charts[id]) {
     charts[id].data = config.data;
     charts[id].options = config.options;
     charts[id].$barLabels = cfgLabel || null;
-    charts[id].update();
+    charts[id].update(_big ? 'none' : undefined);
     return charts[id];
   } else {
     const chart = new Chart(ctx, config);
@@ -3528,7 +3569,15 @@ function renderCharts(tab) {
     }
   });
 
-  const scatterData = filteredData.slice(0,800).map(d=>({ x:d.haPerJam, y:d.solarPerHa, wilayah:d.wilayah }));
+  // Sampel merata (stride) maks 800 titik + buang artefak sumbu-Y (sheet memuat 12 nilai
+  // L/Ha >500 hingga 109.971 akibat pembagi ~nol; p99 hanya 66,7).
+  const scatterData = [];
+  const _scN = filteredData.length, _scStep = Math.max(1, Math.floor(_scN / 800));
+  for (let i = 0; i < _scN && scatterData.length < 800; i += _scStep) {
+    const d = filteredData[i];
+    if (d.solarPerHa > 500 || d.haPerJam > 5) continue;
+    scatterData.push({ x: d.haPerJam, y: d.solarPerHa, wilayah: d.wilayah });
+  }
   const wilayahColorMap = {};
   wilayahLabels.forEach((w,i)=>wilayahColorMap[w]=colors[i%colors.length]);
   if (want('chartScatter')) ensureChart('chartScatter', {
@@ -3734,21 +3783,26 @@ function renderInsights() {
   const container = $('#insights');
   if (!kpi) { container.innerHTML = '<div class="text-slate-400">Tidak ada data</div>'; return; }
   const agg = getAggregated(granularity);
-  const { worstSolar, bestEff } = memo('insightExtremes', () => {
-    let w = null, b = null;
+  const { worstSolar, worstRasio, bestEff } = memo('insightExtremes', () => {
+    let w = null, wR = -1, b = null;
+    // "Boros" dihitung ulang (solar : luas): kolom L/Ha sheet memuat artefak puluhan
+    // ribu akibat pembagi ~nol (mis. 109.971 L/Ha pada luas 0,42 Ha). Baris kecil diabaikan.
     for (let i = 0; i < filteredData.length; i++) {
       const d = filteredData[i];
-      if (!w || d.solarPerHa > w.solarPerHa) w = d;
-      if (!b || d.haPerJam > b.haPerJam) b = d;
+      if (d.luasSiram >= 0.5 && d.solarTerpakai > 0) {
+        const rasio = d.solarTerpakai / d.luasSiram;
+        if (rasio > wR) { w = d; wR = rasio; }
+      }
+      if (d.operatingTime >= 1 && (!b || d.haPerJam > b.haPerJam)) b = d;
     }
-    return { worstSolar: w, bestEff: b };
+    return { worstSolar: w, worstRasio: wR, bestEff: b };
   });
   const insights = [];
   insights.push(`Total <b>${formatNumber(kpi.totalLuasSiram,1)} Ha</b> disiram dengan <b>${formatInt(kpi.totalSolar)} L</b> solar dalam ${kpi.totalRecords} aktivitas.`);
   if (kpi.avgUtilization < 70) insights.push(`Utilisasi rendah <b>${formatNumber(kpi.avgUtilization,1)}%</b> - cek waiting & downtime.`);
   else insights.push(`Utilisasi baik <b>${formatNumber(kpi.avgUtilization,1)}%</b> dengan availability <b>${formatNumber(kpi.avgAvailability,1)}%</b>.`);
-  if (worstSolar) insights.push(`Boros tertinggi: <b>${worstSolar.engine}</b> di ${worstSolar.lokasi} dengan ${formatNumber(worstSolar.solarPerHa,1)} L/Ha.`);
-  if (bestEff) insights.push(`Produktif tertinggi: <b>${bestEff.engine}</b> ${formatNumber(bestEff.haPerJam,3)} Ha/Jam pada ${formatDate(bestEff.date)}.`);
+  if (worstSolar) insights.push(`Boros tertinggi: <b>${esc(worstSolar.engine)}</b> di ${esc(worstSolar.lokasi)} dengan ${formatNumber(worstRasio,1)} L/Ha.`);
+  if (bestEff) insights.push(`Produktif tertinggi: <b>${esc(bestEff.engine)}</b> ${formatNumber(bestEff.haPerJam,3)} Ha/Jam pada ${formatDate(bestEff.date)}.`);
   if (agg.length >=2) {
     const last = agg[agg.length-1], prev = agg[agg.length-2];
     const diff = last.totalSolar - prev.totalSolar;
@@ -3821,15 +3875,19 @@ function detailCell(col, d) {
 function renderTable() {
   const tbody = $('#dataTableBody');
   if (!tbody) return;
-  let data = filteredData.slice();
-  data.sort((a, b) => {
-    let av = a[sortField], bv = b[sortField];
-    if (sortField === 'date') { av = a.date; bv = b.date; }
-    if (av == null) av = ''; if (bv == null) bv = '';
-    if (typeof av === 'string') { av = av.toLowerCase(); bv = String(bv).toLowerCase(); }
-    if (av < bv) return sortDir === 'asc' ? -1 : 1;
-    if (av > bv) return sortDir === 'asc' ? 1 : -1;
-    return 0;
+  // Urutan di-memo per (kolom, arah, versi data): ganti halaman tidak menyortir ulang 13 rb baris.
+  const data = memo('tableSort:' + sortField + ':' + sortDir, () => {
+    const arr = filteredData.slice();
+    arr.sort((a, b) => {
+      let av = a[sortField], bv = b[sortField];
+      if (sortField === 'date') { av = a.date; bv = b.date; }
+      if (av == null) av = ''; if (bv == null) bv = '';
+      if (typeof av === 'string') { av = av.toLowerCase(); bv = String(bv).toLowerCase(); }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return arr;
   });
   const total = data.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -3904,6 +3962,7 @@ function scheduleIdlePrefetch() {
 
 function initFiltersUI() {
   if (rawData.length===0) return;
+  if (!$('#filterStart') || !$('#wilayahCheckboxes')) return;   // HTML tak lengkap -> pakai bawaan
   const dates = rawData.map(d=>d.date).sort((a,b)=>a-b);
   const minDate = dates[0], maxDate = dates[dates.length-1];
   $('#filterStart').value = formatDateISO(minDate);
@@ -4339,19 +4398,22 @@ async function loadData(opts = {}) {
   isSyncing = true;
   const first = rawData.length === 0;
   const overlay = $('#loadingOverlay');
-  if (first && !silent) overlay.style.display = 'flex';
+  if (overlay && first && !silent) overlay.style.display = 'flex';
   if (manual) {
     const btn = $('#btnSync');
     if (btn) { btn.innerHTML = '<i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i> Syncing'; refreshIcons(); }
   }
   try {
     const firstLoad = (rawData.length === 0);
-    // Sync otomatis (bukan load pertama / manual): cek probe ringan dulu.
-    // Unduhan penuh ~4-5 MB dilewati bila isi sheet tidak berubah.
+    // Probe ringan: mulai paralel sejak awal. Sync otomatis melewati unduhan penuh bila
+    // probe sama; sync manual tetap mengunduh tapi menyimpan probe agar sync otomatis
+    // berikutnya bisa melewati unduhan (v1.9.0: dulu probe manual = null).
     _pendingProbe = null;
+    let probePromise = firstLoad ? null : fetchProbeSig(dateLetter());
     if (!firstLoad && !manual) {
       try {
-        const probe = await fetchProbeSig(dateLetter());
+        const probe = await probePromise;
+        probePromise = null;
         const meta = readMeta();
         if (probe) {
           _pendingProbe = probe;
@@ -4381,6 +4443,7 @@ async function loadData(opts = {}) {
     }
     // 2) Data terbaru dari spreadsheet
     const payload = await netPromise;
+    if (probePromise) { try { _pendingProbe = await probePromise; } catch (e) {} probePromise = null; }
     const changed = payload.sig !== appliedSig;
     if (changed) {
       dataSource = 'live';
