@@ -45,7 +45,7 @@ const modeWaktu = () => WAKTU_MODES[waktuMode] || WAKTU_MODES.avgAkt;
 // Mode tampilan biaya pada tab "Analisa Biaya": total (bawaan), rata-rata per aktivitas, rata-rata per hari.
 // Rasio (Rp/Ha, Rp/Jam, Rp/Liter, % komposisi) tidak ikut dibagi.
 let biayaMode = 'total';
-let biayaMetric = 'total';
+let biayaMetric = 'avgTotal';   // v1.11.0: bawaan = rata-rata per aktivitas
 const BIAYA_MODES = {
   total:  { id:'total',  label:'Total',                satRp:'Rp',            satPendek:'Rp',           nilai:()=>1 },
   avgAkt: { id:'avgAkt', label:'Rata-rata / Aktivitas', satRp:'Rp/aktivitas',  satPendek:'Rp/akt',       nilai:g => g.count || 1 },
@@ -58,6 +58,7 @@ function bagiBiaya(g) {
 }
 function satuanMetrikBiaya(m) {
   if (m.tipe === 'rp')  return modeBiaya().satPendek;   // Rp | Rp/akt | Rp/hari
+  if (m.tipe === 'ra')  return 'Rp/aktivitas';            // rata-rata per aktivitas (tetap, tak ikut mode)
   if (m.tipe === 'rr')  return m.unit || 'Rp';          // rasio rupiah: Rp/Ha, Rp/Jam, Rp/Liter, Rp/Record
   if (m.tipe === 'vol') return m.satVol;                // Ha | L
   return '%';                                           // persentase (komposisi)
@@ -1327,6 +1328,10 @@ function getBiayaWilayahStatsRaw() {
       rpPerLiter: g.solar ? total/g.solar : 0,
       rpPerRec: g.count ? total/g.count : 0,
       avgLuas: g.count ? g.luas/g.count : 0,
+      avgBiayaTotal: g.count ? total/g.count : 0,
+      avgBiayaSolar: g.count ? g.biayaSolar/g.count : 0,
+      avgBiayaUpah: g.count ? g.biayaUpah/g.count : 0,
+      avgBiayaAlat: g.count ? g.biayaAlat/g.count : 0,
       pctSolar: total ? g.biayaSolar/total*100 : 0,
       pctUpah: total ? g.biayaUpah/total*100 : 0,
       pctAlat: total ? g.biayaAlat/total*100 : 0,
@@ -1403,6 +1408,10 @@ function getBiayaPerJenisRaw() {
       rpPerJam: g.operating ? total / g.operating : 0,
       rpPerLiter: g.solar ? total / g.solar : 0,
       rpPerRec: g.count ? total / g.count : 0,
+      avgBiayaTotal: g.count ? total / g.count : 0,
+      avgBiayaSolar: g.count ? g.biayaSolar / g.count : 0,
+      avgBiayaUpah: g.count ? g.biayaUpah / g.count : 0,
+      avgBiayaAlat: g.count ? g.biayaAlat / g.count : 0,
       pctSolar: total ? g.biayaSolar / total * 100 : 0,
       pctUpah: total ? g.biayaUpah / total * 100 : 0,
       pctAlat: total ? g.biayaAlat / total * 100 : 0,
@@ -1618,6 +1627,10 @@ const BIAYA_METRIC = {
   solar:      { label:'Biaya Solar',        k:'biayaSolar', tipe:'rp',   fmt:'rpshort', warna:'rgba(251,191,36,0.85)', color:'#92400e' },
   upah:       { label:'Biaya Upah',         k:'biayaUpah',  tipe:'rp',   fmt:'rpshort', warna:'rgba(59,130,246,0.8)',  color:'#1d4ed8' },
   alat:       { label:'Biaya Alat',         k:'biayaAlat',  tipe:'rp',   fmt:'rpshort', warna:'rgba(139,92,246,0.75)', color:'#6d28d9' },
+  avgTotal:   { label:'Rata-rata Biaya Total', k:'avgBiayaTotal', tipe:'ra', fmt:'rpshort', warna:'rgba(234,88,12,0.85)', color:'#c2410c' },
+  avgSolar:   { label:'Rata-rata Biaya Solar', k:'avgBiayaSolar', tipe:'ra', fmt:'rpshort', warna:'rgba(202,138,4,0.85)', color:'#a16207' },
+  avgUpah:    { label:'Rata-rata Biaya Upah',  k:'avgBiayaUpah',  tipe:'ra', fmt:'rpshort', warna:'rgba(37,99,235,0.8)',  color:'#1e40af' },
+  avgAlat:    { label:'Rata-rata Biaya Alat',  k:'avgBiayaAlat',  tipe:'ra', fmt:'rpshort', warna:'rgba(126,34,206,0.75)', color:'#6d28d9' },
   rpPerHa:    { label:'Rp/Ha (efisiensi)',  k:'rpPerHa',    tipe:'rr',   unit:'Rp/Ha',    fmt:'rpshort', warna:'rgba(16,185,129,0.85)', color:'#047857' },
   rpPerJam:   { label:'Rp/Jam Operasi',     k:'rpPerJam',   tipe:'rr',   unit:'Rp/Jam',   fmt:'rpshort', warna:'rgba(14,165,233,0.85)', color:'#0369a1' },
   rpPerLiter: { label:'Rp/Liter Solar',     k:'rpPerLiter', tipe:'rr',   unit:'Rp/Liter', fmt:'rpshort', warna:'rgba(244,63,94,0.8)',  color:'#be123c' },
@@ -1625,7 +1638,7 @@ const BIAYA_METRIC = {
   share:      { label:'% dari Total Biaya', k:'share',      tipe:'pct',  fmt:'pct1',    warna:'rgba(15,23,42,0.75)',  color:'#0f172a' },
   solarL:     { label:'Solar Terpakai',     k:'solar',      tipe:'vol',  satVol:'L', fmt:'int', warna:'rgba(245,158,11,0.8)', color:'#b45309' }
 };
-const BIAYA_METRIC_CEPAT = ['total', 'solar', 'alat', 'rpPerHa', 'rpPerJam', 'share'];
+const BIAYA_METRIC_CEPAT = ['avgTotal', 'avgSolar', 'avgUpah', 'avgAlat', 'total', 'solar', 'alat', 'rpPerHa', 'rpPerJam', 'share'];
 
 function renderBiayaPerformaChart() {
   const cv = document.getElementById('chartBiayaPerforma');
@@ -1640,7 +1653,7 @@ function renderBiayaPerformaChart() {
   // label batang: rupiah selalu ringkas (Rp 1,2 M / Rp 422 Rb) supaya tidak terpotong pada batang pendek
   const fmtLabel = m.fmt || 'rpshort';
   const satVolMode = m.tipe === 'vol' ? m.satVol + (biayaMode === 'avgAkt' ? '/aktivitas' : (biayaMode === 'avgHari' ? '/hari' : '')) : '';
-  const judulMetrik = m.label + (m.tipe === 'rp' ? ' (' + satuan + ')' : (m.tipe === 'vol' ? ' (' + satVolMode + ')' : (m.tipe === 'pct' ? ' (%)' : '')));
+  const judulMetrik = m.label + ((m.tipe === 'rp' || m.tipe === 'ra') ? ' (' + satuan + ')' : (m.tipe === 'vol' ? ' (' + satVolMode + ')' : (m.tipe === 'pct' ? ' (%)' : '')));
 
   ensureChart('chartBiayaPerforma', {
     type: 'bar',
@@ -1666,8 +1679,9 @@ function renderBiayaPerformaChart() {
           callbacks: {
             label: (ctx) => {
               const d = data[ctx.dataIndex];
-              const nilai = (m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + (m.tipe === 'vol' ? (satVolMode || m.satVol) : ''));
-              const komposisi = m.k === 'biayaTotal' ? ` • solar ${formatRupiahShort(d.w.biayaSolar)} + upah ${formatRupiahShort(d.w.biayaUpah)} + alat ${formatRupiahShort(d.w.biayaAlat)}` : '';
+              const nilai = (m.tipe === 'rp' || m.tipe === 'ra' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + (m.tipe === 'vol' ? (satVolMode || m.satVol) : ''));
+              const komposisi = m.k === 'biayaTotal' ? ` • solar ${formatRupiahShort(d.w.biayaSolar)} + upah ${formatRupiahShort(d.w.biayaUpah)} + alat ${formatRupiahShort(d.w.biayaAlat)}`
+                : (m.k === 'avgBiayaTotal' ? ` • solar ${formatRupiahShort(d.w.avgBiayaSolar)} + upah ${formatRupiahShort(d.w.avgBiayaUpah)} + alat ${formatRupiahShort(d.w.avgBiayaAlat)}` : '');
               return `${m.label}: ${nilai}${komposisi} • ${formatInt(d.w.count)} rec, ${formatInt(d.w.hari)} hari`;
             }
           }
@@ -1675,8 +1689,8 @@ function renderBiayaPerformaChart() {
       },
       scales: {
         x: { beginAtZero: true, grace: '18%', grid: { color: '#f1f5f9' },
-             ticks: { font: { size: 10 }, maxTicksLimit: 5, callback: v => ((m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiahShort(v) : (m.tipe === 'pct' ? v + '%' : v)) },
-             title: { display: true, text: (m.tipe === 'rp' ? satuan : (m.tipe === 'rr' ? m.unit : (m.tipe === 'vol' ? (satVolMode || m.satVol) : '% dari total'))), font: { size: 10 } } },
+             ticks: { font: { size: 10 }, maxTicksLimit: 5, callback: v => ((m.tipe === 'rp' || m.tipe === 'ra' || m.tipe === 'rr') ? formatRupiahShort(v) : (m.tipe === 'pct' ? v + '%' : v)) },
+             title: { display: true, text: ((m.tipe === 'rp' || m.tipe === 'ra') ? satuan : (m.tipe === 'rr' ? m.unit : (m.tipe === 'vol' ? (satVolMode || m.satVol) : '% dari total'))), font: { size: 10 } } },
         y: { grid: { display: false }, ticks: { font: { size: 11 } } }
       }
     }
@@ -1717,10 +1731,12 @@ function renderBiayaPerformaChart() {
   const note = document.getElementById('chartBiayaPerformaNote');
   if (note) {
     const tertinggi = data[0], terendah = data[data.length - 1];
-    const tulis = (d) => ((m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + (m.tipe === 'vol' ? (satVolMode || m.satVol) : '')));
-    note.textContent = (!ikutModeBiaya(m)
-      ? 'Rasio per wilayah (tidak mengikuti mode rata-rata/total). '
-      : (biayaMode === 'total' ? 'Nilai = total per wilayah. ' : `Nilai = rata-rata ${satuan} per wilayah (dibagi data wilayah itu sendiri). `)) +
+    const tulis = (d) => ((m.tipe === 'rp' || m.tipe === 'ra' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + (m.tipe === 'vol' ? (satVolMode || m.satVol) : '')));
+    note.textContent = (m.tipe === 'ra'
+      ? 'Rata-rata per aktivitas (total ÷ jumlah aktivitas per wilayah). Tidak mengikuti tombol mode. '
+      : (!ikutModeBiaya(m)
+        ? 'Rasio per wilayah (tidak mengikuti mode rata-rata/total). '
+        : (biayaMode === 'total' ? 'Nilai = total per wilayah. ' : `Nilai = rata-rata ${satuan} per wilayah (dibagi data wilayah itu sendiri). `))) +
       (tertinggi ? `Tertinggi: ${tertinggi.w.wilayah} — ${tulis(tertinggi)}` : '') +
       (terendah && terendah !== tertinggi ? ` • Terendah: ${terendah.w.wilayah} — ${tulis(terendah)}.` : '.');
   }
@@ -1850,36 +1866,39 @@ function renderWaktuEngineChart() {
 }
 
 // --- tab Analisa Biaya: performa biaya per jenis engine (nominal ikut mode biaya) ---
-let biayaEngineMetric = 'total';
+let biayaEngineMetric = 'avgTotal';
 function renderBiayaEngineChart() {
   gambarBarEngine({
     canvasId: 'chartBiayaEngine', selectId: 'biayaEngineMetric', chipsId: 'biayaEngineChips', noteId: 'chartBiayaEngineNote',
-    metrik: BIAYA_METRIC, bawaan: 'total',
-    cepat: ['total', 'solar', 'upah', 'alat', 'rpPerHa', 'rpPerJam'],
+    metrik: BIAYA_METRIC, bawaan: 'avgTotal',
+    cepat: ['avgTotal', 'avgSolar', 'avgUpah', 'avgAlat', 'total', 'solar', 'upah', 'alat', 'rpPerHa', 'rpPerJam'],
     getKey: () => biayaEngineMetric,
     setKey: (k) => { biayaEngineMetric = k; },
     rows: getBiayaPerJenis,
     bagi: (r, m) => (ikutModeBiaya(m) ? bagiBiaya(r) : 1),
     satuan: satuanMetrikBiaya,
     judul: (m, satuan) => {
-      if (m.tipe === 'rp') return m.label + ' (' + satuan + ')';
+      if (m.tipe === 'rp' || m.tipe === 'ra') return m.label + ' (' + satuan + ')';
       if (m.tipe === 'rr') return m.label;
       if (m.tipe === 'vol') return m.label + ' (' + m.satVol + ')';
       return m.label + ' (%)';
     },
-    tick: (v, m) => ((m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiahShort(v) : (m.tipe === 'pct' ? v + '%' : formatNumber(v, 2))),
-    xtitle: (m) => (m.tipe === 'rp' ? satuanMetrikBiaya(m) : (m.tipe === 'rr' ? m.unit : (m.tipe === 'vol' ? m.satVol : '% dari total'))),
+    tick: (v, m) => ((m.tipe === 'rp' || m.tipe === 'ra' || m.tipe === 'rr') ? formatRupiahShort(v) : (m.tipe === 'pct' ? v + '%' : formatNumber(v, 2))),
+    xtitle: (m) => ((m.tipe === 'rp' || m.tipe === 'ra') ? satuanMetrikBiaya(m) : (m.tipe === 'rr' ? m.unit : (m.tipe === 'vol' ? m.satVol : '% dari total'))),
     tooltip: (d, m, satuan) => {
-      const nilai = (m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + m.satVol);
-      const komp = m.k === 'biayaTotal' ? ` • solar ${formatRupiahShort(d.r.biayaSolar)} + upah ${formatRupiahShort(d.r.biayaUpah)} + alat ${formatRupiahShort(d.r.biayaAlat)}` : '';
+      const nilai = (m.tipe === 'rp' || m.tipe === 'ra' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + m.satVol);
+      const komp = m.k === 'biayaTotal' ? ` • solar ${formatRupiahShort(d.r.biayaSolar)} + upah ${formatRupiahShort(d.r.biayaUpah)} + alat ${formatRupiahShort(d.r.biayaAlat)}`
+        : (m.k === 'avgBiayaTotal' ? ` • solar ${formatRupiahShort(d.r.avgBiayaSolar)} + upah ${formatRupiahShort(d.r.avgBiayaUpah)} + alat ${formatRupiahShort(d.r.avgBiayaAlat)}` : '');
       return `${m.label}: ${nilai}${komp} • ${formatInt(d.r.count)} rec, ${formatInt(d.r.hari)} hari`;
     },
     note: (m, satuan, data) => {
       const atas = data[0], bawah = data[data.length - 1];
-      const tulis = (d) => ((m.tipe === 'rp' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + m.satVol));
-      const awalan = (!ikutModeBiaya(m)
-        ? 'Rasio per jenis engine (tidak mengikuti mode rata-rata/total). '
-        : (biayaMode === 'total' ? 'Nilai = total per jenis engine. ' : `Nilai = rata-rata ${satuan} per jenis engine (dibagi data jenis engine itu sendiri). `));
+      const tulis = (d) => ((m.tipe === 'rp' || m.tipe === 'ra' || m.tipe === 'rr') ? formatRupiah(d.v) : (m.tipe === 'pct' ? formatNumber(d.v, 1) + '%' : formatNumber(d.v, 2) + ' ' + m.satVol));
+      const awalan = (m.tipe === 'ra'
+        ? 'Rata-rata per aktivitas (total ÷ jumlah aktivitas per jenis engine). Tidak mengikuti tombol mode. '
+        : (!ikutModeBiaya(m)
+          ? 'Rasio per jenis engine (tidak mengikuti mode rata-rata/total). '
+          : (biayaMode === 'total' ? 'Nilai = total per jenis engine. ' : `Nilai = rata-rata ${satuan} per jenis engine (dibagi data jenis engine itu sendiri). `)));
       return awalan + (atas ? `Tertinggi: ${atas.r.nama} — ${tulis(atas)}` : '') + (bawah && bawah !== atas ? ` • Terendah: ${bawah.r.nama} — ${tulis(bawah)}.` : '.');
     }
   });

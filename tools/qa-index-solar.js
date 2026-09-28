@@ -203,7 +203,7 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
     chip: Array.from(document.querySelectorAll('#biayaMetricChips [data-biaya-metric]')).map(b => b.textContent.trim()),
     chipAktif: (document.querySelector('#biayaMetricChips [aria-pressed="true"]') || {}).textContent
   }));
-  check('biaya: metrik "Luas Siram" diganti "Rp/Jam"', metrikBiaya.opsi.indexOf('Luas Siram') === -1 && metrikBiaya.opsi.indexOf('Rp/Jam Operasi') !== -1 && metrikBiaya.opsi.length === 10, metrikBiaya.opsi.length + ' metrik • ' + metrikBiaya.opsi.join(' | '));
+  check('biaya: 14 metrik (+ 4 rata-rata per aktivitas)', metrikBiaya.opsi.indexOf('Luas Siram') === -1 && metrikBiaya.opsi.indexOf('Rp/Jam Operasi') !== -1 && metrikBiaya.opsi.length === 14 && metrikBiaya.opsi.indexOf('Rata-rata Biaya Solar') !== -1, metrikBiaya.opsi.length + ' metrik • ' + metrikBiaya.opsi.join(' | '));
   check('biaya: tombol cepat memuat Rp/Jam', metrikBiaya.chip.indexOf('Rp/Jam Operasi') !== -1, metrikBiaya.chip.join(' | '));
 
   // ganti metrik ke Rp/Ha (rasio, tidak ikut mode)
@@ -267,6 +267,34 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   }));
   check('biaya: kembali ke mode Total & metrik Biaya Total', balik.mode === 'Total' && /Biaya Total \(Rp\)/.test(balik.satuan), JSON.stringify(balik));
 
+  // metrik rata-rata per aktivitas (v1.11.0): label, catatan, nilai = total ÷ aktivitas
+  await page.evaluate(() => document.querySelector('[data-biaya-metric="avgSolar"]').click());
+  await new Promise(r => setTimeout(r, 900));
+  const avgAwal = await page.evaluate(() => {
+    const c = window.Chart.getChart(document.getElementById('chartBiayaPerforma'));
+    return { satuan: c.data.datasets[0].label, nilai: c.data.datasets[0].data[0], note: document.getElementById('chartBiayaPerformaNote').textContent };
+  });
+  check('biaya: metrik rata-rata per aktivitas (label Rp/aktivitas + catatan)', /Rata-rata Biaya Solar \(Rp\/aktivitas\)/.test(avgAwal.satuan) && avgAwal.nilai > 0 && /per aktivitas/.test(avgAwal.note), JSON.stringify(avgAwal).slice(0, 160));
+  await page.evaluate(() => document.querySelector('[data-biaya="avgHari"]').click());
+  await new Promise(r => setTimeout(r, 1200));
+  const avgMode = await page.evaluate(() => {
+    const c = window.Chart.getChart(document.getElementById('chartBiayaPerforma'));
+    return { satuan: c.data.datasets[0].label, nilai: c.data.datasets[0].data[0] };
+  });
+  check('biaya: metrik rata-rata tidak berubah saat mode tab diganti', avgMode.nilai === avgAwal.nilai && avgMode.satuan === avgAwal.satuan, `mode Total ${avgAwal.nilai} vs mode Rata-rata/hari ${avgMode.nilai}`);
+  await page.evaluate(() => { document.querySelector('[data-biaya="total"]').click(); document.querySelector('[data-biaya-metric="avgTotal"]').click(); });
+  await new Promise(r => setTimeout(r, 900));
+  const avgKali = await page.evaluate(() => {
+    const c = window.Chart.getChart(document.getElementById('chartBiayaPerforma'));
+    const w = c.data.labels[0], v = c.data.datasets[0].data[0];
+    const baris = Array.from(document.querySelectorAll('#biayaWilayahBody tr')).map(tr => Array.from(tr.children).map(td => td.textContent.trim()));
+    const r = baris.find(r => r[0] === w);
+    const angka = (x) => Number(String(x).replace(/\./g, '')) || 0;
+    return { w, v, count: r ? angka(r[1]) : 0, total: r ? angka(r[7]) : 0 };
+  });
+  check('biaya: rata-rata = total ÷ aktivitas (cocok kolom tabel)', avgKali.count > 0 && Math.abs(avgKali.v * avgKali.count - avgKali.total) < Math.max(2, avgKali.total * 0.002), `${avgKali.w}: chart ${Math.round(avgKali.v)} × ${avgKali.count} akt = ${Math.round(avgKali.v * avgKali.count)} vs tabel ${avgKali.total}`);
+  await page.evaluate(() => document.querySelector('[data-biaya-metric="total"]').click());
+
   // ---- CHART BAR PER JENIS ENGINE (v1.8.5) di ketiga tab ----
   const cekEngine = async (tab, chartId, selId, chipsId, noteId, kodeChip) => {
     await page.evaluate((t) => document.querySelector(`[data-tab="${t}"]`).click(), tab);
@@ -295,7 +323,7 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   };
 
   const engBiaya = await cekEngine('biaya', 'chartBiayaEngine', 'biayaEngineMetric', '#biayaEngineChips', 'chartBiayaEngineNote', 'rpPerJam');
-  check('engine: chart performa biaya per jenis engine terisi & terurut', !!engBiaya.awal && engBiaya.awal.label.length >= 3 && engBiaya.awal.urut && engBiaya.awal.tertulis === engBiaya.awal.batang && engBiaya.awal.opsiMetrik === 10, JSON.stringify(engBiaya.awal).slice(0, 150));
+  check('engine: chart performa biaya per jenis engine terisi & terurut', !!engBiaya.awal && engBiaya.awal.label.length >= 3 && engBiaya.awal.urut && engBiaya.awal.tertulis === engBiaya.awal.batang && engBiaya.awal.opsiMetrik === 14, JSON.stringify(engBiaya.awal).slice(0, 150));
   check('engine: metrik biaya per jenis engine bisa diganti (chips + satuan rasio)', /Rp\/Jam/.test(engBiaya.ganti.dataset) && engBiaya.ganti.nilai > 0 && /Rasio per jenis engine/.test(engBiaya.ganti.note), `${engBiaya.ganti.dataset} • tertinggi ${engBiaya.ganti.atas} = ${Math.round(engBiaya.ganti.nilai)}`);
 
   const engWaktu = await cekEngine('utilisasi', 'chartWaktuEngine', 'waktuEngineMetric', '#waktuEngineChips', 'chartWaktuEngineNote', 'util');

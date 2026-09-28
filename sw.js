@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.10.0 — peringatan kualitas data: nilai bertitik terdeteksi saat sync + badge + panel rincian
-const VERSION = 'v1.10.0';
+// v1.11.0 — 4 metrik rata-rata biaya per aktivitas di 2 chart performa tab Biaya
+const VERSION = 'v1.11.0';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 
