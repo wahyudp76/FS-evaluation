@@ -297,36 +297,31 @@ function csvDateLetter(csv) {
 // ===== PERINGATAN KUALITAS DATA (v1.10.0) =====
 // Nilai bertitik ("21.08") terdeteksi saat parse; diringkas per kolom lalu ditampilkan
 // sebagai badge + panel rincian agar salah format di sheet cepat diperbaiki.
-let _dqCtx = null;        // konteks sel aktif {baris, kolom, tanggal, engine, wilayah}
+let _dqCtx = null;        // konteks sel aktif {kolom, huruf}
 let _dqSheet = '';        // sheet yang sedang di-parse
-let _dqTemuan = [];       // contoh temuan mentah (dibatasi _DQ_BATAS)
-let _dqHitung = {};       // hitungan akurat per kolom (tak dibatasi)
-const _DQ_BATAS = 300;
-let dqRingkasan = null;   // {total, sheet: {nama: {total, kolom: {nama: {n, contoh:[...]}}}}}
-function _dqMulai(sheet) { _dqSheet = sheet; _dqTemuan = []; _dqHitung = {}; _dqCtx = null; }
-function _dqCatat(nilai) {
+let _dqHitung = {};       // hitungan error per kolom {namaKolom: n}
+let _dqHuruf = {};        // huruf kolom spreadsheet {namaKolom: 'H'}
+let dqRingkasan = null;   // {total, sheet: {nama: {total, kolom: {nama: {n, huruf}}}}}
+function _dqMulai(sheet) { _dqSheet = sheet; _dqHitung = {}; _dqHuruf = {}; _dqCtx = null; }
+function _dqCatat() {
   if (!_dqCtx) return;
   const k = _dqCtx.kolom || '?';
   _dqHitung[k] = (_dqHitung[k] || 0) + 1;
-  if (_dqTemuan.length >= _DQ_BATAS) return;
-  _dqTemuan.push({ baris: _dqCtx.baris, kolom: k, nilai: String(nilai).trim(),
-                   tanggal: _dqCtx.tanggal || '', engine: _dqCtx.engine || '', wilayah: _dqCtx.wilayah || '' });
+  if (_dqHuruf[k] === undefined) _dqHuruf[k] = _dqCtx.huruf || '?';
 }
 function _dqSelesai() {
   _dqCtx = null;
   const keys = Object.keys(_dqHitung);
-  if (!keys.length) { _dqTemuan = []; return; }
+  if (!keys.length) return;
   if (!dqRingkasan) dqRingkasan = { total: 0, sheet: {} };
   let S = dqRingkasan.sheet[_dqSheet];
   if (!S) S = dqRingkasan.sheet[_dqSheet] = { total: 0, kolom: {} };
   for (const k of keys) {
-    const contoh = [];
-    for (const t of _dqTemuan) { if (t.kolom === k && contoh.length < 5) contoh.push(t); }
-    S.kolom[k] = { n: _dqHitung[k], contoh };
+    S.kolom[k] = { n: _dqHitung[k], huruf: _dqHuruf[k] || '?' };
     S.total += _dqHitung[k];
     dqRingkasan.total += _dqHitung[k];
   }
-  _dqTemuan = []; _dqHitung = {};
+  _dqHitung = {}; _dqHuruf = {};
 }
 
 // Angka gaya id-ID: "Rp2.332.240" -> 2332240 ; "2,05" -> 2.05 ; "1.234,5" -> 1234.5.
@@ -381,7 +376,7 @@ function toNumFast(v) {
     }
   }
   if (!sawDigit) return 0;
-  if (decDot !== -1 && _dqCtx) _dqCatat(v);
+  if (decDot !== -1 && _dqCtx) _dqCatat();
   return sign * (int + frac);
 }
 
@@ -464,11 +459,11 @@ function buildRows(csvText, datesText) {
     const g = (i) => (i === undefined || i < 0 || row[i] === undefined ? '' : row[i]);
     const num = (i) => {
       if (i === undefined || i < 0) return 0;
-      if (_dqCtx) _dqCtx.kolom = header[i] || ('kolom ' + (i + 1));
+      if (_dqCtx) { _dqCtx.kolom = header[i] || ('kolom ' + (i + 1)); _dqCtx.huruf = colLetter(i); }
       return toNumFast(row[i]);
     };
     const wilayah = g(cWil).trim(), engine = g(cEng).trim(), irigator = g(cIri).trim(), lokasi = g(cLok).trim();
-    _dqCtx = { baris: r + 1, kolom: '', tanggal: rawDate, engine, wilayah };
+    _dqCtx = { kolom: '', huruf: '' };
     const yr = date.getFullYear(), mo = date.getMonth();
     const d = {
       date,
@@ -543,8 +538,8 @@ function parseIndexDate(str, fallbackYear) {
   return { label: t, date: fallback };
 }
 // Buang satuan "Liter" pada kolom Selisih -> angka
-function parseSelisih(v, kolom) {
-  if (_dqCtx && kolom) _dqCtx.kolom = kolom;
+function parseSelisih(v, i, headers) {
+  if (_dqCtx) { _dqCtx.kolom = (i >= 0 && headers[i]) ? headers[i] : '?'; _dqCtx.huruf = i >= 0 ? colLetter(i) : '?'; }
   if (v === null || v === undefined || v === '') return 0;
   const t = String(v).replace(/[^0-9,.-]/g, '').trim();
   return toNumFast(t);
@@ -578,10 +573,10 @@ function parseIndexSolar(csvText) {
     const row = rows[r];
     if (!row || !row.length) continue;
     const g = (i) => (i < 0 || row[i] === undefined ? '' : String(row[i]).trim());
-    const numI = (i) => { if (_dqCtx) _dqCtx.kolom = (i >= 0 && headers[i]) ? headers[i] : '?'; return toNumFast(g(i)); };
+    const numI = (i) => { if (_dqCtx) { _dqCtx.kolom = (i >= 0 && headers[i]) ? headers[i] : '?'; _dqCtx.huruf = i >= 0 ? colLetter(i) : '?'; } return toNumFast(g(i)); };
     const engine = g(cEngine);
     if (!engine) continue;
-    _dqCtx = { baris: r + 1, kolom: '', tanggal: g(cDate), engine, wilayah: g(cWil) };
+    _dqCtx = { kolom: '', huruf: '' };
     const solar = numI(cSolar);
     const jam = numI(cJam);
     const kalibrasi = numI(cKal);
@@ -606,7 +601,7 @@ function parseIndexSolar(csvText) {
       jenis: g(cJenis) || '-',
       jenisIrigator: g(cJIri) || '-',
       solar, jam, kalibrasi, lpjSheet, lpjAktual,
-      selisih: parseSelisih(g(cSel), (cSel >= 0 && headers[cSel]) ? headers[cSel] : '?'),
+      selisih: parseSelisih(g(cSel), cSel, headers),
       deviasi: kalibrasi > 0 ? lpjAktual - kalibrasi : 0,
       justifikasi, aktif, anomali,
       _s: (engine + ' ' + g(cLok) + ' ' + g(cIri) + ' ' + wilayah + ' ' + g(cJenis) + ' ' + tgl.label).toLowerCase()
@@ -4397,6 +4392,12 @@ function renderDQBADGE() {
   badge.classList.remove('hidden'); badge.classList.add('inline-flex');
   const t = document.getElementById('dqBadgeText');
   if (t) t.textContent = formatInt(total) + ' nilai titik';
+  try {
+    const sheets = dqRingkasan.sheet;
+    const daftar = [];
+    for (const s of Object.keys(sheets)) for (const k of Object.keys(sheets[s].kolom)) daftar.push(`kolom ${sheets[s].kolom[k].huruf}: ${formatInt(sheets[s].kolom[k].n)}`);
+    badge.title = `Jumlah error: ${formatInt(total)} data — ` + daftar.slice(0, 4).join(', ') + (daftar.length > 4 ? ', …' : '');
+  } catch (e) {}
   refreshIcons();
 }
 function closeDQPanel() { const ov = document.getElementById('dqOverlay'); if (ov) ov.classList.add('hidden'); }
@@ -4418,20 +4419,22 @@ function openDQPanel() {
     ov.addEventListener('click', (e) => { if (e.target === ov) closeDQPanel(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDQPanel(); });
   }
-  let html = '';
   const sheets = dqRingkasan.sheet;
-  for (const nama of Object.keys(sheets)) {
+  const namaSheet = Object.keys(sheets);
+  let nKolom = 0;
+  for (const s of namaSheet) nKolom += Object.keys(sheets[s].kolom).length;
+  let html = `<div class="mb-4 rounded-xl border border-amber-200/70 bg-amber-50/60 px-4 py-3">`
+    + `<div class="text-[13px] font-bold text-slate-900">Jumlah error: ${formatInt(dqRingkasan.total)} data</div>`
+    + `<div class="mt-0.5 text-[11px] text-slate-500">${nKolom} kolom bermasalah</div></div>`;
+  for (const nama of namaSheet) {
     const S = sheets[nama];
-    html += `<div class="mb-4"><div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Sheet ${esc(nama)} &bull; ${formatInt(S.total)} nilai</div>`;
+    const nK = Object.keys(S.kolom).length;
+    html += `<div class="mb-3"><div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Sheet ${esc(nama)} &bull; ${formatInt(S.total)} data &bull; ${nK} kolom</div>`;
     for (const kolom of Object.keys(S.kolom)) {
       const K = S.kolom[kolom];
-      html += `<div class="mt-2 rounded-xl border border-amber-200/70 bg-amber-50/50 px-3 py-2.5">`
-        + `<div class="flex items-center justify-between gap-2"><span class="text-[12px] font-semibold text-slate-800">${esc(kolom)}</span><span class="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-800">${formatInt(K.n)} nilai</span></div>`
-        + `<table class="mt-2 w-full text-[11px]"><thead><tr class="text-left text-[10px] uppercase tracking-wider text-slate-400"><th class="pb-1 pr-2 font-semibold">Baris</th><th class="pb-1 pr-2 font-semibold">Tanggal</th><th class="pb-1 pr-2 font-semibold">Engine</th><th class="pb-1 text-right font-semibold">Nilai</th></tr></thead><tbody>`;
-      for (const c of K.contoh) {
-        html += `<tr class="border-t border-amber-100/70"><td class="py-1 pr-2 font-mono text-slate-500">${c.baris}</td><td class="py-1 pr-2 text-slate-600">${esc(c.tanggal) || '-'}</td><td class="py-1 pr-2 font-mono text-slate-600">${esc(c.engine) || '-'}</td><td class="py-1 text-right font-mono font-semibold text-amber-700">${esc(c.nilai)}</td></tr>`;
-      }
-      html += `</tbody></table>${K.n > K.contoh.length ? `<div class="mt-1 text-[10px] text-slate-400">+ ${formatInt(K.n - K.contoh.length)} lagi (5 contoh pertama ditampilkan)</div>` : ''}</div>`;
+      html += `<div class="mt-1.5 flex items-center justify-between gap-2 rounded-xl border border-amber-200/70 bg-amber-50/50 px-3 py-2">`
+        + `<span class="text-[12px] text-slate-700">Kolom <span class="font-mono font-bold text-slate-900">${esc(K.huruf)}</span> <span class="text-slate-500">(${esc(kolom)})</span></span>`
+        + `<span class="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-800">${formatInt(K.n)} data</span></div>`;
     }
     html += `</div>`;
   }
@@ -4446,11 +4449,17 @@ function _dqSetelahParse(fromCache, awal) {
   if (sig === _dqToastSig) return;   // temuan sama -> jangan toast berulang
   _dqToastSig = sig;
   if (!fromCache || awal) {
-    const sebut = Object.keys(dqRingkasan.sheet).map(s => {
-      const cols = Object.keys(dqRingkasan.sheet[s].kolom);
-      return s + ' (' + cols.slice(0, 2).join(', ') + (cols.length > 2 ? ', …' : '') + ')';
-    }).join('; ');
-    showToast(`Peringatan data: ${formatInt(dqRingkasan.total)} nilai memakai titik (bukan koma): ${sebut} — klik badge di header untuk rincian`, 'warn', 10000);
+    const sheets = dqRingkasan.sheet;
+    const multi = Object.keys(sheets).length > 1;
+    const daftar = [];
+    for (const s of Object.keys(sheets)) {
+      for (const k of Object.keys(sheets[s].kolom)) {
+        const K = sheets[s].kolom[k];
+        daftar.push((multi ? s + ' ' : '') + `kolom ${K.huruf} (${k}): ${formatInt(K.n)}`);
+      }
+    }
+    const potong = daftar.slice(0, 3).join(', ') + (daftar.length > 3 ? `, +${daftar.length - 3} kolom lain` : '');
+    showToast(`Peringatan data: ${formatInt(dqRingkasan.total)} nilai bertitik di ${daftar.length} kolom — ${potong}. Klik badge di header untuk rincian`, 'warn', 10000);
   }
 }
 

@@ -406,9 +406,10 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   await new Promise(r => setTimeout(r, 400));
   const dqPanel = await page.evaluate(() => {
     const ov = document.getElementById('dqOverlay');
-    return { tampil: !!ov && !ov.classList.contains('hidden'), isi: /ZPAS637/.test((document.getElementById('dqBody') || {}).innerText || '') };
+    return { tampil: !!ov && !ov.classList.contains('hidden'), isi: /ZPAS637/.test((document.getElementById('dqBody') || {}).innerText || ''), huruf: /Kolom H/.test((document.getElementById('dqBody') || {}).innerText || '') };
   });
   check('kualitas data: panel rincian terbuka + memuat temuan sheet', dqPanel.tampil && dqPanel.isi);
+  check('kualitas data: panel menyebut huruf kolom (mis. Kolom H)', dqPanel.huruf);
   await page.evaluate(() => { const x = document.getElementById('dqClose'); if (x) x.click(); });
   const lha = await page.evaluate(() => ({
     th: Array.from(document.querySelectorAll('#tab-indexsolar thead th')).map(th => th.textContent.trim()),
@@ -508,7 +509,13 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   const sumber = await page.evaluate(async () => {
     const urlGviz = 'https://docs.google.com/spreadsheets/d/1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o/gviz/tq?tqx=out:csv&sheet=ZPAS637&cb=' + Math.random();
     const txt = await (await fetch(urlGviz)).text();
-    const barisSheet = txt.split('\n').filter(l => l.trim() !== '').length;   // termasuk header
+    // v1.12.0: hanya baris ber-tanggal (kolom Date = kolom ke-2 CSV); baris buntut
+    // berisi rumus tanpa tanggal/wilayah/engine dikecualikan seperti di dashboard
+    const barisSheet = txt.split('\n').filter(l => {
+      if (!l.trim()) return false;
+      const m = l.match(/^("(?:[^"]|"")*"),("(?:[^"]|"")*")/);
+      return m && m[2] !== '""';
+    }).length;   // termasuk header
     const pakaiContoh = performance.getEntriesByType('resource').some(r => r.name.indexOf('sample-data.csv') !== -1);
     const total = (document.querySelector('#rowCount') || {}).textContent || '';   // "12.730 / 12.730 records"
     const angka = Number((total.split('/')[1] || '').replace(/[^0-9]/g, ''));
