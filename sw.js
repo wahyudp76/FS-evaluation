@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.12.0 — peringatan kualitas data ringkas: total + huruf kolom + jumlah per kolom
-const VERSION = 'v1.12.0';
+// v1.13.0 — panel peringatan: contoh nilai error + keterangan kesalahan per kolom
+const VERSION = 'v1.13.0';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 

@@ -297,17 +297,26 @@ function csvDateLetter(csv) {
 // ===== PERINGATAN KUALITAS DATA (v1.10.0) =====
 // Nilai bertitik ("21.08") terdeteksi saat parse; diringkas per kolom lalu ditampilkan
 // sebagai badge + panel rincian agar salah format di sheet cepat diperbaiki.
-let _dqCtx = null;        // konteks sel aktif {kolom, huruf}
+let _dqCtx = null;        // konteks sel aktif {baris, kolom, huruf}
 let _dqSheet = '';        // sheet yang sedang di-parse
 let _dqHitung = {};       // hitungan error per kolom {namaKolom: n}
 let _dqHuruf = {};        // huruf kolom spreadsheet {namaKolom: 'H'}
-let dqRingkasan = null;   // {total, sheet: {nama: {total, kolom: {nama: {n, huruf}}}}}
-function _dqMulai(sheet) { _dqSheet = sheet; _dqHitung = {}; _dqHuruf = {}; _dqCtx = null; }
-function _dqCatat() {
+let _dqContoh = {};       // contoh nilai berbeda per kolom {namaKolom: [{nilai, baris}]}, maks 5
+let dqRingkasan = null;   // {total, sheet: {nama: {total, kolom: {nama: {n, huruf, contoh}}}}}
+function _dqMulai(sheet) { _dqSheet = sheet; _dqHitung = {}; _dqHuruf = {}; _dqContoh = {}; _dqCtx = null; }
+function _dqCatat(nilai) {
   if (!_dqCtx) return;
   const k = _dqCtx.kolom || '?';
   _dqHitung[k] = (_dqHitung[k] || 0) + 1;
   if (_dqHuruf[k] === undefined) _dqHuruf[k] = _dqCtx.huruf || '?';
+  let c = _dqContoh[k];
+  if (!c) c = _dqContoh[k] = [];
+  if (c.length < 5) {
+    const v = String(nilai).trim();
+    let ada = false;
+    for (let i = 0; i < c.length; i++) if (c[i].nilai === v) { ada = true; break; }
+    if (!ada) c.push({ nilai: v, baris: _dqCtx.baris || 0 });
+  }
 }
 function _dqSelesai() {
   _dqCtx = null;
@@ -317,11 +326,11 @@ function _dqSelesai() {
   let S = dqRingkasan.sheet[_dqSheet];
   if (!S) S = dqRingkasan.sheet[_dqSheet] = { total: 0, kolom: {} };
   for (const k of keys) {
-    S.kolom[k] = { n: _dqHitung[k], huruf: _dqHuruf[k] || '?' };
+    S.kolom[k] = { n: _dqHitung[k], huruf: _dqHuruf[k] || '?', contoh: _dqContoh[k] || [] };
     S.total += _dqHitung[k];
     dqRingkasan.total += _dqHitung[k];
   }
-  _dqHitung = {}; _dqHuruf = {};
+  _dqHitung = {}; _dqHuruf = {}; _dqContoh = {};
 }
 
 // Angka gaya id-ID: "Rp2.332.240" -> 2332240 ; "2,05" -> 2.05 ; "1.234,5" -> 1234.5.
@@ -376,7 +385,7 @@ function toNumFast(v) {
     }
   }
   if (!sawDigit) return 0;
-  if (decDot !== -1 && _dqCtx) _dqCatat();
+  if (decDot !== -1 && _dqCtx) _dqCatat(v);
   return sign * (int + frac);
 }
 
@@ -463,7 +472,7 @@ function buildRows(csvText, datesText) {
       return toNumFast(row[i]);
     };
     const wilayah = g(cWil).trim(), engine = g(cEng).trim(), irigator = g(cIri).trim(), lokasi = g(cLok).trim();
-    _dqCtx = { kolom: '', huruf: '' };
+    _dqCtx = { baris: r + 1, kolom: '', huruf: '' };
     const yr = date.getFullYear(), mo = date.getMonth();
     const d = {
       date,
@@ -576,7 +585,7 @@ function parseIndexSolar(csvText) {
     const numI = (i) => { if (_dqCtx) { _dqCtx.kolom = (i >= 0 && headers[i]) ? headers[i] : '?'; _dqCtx.huruf = i >= 0 ? colLetter(i) : '?'; } return toNumFast(g(i)); };
     const engine = g(cEngine);
     if (!engine) continue;
-    _dqCtx = { kolom: '', huruf: '' };
+    _dqCtx = { baris: r + 1, kolom: '', huruf: '' };
     const solar = numI(cSolar);
     const jam = numI(cJam);
     const kalibrasi = numI(cKal);
@@ -4432,9 +4441,13 @@ function openDQPanel() {
     html += `<div class="mb-3"><div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Sheet ${esc(nama)} &bull; ${formatInt(S.total)} data &bull; ${nK} kolom</div>`;
     for (const kolom of Object.keys(S.kolom)) {
       const K = S.kolom[kolom];
-      html += `<div class="mt-1.5 flex items-center justify-between gap-2 rounded-xl border border-amber-200/70 bg-amber-50/50 px-3 py-2">`
-        + `<span class="text-[12px] text-slate-700">Kolom <span class="font-mono font-bold text-slate-900">${esc(K.huruf)}</span> <span class="text-slate-500">(${esc(kolom)})</span></span>`
-        + `<span class="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-800">${formatInt(K.n)} data</span></div>`;
+      const contoh = (K.contoh || []).map(c => `<span class="font-mono font-semibold text-amber-800">${esc(c.nilai)}</span>${c.baris ? ` <span class="text-slate-400">(baris ${c.baris})</span>` : ''}`).join('<span class="text-slate-300"> • </span>');
+      html += `<div class="mt-1.5 rounded-xl border border-amber-200/70 bg-amber-50/50 px-3 py-2.5">`
+        + `<div class="flex items-center justify-between gap-2"><span class="text-[12px] text-slate-700">Kolom <span class="font-mono font-bold text-slate-900">${esc(K.huruf)}</span> <span class="text-slate-500">(${esc(kolom)})</span></span>`
+        + `<span class="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-800">${formatInt(K.n)} data</span></div>`
+        + `<div class="mt-1.5 text-[11px] leading-relaxed text-slate-600"><span class="font-semibold text-slate-700">Kesalahan:</span> memakai titik sebagai pemisah desimal — seharusnya koma. Dashboard otomatis membacanya sebagai desimal (mis. <span class="font-mono">21.08</span> dibaca <span class="font-mono">21,08</span>) agar tidak terbaca ribuan.</div>`
+        + (contoh ? `<div class="mt-1 text-[11px] text-slate-600"><span class="font-semibold text-slate-700">Contoh:</span> ${contoh}</div>` : '')
+        + `</div>`;
     }
     html += `</div>`;
   }

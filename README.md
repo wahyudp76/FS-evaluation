@@ -131,6 +131,7 @@ Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rinci
 - Peringatan kualitas data: nilai bertitik (`21.08`) yang terdeteksi saat sync memunculkan toast + badge di header; klik badge untuk panel rincian (sheet, kolom, baris, engine, nilai) (v1.10.0).
 - Dua chart performa biaya (per wilayah & per jenis engine) mendapat 4 metrik rata-rata per aktivitas — Rata-rata Biaya Solar/Total/Alat/Upah — yang selalu tampil per aktivitas tanpa mengikuti tombol mode; dijadikan tampilan bawaan (v1.11.0).
 - Peringatan kualitas data disederhanakan menjadi ringkasan: jumlah data error + huruf kolom bermasalah beserta jumlahnya (mis. Kolom H: 802 data); tanpa rincian per baris (v1.12.0).
+- Panel peringatan menampilkan contoh nilai error (maks 5 nilai berbeda + nomor baris) dan keterangan kesalahan tiap kolom; cek QA kualitas data adaptif terhadap sheet bersih/bermasalah (v1.13.0).
 
 ### Kolom beku & chart Performa Waktu (v1.8.1)
 - **Kolom Wilayah beku** pada tabel *Rincian Waktu per Wilayah* (tab Waktu & Utilisasi): saat tabel digeser horizontal untuk melihat kolom waktu berikutnya, kolom **Wilayah** tetap menempel di kiri (latar solid, garis pemisah + bayangan) — berlaku juga untuk baris kepala dan baris kaki rata-rata. Tabel memakai `border-collapse: separate` agar `sticky` berfungsi benar di Chrome.

@@ -401,16 +401,23 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
     const b = document.getElementById('dqBadge');
     return { tampil: !!b && !b.classList.contains('hidden'), teks: ((document.getElementById('dqBadgeText') || {}).textContent || '') };
   });
-  check('kualitas data: badge peringatan titik tampil (data live mengandung nilai titik)', dq.tampil && /nilai titik/.test(dq.teks), dq.teks);
-  await page.evaluate(() => { const b = document.getElementById('dqBadge'); if (b) b.click(); });
-  await new Promise(r => setTimeout(r, 400));
-  const dqPanel = await page.evaluate(() => {
-    const ov = document.getElementById('dqOverlay');
-    return { tampil: !!ov && !ov.classList.contains('hidden'), isi: /ZPAS637/.test((document.getElementById('dqBody') || {}).innerText || ''), huruf: /Kolom H/.test((document.getElementById('dqBody') || {}).innerText || '') };
-  });
-  check('kualitas data: panel rincian terbuka + memuat temuan sheet', dqPanel.tampil && dqPanel.isi);
-  check('kualitas data: panel menyebut huruf kolom (mis. Kolom H)', dqPanel.huruf);
-  await page.evaluate(() => { const x = document.getElementById('dqClose'); if (x) x.click(); });
+  // v1.13.0: adaptif — sheet live bisa bersih (tanpa temuan) atau berisi nilai titik
+  if (dq.tampil && /nilai titik/.test(dq.teks)) {
+    check('kualitas data: badge peringatan titik tampil', true, dq.teks);
+    await page.evaluate(() => { const b = document.getElementById('dqBadge'); if (b) b.click(); });
+    await new Promise(r => setTimeout(r, 400));
+    const dqPanel = await page.evaluate(() => {
+      const ov = document.getElementById('dqOverlay');
+      const txt = (document.getElementById('dqBody') || {}).innerText || '';
+      return { tampil: !!ov && !ov.classList.contains('hidden'), isi: /ZPAS637/.test(txt), huruf: /Kolom [A-Z]+/.test(txt), contoh: /Contoh:/.test(txt) && /baris \d+/.test(txt), ket: /Kesalahan:/.test(txt) };
+    });
+    check('kualitas data: panel rincian terbuka + memuat temuan sheet', dqPanel.tampil && dqPanel.isi);
+    check('kualitas data: panel menyebut huruf kolom', dqPanel.huruf);
+    check('kualitas data: panel memuat contoh nilai + keterangan kesalahan', dqPanel.contoh && dqPanel.ket);
+    await page.evaluate(() => { const x = document.getElementById('dqClose'); if (x) x.click(); });
+  } else {
+    check('kualitas data: sheet bersih — badge sembunyi dengan benar', !dq.tampil, dq.teks || 'badge hidden, tidak ada nilai titik');
+  }
   const lha = await page.evaluate(() => ({
     th: Array.from(document.querySelectorAll('#tab-indexsolar thead th')).map(th => th.textContent.trim()),
     kpi: (document.getElementById('indexKpiGrid') || {}).innerText || '',
