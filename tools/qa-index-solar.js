@@ -402,18 +402,19 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
     return { tampil: !!b && !b.classList.contains('hidden'), teks: ((document.getElementById('dqBadgeText') || {}).textContent || '') };
   });
   // v1.13.0: adaptif — sheet live bisa bersih (tanpa temuan) atau berisi nilai titik
-  if (dq.tampil && /nilai titik/.test(dq.teks)) {
-    check('kualitas data: badge peringatan titik tampil', true, dq.teks);
+  if (dq.tampil && /data janggal/.test(dq.teks)) {
+    check('kualitas data: badge peringatan tampil', true, dq.teks);
     await page.evaluate(() => { const b = document.getElementById('dqBadge'); if (b) b.click(); });
     await new Promise(r => setTimeout(r, 400));
     const dqPanel = await page.evaluate(() => {
       const ov = document.getElementById('dqOverlay');
       const txt = (document.getElementById('dqBody') || {}).innerText || '';
-      return { tampil: !!ov && !ov.classList.contains('hidden'), isi: /ZPAS637/.test(txt), huruf: /Kolom [A-Z]+/.test(txt), contoh: /Contoh:/.test(txt) && /baris \d+/.test(txt), ket: /Kesalahan:/.test(txt) };
+      return { tampil: !!ov && !ov.classList.contains('hidden'), isi: /ZPAS637/.test(txt), huruf: /Kolom [A-Z]+/.test(txt), contoh: /Contoh:/.test(txt) && /baris \d+/.test(txt), ket: /Kesalahan:|Keterangan:/.test(txt), luar: /di luar batas wajar/.test(txt), batas: /Batas wajar:/.test(txt) };
     });
     check('kualitas data: panel rincian terbuka + memuat temuan sheet', dqPanel.tampil && dqPanel.isi);
     check('kualitas data: panel menyebut huruf kolom', dqPanel.huruf);
     check('kualitas data: panel memuat contoh nilai + keterangan kesalahan', dqPanel.contoh && dqPanel.ket);
+    check('kualitas data: seksi luar-batas konsisten (batas tercantum bila ada)', !dqPanel.luar || dqPanel.batas);
     await page.evaluate(() => { const x = document.getElementById('dqClose'); if (x) x.click(); });
   } else {
     check('kualitas data: sheet bersih — badge sembunyi dengan benar', !dq.tampil, dq.teks || 'badge hidden, tidak ada nilai titik');

@@ -301,9 +301,45 @@ let _dqCtx = null;        // konteks sel aktif {baris, kolom, huruf}
 let _dqSheet = '';        // sheet yang sedang di-parse
 let _dqHitung = {};       // hitungan error per kolom {namaKolom: n}
 let _dqHuruf = {};        // huruf kolom spreadsheet {namaKolom: 'H'}
+// ===== BATAS WAjar NILAI PER KOLOM (v1.14.0) =====
+// Jaring pengaman kedua bila bukti titik hilang karena normalisasi Sheets — mis. ketikan
+// "40.00" di kolom Kecepatan tersimpan sebagai 4.000 (100x lipat) tanpa jejak titik.
+// Batas longgar dari sebaran data aktual (Okt 2026); hanya kesalahan besar yang ditandai.
+const DQ_BATAS = {
+  'Plan Time': [0, 100], 'Luas Siram': [0, 20], 'Kecepatan Rata-rata': [0, 200],
+  'Tebal Siram': [0, 500], 'Prepare Time': [0, 48], 'Operating Time': [0, 100],
+  'Waiting Time': [0, 48], 'Repair': [0, 48], 'Down Time': [0, 48],
+  'Standby': [0, 48], 'Off Time': [0, 48], 'Tot, Oper, Time': [0, 100],
+  'Tot. Oper. Time': [0, 100], 'Total Avail': [0, 100], 'Total Time': [0, 100],
+  '% Availability': [0, 100], '% Utilization': [0, 100], 'Air': [0, 10000],
+  'Solar Terpakai (ltr)': [0, 2000], 'Biaya Solar (Std)': [0, 50000000],
+  'Biaya Upah': [0, 10000000], 'Biaya Alat': [0, 50000000], 'Biaya Total': [0, 100000000],
+  'Rp/Ha': [0, 30000000], 'Ha/Hari': [0, 50], 'Ha/Jam': [0, 5],
+  'Solar Ltr/jam': [0, 100], 'Solar Ltr/Ha': [0, 1000],
+  // sheet Index Solar (kunci berawalan nama sheet agar tak bentrok)
+  'Index Solar|Pemakaian Solar': [0, 5000], 'Index Solar|Jam Operaton': [0, 500],
+  'Index Solar|Jam Operasi': [0, 500], 'Index Solar|Jam Operation': [0, 500],
+  'Index Solar|Jam': [0, 500], 'Index Solar|Liter/jam': [0, 200],
+  'Index Solar|Kalibrasi': [0, 100], 'Index Solar|Selisih': [-100000, 100000]
+};
+
 let _dqContoh = {};       // contoh nilai berbeda per kolom {namaKolom: [{nilai, baris}]}, maks 5
-let dqRingkasan = null;   // {total, sheet: {nama: {total, kolom: {nama: {n, huruf, contoh}}}}}
-function _dqMulai(sheet) { _dqSheet = sheet; _dqHitung = {}; _dqHuruf = {}; _dqContoh = {}; _dqCtx = null; }
+let _dqLHitung = {};      // hitungan luar-batas per kolom
+let _dqLHuruf = {};       // huruf kolom luar-batas
+let _dqLContoh = {};      // contoh luar-batas {namaKolom: [{nilai, baris}]}, maks 3
+let dqRingkasan = null;   // {total, sheet: {...titik...}, luar: {total, sheet: {...}}}
+function _dqMulai(sheet) { _dqSheet = sheet; _dqHitung = {}; _dqHuruf = {}; _dqContoh = {}; _dqLHitung = {}; _dqLHuruf = {}; _dqLContoh = {}; _dqCtx = null; }
+function _dqCekBatas(nilai) {
+  if (!_dqCtx || typeof nilai !== 'number' || isNaN(nilai)) return;
+  const b = DQ_BATAS[_dqCtx.kolom] || DQ_BATAS[_dqSheet + '|' + _dqCtx.kolom];
+  if (!b || (nilai >= b[0] && nilai <= b[1])) return;
+  const k = _dqCtx.kolom || '?';
+  _dqLHitung[k] = (_dqLHitung[k] || 0) + 1;
+  if (_dqLHuruf[k] === undefined) _dqLHuruf[k] = _dqCtx.huruf || '?';
+  let c = _dqLContoh[k];
+  if (!c) c = _dqLContoh[k] = [];
+  if (c.length < 3) c.push({ nilai, baris: _dqCtx.baris || 0, batas: b });
+}
 function _dqCatat(nilai) {
   if (!_dqCtx) return;
   const k = _dqCtx.kolom || '?';
@@ -320,17 +356,32 @@ function _dqCatat(nilai) {
 }
 function _dqSelesai() {
   _dqCtx = null;
-  const keys = Object.keys(_dqHitung);
-  if (!keys.length) return;
-  if (!dqRingkasan) dqRingkasan = { total: 0, sheet: {} };
-  let S = dqRingkasan.sheet[_dqSheet];
-  if (!S) S = dqRingkasan.sheet[_dqSheet] = { total: 0, kolom: {} };
-  for (const k of keys) {
-    S.kolom[k] = { n: _dqHitung[k], huruf: _dqHuruf[k] || '?', contoh: _dqContoh[k] || [] };
-    S.total += _dqHitung[k];
-    dqRingkasan.total += _dqHitung[k];
+  const keys = Object.keys(_dqHitung), keysL = Object.keys(_dqLHitung);
+  if (!keys.length && !keysL.length) return;
+  if (!dqRingkasan) dqRingkasan = { total: 0, sheet: {}, luar: { total: 0, sheet: {} } };
+  if (!dqRingkasan.luar) dqRingkasan.luar = { total: 0, sheet: {} };
+  if (keys.length) {
+    let S = dqRingkasan.sheet[_dqSheet];
+    if (!S) S = dqRingkasan.sheet[_dqSheet] = { total: 0, kolom: {} };
+    for (const k of keys) {
+      S.kolom[k] = { n: _dqHitung[k], huruf: _dqHuruf[k] || '?', contoh: _dqContoh[k] || [] };
+      S.total += _dqHitung[k];
+    }
   }
-  _dqHitung = {}; _dqHuruf = {}; _dqContoh = {};
+  if (keysL.length) {
+    let L = dqRingkasan.luar.sheet[_dqSheet];
+    if (!L) L = dqRingkasan.luar.sheet[_dqSheet] = { total: 0, kolom: {} };
+    for (const k of keysL) {
+      const c0 = (_dqLContoh[k] || [])[0];
+      L.kolom[k] = { n: _dqLHitung[k], huruf: _dqLHuruf[k] || '?', batas: (c0 && c0.batas) || null, contoh: _dqLContoh[k] || [] };
+      L.total += _dqLHitung[k];
+      dqRingkasan.luar.total += _dqLHitung[k];
+    }
+  }
+  let t = dqRingkasan.luar.total;
+  for (const s of Object.keys(dqRingkasan.sheet)) t += dqRingkasan.sheet[s].total;
+  dqRingkasan.total = t;
+  _dqHitung = {}; _dqHuruf = {}; _dqContoh = {}; _dqLHitung = {}; _dqLHuruf = {}; _dqLContoh = {};
 }
 
 // Angka gaya id-ID: "Rp2.332.240" -> 2332240 ; "2,05" -> 2.05 ; "1.234,5" -> 1234.5.
@@ -359,8 +410,11 @@ function toNumFast(v) {
       let digits = 0, j = d1 + 1;
       while (j < n) { const cc = v.charCodeAt(j); if (cc < 48 || cc > 57) break; digits++; j++; }
       if (digits === 1 || digits === 2) {
-        while (j < n && v.charCodeAt(j) === 32) j++;   // toleransi spasi akhir
-        if (j === n) decDot = d1;
+        // Terima akhiran non-angka ("21.08 L"): selama tak ada digit lagi setelahnya,
+        // 1-2 digit itu adalah desimal. (v1.14.0: dulu hanya spasi akhir.)
+        let k = j, adaDigit = false;
+        while (k < n) { const ck = v.charCodeAt(k); if (ck >= 48 && ck <= 57) { adaDigit = true; break; } k++; }
+        if (!adaDigit) decDot = d1;
       }
     }
   }
@@ -469,7 +523,9 @@ function buildRows(csvText, datesText) {
     const num = (i) => {
       if (i === undefined || i < 0) return 0;
       if (_dqCtx) { _dqCtx.kolom = header[i] || ('kolom ' + (i + 1)); _dqCtx.huruf = colLetter(i); }
-      return toNumFast(row[i]);
+      const v = toNumFast(row[i]);
+      _dqCekBatas(v);
+      return v;
     };
     const wilayah = g(cWil).trim(), engine = g(cEng).trim(), irigator = g(cIri).trim(), lokasi = g(cLok).trim();
     _dqCtx = { baris: r + 1, kolom: '', huruf: '' };
@@ -551,7 +607,9 @@ function parseSelisih(v, i, headers) {
   if (_dqCtx) { _dqCtx.kolom = (i >= 0 && headers[i]) ? headers[i] : '?'; _dqCtx.huruf = i >= 0 ? colLetter(i) : '?'; }
   if (v === null || v === undefined || v === '') return 0;
   const t = String(v).replace(/[^0-9,.-]/g, '').trim();
-  return toNumFast(t);
+  const vNum = toNumFast(t);
+  _dqCekBatas(vNum);
+  return vNum;
 }
 function parseIndexSolar(csvText) {
   if (!csvText) return [];
@@ -582,7 +640,7 @@ function parseIndexSolar(csvText) {
     const row = rows[r];
     if (!row || !row.length) continue;
     const g = (i) => (i < 0 || row[i] === undefined ? '' : String(row[i]).trim());
-    const numI = (i) => { if (_dqCtx) { _dqCtx.kolom = (i >= 0 && headers[i]) ? headers[i] : '?'; _dqCtx.huruf = i >= 0 ? colLetter(i) : '?'; } return toNumFast(g(i)); };
+    const numI = (i) => { if (_dqCtx) { _dqCtx.kolom = (i >= 0 && headers[i]) ? headers[i] : '?'; _dqCtx.huruf = i >= 0 ? colLetter(i) : '?'; } const v = toNumFast(g(i)); _dqCekBatas(v); return v; };
     const engine = g(cEngine);
     if (!engine) continue;
     _dqCtx = { baris: r + 1, kolom: '', huruf: '' };
@@ -4400,11 +4458,12 @@ function renderDQBADGE() {
   if (!total) { badge.classList.add('hidden'); badge.classList.remove('inline-flex'); return; }
   badge.classList.remove('hidden'); badge.classList.add('inline-flex');
   const t = document.getElementById('dqBadgeText');
-  if (t) t.textContent = formatInt(total) + ' nilai titik';
+  if (t) t.textContent = formatInt(total) + ' data janggal';
   try {
-    const sheets = dqRingkasan.sheet;
     const daftar = [];
-    for (const s of Object.keys(sheets)) for (const k of Object.keys(sheets[s].kolom)) daftar.push(`kolom ${sheets[s].kolom[k].huruf}: ${formatInt(sheets[s].kolom[k].n)}`);
+    const kumpul = (peta) => { for (const s of Object.keys(peta || {})) for (const k of Object.keys(peta[s].kolom)) daftar.push(`kolom ${peta[s].kolom[k].huruf}: ${formatInt(peta[s].kolom[k].n)}`); };
+    kumpul(dqRingkasan.sheet);
+    if (dqRingkasan.luar) kumpul(dqRingkasan.luar.sheet);
     badge.title = `Jumlah error: ${formatInt(total)} data — ` + daftar.slice(0, 4).join(', ') + (daftar.length > 4 ? ', …' : '');
   } catch (e) {}
   refreshIcons();
@@ -4429,12 +4488,20 @@ function openDQPanel() {
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDQPanel(); });
   }
   const sheets = dqRingkasan.sheet;
-  const namaSheet = Object.keys(sheets);
+  const luarSheet = (dqRingkasan.luar && dqRingkasan.luar.sheet) || {};
+  const namaSheet = Object.keys(sheets), namaLuar = Object.keys(luarSheet);
   let nKolom = 0;
   for (const s of namaSheet) nKolom += Object.keys(sheets[s].kolom).length;
+  let nKolomL = 0;
+  for (const s of namaLuar) nKolomL += Object.keys(luarSheet[s].kolom).length;
+  const totTitik = dqRingkasan.total - ((dqRingkasan.luar && dqRingkasan.luar.total) || 0);
+  const rincian = [];
+  if (totTitik > 0) rincian.push(`${formatInt(totTitik)} nilai titik`);
+  if (nKolomL > 0) rincian.push(`${formatInt((dqRingkasan.luar || {}).total || 0)} di luar batas`);
   let html = `<div class="mb-4 rounded-xl border border-amber-200/70 bg-amber-50/60 px-4 py-3">`
     + `<div class="text-[13px] font-bold text-slate-900">Jumlah error: ${formatInt(dqRingkasan.total)} data</div>`
-    + `<div class="mt-0.5 text-[11px] text-slate-500">${nKolom} kolom bermasalah</div></div>`;
+    + `<div class="mt-0.5 text-[11px] text-slate-500">${nKolom + nKolomL} kolom bermasalah &bull; ${rincian.join(' • ')}</div></div>`;
+  if (namaSheet.length) html += `<div class="mb-1 text-[11px] font-bold uppercase tracking-wider text-amber-600">Nilai bertitik (desimal seharusnya koma)</div>`;
   for (const nama of namaSheet) {
     const S = sheets[nama];
     const nK = Object.keys(S.kolom).length;
@@ -4451,6 +4518,27 @@ function openDQPanel() {
     }
     html += `</div>`;
   }
+  if (namaLuar.length) {
+    html += `<div class="mb-1 mt-4 text-[11px] font-bold uppercase tracking-wider text-rose-600">Nilai di luar batas wajar</div>`;
+    const tulisAngka = (v) => (Math.round(v) === v ? formatInt(v) : formatNumber(v, 2));
+    for (const nama of namaLuar) {
+      const S = luarSheet[nama];
+      const nK = Object.keys(S.kolom).length;
+      html += `<div class="mb-3"><div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Sheet ${esc(nama)} &bull; ${formatInt(S.total)} data &bull; ${nK} kolom</div>`;
+      for (const kolom of Object.keys(S.kolom)) {
+        const K = S.kolom[kolom];
+        const bts = K.batas ? `Batas wajar: ${formatInt(K.batas[0])}&ndash;${formatInt(K.batas[1])}. ` : '';
+        const contohL = (K.contoh || []).map(c => `<span class="font-mono font-semibold text-rose-700">${esc(tulisAngka(c.nilai))}</span>${c.baris ? ` <span class="text-slate-400">(baris ${c.baris})</span>` : ''}`).join('<span class="text-slate-300"> • </span>');
+        html += `<div class="mt-1.5 rounded-xl border border-rose-200/70 bg-rose-50/50 px-3 py-2.5">`
+          + `<div class="flex items-center justify-between gap-2"><span class="text-[12px] text-slate-700">Kolom <span class="font-mono font-bold text-slate-900">${esc(K.huruf)}</span> <span class="text-slate-500">(${esc(kolom)})</span></span>`
+          + `<span class="rounded-full bg-rose-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-rose-800">${formatInt(K.n)} data</span></div>`
+          + `<div class="mt-1.5 text-[11px] leading-relaxed text-slate-600"><span class="font-semibold text-slate-700">Keterangan:</span> nilai di luar batas wajar — ${bts}kemungkinan salah ketik, salah desimal yang dinormalisasi (mis. ketikan <span class="font-mono">40.00</span> tersimpan sebagai <span class="font-mono">4.000</span>), atau rumus &divide;0. Periksa selnya di sheet.</div>`
+          + (contohL ? `<div class="mt-1 text-[11px] text-slate-600"><span class="font-semibold text-slate-700">Contoh:</span> ${contohL}</div>` : '')
+          + `</div>`;
+      }
+      html += `</div>`;
+    }
+  }
   document.getElementById('dqBody').innerHTML = html;
   ov.classList.remove('hidden');
   refreshIcons();
@@ -4458,21 +4546,30 @@ function openDQPanel() {
 function _dqSetelahParse(fromCache, awal) {
   renderDQBADGE();
   if (!dqRingkasan || !dqRingkasan.total) { _dqToastSig = '0'; return; }
-  const sig = dqRingkasan.total + '|' + Object.keys(dqRingkasan.sheet).map(s => s + ':' + dqRingkasan.sheet[s].total).join(',');
+  const sig = dqRingkasan.total + '|' + Object.keys(dqRingkasan.sheet).map(s => s + ':' + dqRingkasan.sheet[s].total).join(',') + '|' + ((dqRingkasan.luar && dqRingkasan.luar.total) || 0);
   if (sig === _dqToastSig) return;   // temuan sama -> jangan toast berulang
   _dqToastSig = sig;
   if (!fromCache || awal) {
-    const sheets = dqRingkasan.sheet;
-    const multi = Object.keys(sheets).length > 1;
-    const daftar = [];
-    for (const s of Object.keys(sheets)) {
-      for (const k of Object.keys(sheets[s].kolom)) {
-        const K = sheets[s].kolom[k];
-        daftar.push((multi ? s + ' ' : '') + `kolom ${K.huruf} (${k}): ${formatInt(K.n)}`);
+    const ringkas = (peta) => {
+      const sheets = peta || {};
+      const multi = Object.keys(sheets).length > 1;
+      const daftar = [];
+      let tot = 0;
+      for (const s of Object.keys(sheets)) {
+        for (const k of Object.keys(sheets[s].kolom)) {
+          const K = sheets[s].kolom[k];
+          tot += K.n;
+          daftar.push((multi ? s + ' ' : '') + `kolom ${K.huruf} (${k}): ${formatInt(K.n)}`);
+        }
       }
-    }
-    const potong = daftar.slice(0, 3).join(', ') + (daftar.length > 3 ? `, +${daftar.length - 3} kolom lain` : '');
-    showToast(`Peringatan data: ${formatInt(dqRingkasan.total)} nilai bertitik di ${daftar.length} kolom — ${potong}. Klik badge di header untuk rincian`, 'warn', 10000);
+      return { tot, teks: daftar.slice(0, 2).join(', ') + (daftar.length > 2 ? `, +${daftar.length - 2} kolom lain` : '') };
+    };
+    const d = ringkas(dqRingkasan.sheet);
+    const l = ringkas(dqRingkasan.luar ? dqRingkasan.luar.sheet : null);
+    const parts = [];
+    if (d.tot) parts.push(`${formatInt(d.tot)} nilai titik — ${d.teks}`);
+    if (l.tot) parts.push(`${formatInt(l.tot)} di luar batas — ${l.teks}`);
+    showToast(`Peringatan data: ${parts.join(' • ')}. Klik badge di header untuk rincian`, 'warn', 10000);
   }
 }
 
