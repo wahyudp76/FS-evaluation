@@ -1,8 +1,9 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.15.0 — default rentang awal–akhir live + sync tak me-reset filter tanggal
-const VERSION = 'v1.15.0';
+// v1.16.0 — audit: perbaikan offline-cache, pencarian tabel, probe index, label % & tren
+const VERSION = 'v1.16.0';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
+const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)
 
 // sample-data.csv (3,4 MB) TIDAK di-precache: hanya untuk fallback offline, diambil on-demand
 // (rute same-origin di bawah otomatis menyimpannya ke cache saat pertama dipakai).
@@ -46,7 +47,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((names) =>
-      Promise.all(names.map((n) => (n === CACHE_NAME || n === RUNTIME_CACHE ? null : caches.delete(n))))
+      Promise.all(names.map((n) => (n === CACHE_NAME || n === RUNTIME_CACHE || n === DATA_CACHE ? null : caches.delete(n))))
     )
   );
   self.clients.claim();

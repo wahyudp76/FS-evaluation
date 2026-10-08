@@ -760,7 +760,7 @@ function readMeta() {
   try { const m = JSON.parse(localStorage.getItem(META_KEY) || 'null'); return (m && m.sig) ? m : null; } catch (e) { return null; }
 }
 function writeMeta(meta) { try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {} }
-// Probe ringan (~3 KB, 3 kueri paralel): jumlah baris + 3 baris teratas + 3 baris terbawah
+// Probe ringan (3 kueri paralel + CSV Index Solar ~16 KB): jumlah baris + 3 baris teratas + 3 baris terbawah
 // kolom tanggal. Baris teratas statis (data lama), baris terbawah menangkap data baru.
 // Dipakai sync otomatis agar unduhan penuh 4-5 MB dilewati bila data tidak berubah.
 // Gagal probe = lanjut unduhan penuh.
@@ -768,13 +768,14 @@ const probeUrlFor = (q) => `${GVIZ_BASE}?tq=${encodeURIComponent(q)}&tqx=out:jso
 async function fetchProbeSig(letter) {
   try {
     const col = letter || DATE_COL;
-    const [a, b, c] = await Promise.all([
+    const [a, b, c, idx] = await Promise.all([
       fetchText(probeUrlFor(`select count(${col})`), 12000),
       fetchText(probeUrlFor(`select ${col} limit 3`), 12000),
-      fetchText(probeUrlFor(`select ${col} order by ${col} desc limit 3`), 12000)
+      fetchText(probeUrlFor(`select ${col} order by ${col} desc limit 3`), 12000),
+      fetchText(INDEX_URL, 12000).catch(() => null)   // v1.16.0: edit Index Solar ikut memicu sync
     ]);
     if (!a || !b || !c) return null;
-    return fingerprint(a + '|' + b + '|' + c);
+    return fingerprint(a + '|' + b + '|' + c + '|' + (idx ? fingerprint(idx) : '-'));
   } catch (e) { return null; }
 }
 
@@ -856,7 +857,7 @@ function applyFilters() {
   const y = (filters.year !== 'all') ? parseInt(filters.year, 10) : null;
   const fEngine = filters.jenisEngine;
   const q1 = filters.search ? filters.search.toLowerCase() : null;
-  const q2 = filters.tableSearch ? filters.tableSearch.toLowerCase() : null;
+  // v1.16.0: tableSearch pindah ke renderTable (lokal tabel; dulu mati & bocor ke filter global)
 
   const out = [];
   for (let i = 0; i < rawData.length; i++) {
@@ -869,7 +870,6 @@ function applyFilters() {
     if (fWilayah.size && !fWilayah.has(d.wilayah)) continue;
     if (fEngine !== 'all' && d.jenisEngine !== fEngine) continue;
     if (q1 && d._s.indexOf(q1) === -1) continue;
-    if (q2 && d._s.indexOf(q2) === -1 && !rowNumericMatch(d, q2)) continue;
     out.push(d);
   }
   out.sort((a, b) => a.date - b.date);
@@ -926,7 +926,7 @@ function getAggregatedRaw(gran) {
     g.utilization += d.utilization || 0;
     g.haPerJam += d.haPerJam || 0;
     g.haPerHari += d.haPerHari || 0;
-    g.biayaTotal += d.biayaTotal || 0;
+    g.biayaTotal += d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0));   // v1.16.0: fallback per baris, konsisten antar tab
     g.rpPerHa += d.rpPerHa || 0;
     g.planTime += d.planTime || 0;
   }
@@ -999,7 +999,7 @@ function getWilayahStatsRaw() {
     g.availability += d.availability || 0;
     g.utilization += d.utilization || 0;
     g.rpPerHa += d.rpPerHa || 0;
-    g.biayaTotal += d.biayaTotal || 0;
+    g.biayaTotal += d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0));   // v1.16.0: fallback per baris, konsisten antar tab
     g.air += d.air || 0;
     g.biayaSolar += d.biayaSolar || 0;
     g.biayaUpah += d.biayaUpah || 0;
@@ -1378,7 +1378,7 @@ function getBiayaWilayahStatsRaw() {
     g.biayaSolar += d.biayaSolar||0;
     g.biayaUpah += d.biayaUpah||0;
     g.biayaAlat += d.biayaAlat||0;
-    g.biayaTotal += d.biayaTotal||0;
+    g.biayaTotal += d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0));   // v1.16.0: fallback per baris, konsisten antar tab
     g.solar += d.solarTerpakai||0;
     g.operating += d.operatingTime||0;
     g.air += d.air||0;
@@ -1542,7 +1542,7 @@ function getBiayaPeriodStatsRaw() {
     g.biayaSolar += d.biayaSolar||0;
     g.biayaUpah += d.biayaUpah||0;
     g.biayaAlat += d.biayaAlat||0;
-    g.biayaTotal += d.biayaTotal||0;
+    g.biayaTotal += d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0));   // v1.16.0: fallback per baris, konsisten antar tab
     g.operating += d.operatingTime||0;
     g.solar += d.solarTerpakai||0;
     g.date = d.date;
@@ -1565,9 +1565,10 @@ function getBiayaPeriodStatsRaw() {
   return rows;
 }
 
+const _rpFmt = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 });
 function formatRupiah(n) {
   if (n == null || isNaN(n)) return '-';
-  return 'Rp ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(Math.round(n));
+  return 'Rp ' + _rpFmt.format(Math.round(n));   // v1.16.0: formatter dipakai ulang (dulu dibuat tiap panggil)
 }
 function formatRupiahShort(n) {
   if (n == null || isNaN(n)) return '-';
@@ -2251,7 +2252,7 @@ function renderBiaya() {
   const granLabel = biayaGran==='all' ? 'seluruh periode' : biayaGran==='daily' ? 'harian' : biayaGran==='weekly' ? 'mingguan' : 'bulanan';
   if (periodoInfo) periodoInfo.textContent = `Granularitas: ${granLabel} • ${periodRows.length} periode • mode ${modeBiaya().label}`;
   const trendLabel = $('#biayaTrendGranLabel');
-  if (trendLabel) trendLabel.textContent = '(' + granLabel + ')';
+  if (trendLabel) trendLabel.textContent = '(harian)';   // v1.16.0: chart tren selalu harian (dulu salah label granularitas)
   const judulGran = $('#biayaGranJudul');
   if (judulGran) judulGran.textContent = (biayaMode === 'total' ? 'Total' : 'Rata-rata') + ' Biaya & Rp/Ha per Periode';
   document.querySelectorAll('#biayaPeriodeHead th[data-unit]').forEach(th => {
@@ -2346,10 +2347,12 @@ function renderWilayahDetail() {
 
   // Detailed table
   if (tbody) {
+    // v1.16.0: ambang relatif thd rata-rata (ambang mati 0,5/0,2 membuat semua wilayah selalu "Efisien")
+    const _avgSkor = stats.length ? stats.reduce((a, s) => a + (s.efisiensiScore || 0), 0) / stats.length : 0;
     tbody.innerHTML = stats.map(s=>{
       let effBadge = '';
-      if (s.efisiensiScore > 0.5) effBadge = '<span class="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">Efisien</span>';
-      else if (s.efisiensiScore > 0.2) effBadge = '<span class="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200">Cukup</span>';
+      if (_avgSkor > 0 && s.efisiensiScore > _avgSkor * 1.1) effBadge = '<span class="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">Efisien</span>';
+      else if (_avgSkor > 0 && s.efisiensiScore >= _avgSkor * 0.9) effBadge = '<span class="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-emerald-200">Cukup</span>';
       else effBadge = '<span class="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200">Boros</span>';
       return `
         <tr class="hover:bg-slate-50/80 transition">
@@ -2467,7 +2470,7 @@ function calculateKPIsRaw() {
     luas += d.luasSiram || 0; solar += d.solarTerpakai || 0; oper += d.operatingTime || 0;
     solarJam += d.solarPerJam || 0; solarHa += d.solarPerHa || 0; kec += d.kecepatan || 0;
     tebal += d.tebalSiram || 0; avail += d.availability || 0; util += d.utilization || 0;
-    biaya += d.biayaTotal || 0; biayaSolar += d.biayaSolar || 0; biayaUpah += d.biayaUpah || 0;
+    biaya += d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0));   // v1.16.0: fallback per baris biayaSolar += d.biayaSolar || 0; biayaUpah += d.biayaUpah || 0;
     biayaAlat += d.biayaAlat || 0; rpHaSum += d.rpPerHa || 0; haHari += d.haPerHari || 0;
     haJam += d.haPerJam || 0; plan += d.planTime || 0; prep += d.prepareTime || 0;
     wait += d.waitingTime || 0; air += d.air || 0;
@@ -3148,7 +3151,8 @@ const BAR_LABEL_FMT = {
   'ha1': v => formatNumber(v, 1) + ' Ha',
   'Lint': v => formatInt(Math.round(v)) + ' L',
   'rpshort': v => formatRupiahShort(v),
-  'signed2': v => (v > 0 ? '+' : '') + formatNumber(v, 2)
+  'signed2': v => (v > 0 ? '+' : '') + formatNumber(v, 2),
+  'pct1': v => formatNumber(v, 1) + '%'   // v1.16.0: dulu hilang -> label % tampil tanpa satuan
 };
 
 let barLabelsRegistered = false;
@@ -4010,8 +4014,10 @@ function renderTable() {
   const tbody = $('#dataTableBody');
   if (!tbody) return;
   // Urutan di-memo per (kolom, arah, versi data): ganti halaman tidak menyortir ulang 13 rb baris.
-  const data = memo('tableSort:' + sortField + ':' + sortDir, () => {
-    const arr = filteredData.slice();
+  const q2 = filters.tableSearch ? filters.tableSearch.toLowerCase() : null;
+  const data = memo('tableSort:' + sortField + ':' + sortDir + ':' + (q2 || ''), () => {
+    let arr = filteredData.slice();
+    if (q2) arr = arr.filter(d => d._s.indexOf(q2) !== -1 || rowNumericMatch(d, q2));
     arr.sort((a, b) => {
       let av = a[sortField], bv = b[sortField];
       if (sortField === 'date') { av = a.date; bv = b.date; }
@@ -4061,7 +4067,6 @@ function updateFilterSheetMeta() {
   if (filters.year !== 'all') n++;
   if (filters.jenisEngine !== 'all') n++;
   if (filters.search) n++;
-  if (filters.tableSearch) n++;
   if (rawData.length && filters.start && filters.end) {
     // rawData mengikuti urutan sheet (terbaru dulu) — cari rentang aktual secara eksplisit
     let lo = Infinity, hi = -Infinity;
@@ -4127,7 +4132,7 @@ function initFiltersUI() {
   });
   const jenisSet = [...new Set(rawData.map(d=>d.jenisEngine).filter(Boolean))].sort();
   const sel = $('#filterJenisEngine');
-  sel.innerHTML = '<option value="all">Semua Jenis</option>' + jenisSet.map(j=>`<option value="${j}">${j}</option>`).join('');
+  sel.innerHTML = '<option value="all">Semua Jenis</option>' + jenisSet.map(j=>`<option value="${esc(j)}">${esc(j)}</option>`).join('');   // v1.16.0: escape nilai sheet (XSS)
   const yearsSet = [...new Set(rawData.map(d=>d.date.getFullYear()))].sort();
   const yearSel = $('#filterYear');
   if (yearSel) yearSel.innerHTML = '<option value="all">Semua Tahun</option>' + yearsSet.map(y=>`<option value="${y}">${y}</option>`).join('');
@@ -4749,7 +4754,7 @@ async function loadData(opts = {}) {
   } catch (e) {
     console.error('[sync]', e);
     syncFailures++;
-    if (first) {
+    if (first && rawData.length === 0) {
       // belum ada data sama sekali -> coba file contoh lokal
       try {
         const txt = await fetchText(SAMPLE_URL);
@@ -4763,6 +4768,10 @@ async function loadData(opts = {}) {
         const rb = $('#btnRetryLoad');
         if (rb) rb.addEventListener('click', () => loadData({ manual: true }));
       }
+    } else if (first) {
+      // v1.16.0: cache sudah tampil tapi jaringan gagal -> pertahankan data tersimpan
+      try { const m = readMeta(); if (m) setSyncLabel(m.ts || Date.now(), true); } catch (_e) {}
+      showToast('Offline — menampilkan data tersimpan terakhir', 'warn', 6000);
     } else {
       // sudah ada data tampil -> jangan tutupi dashboard, cukup beri tahu
       // (jadwal ulang ditangani di finally agar tidak ganda)

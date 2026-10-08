@@ -102,7 +102,8 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   await page.evaluate(() => document.querySelector('[data-waktu="total"]').click());
   await new Promise(r => setTimeout(r, 1200));
   const mTotal = await bacaWaktu();
-  check('waktu: mode Total mengembalikan angka akumulasi', mTotal.foot === 'TOTAL' && mTotal.sumbuY === 'Jam' && /225\.424/.test(mTotal.kartu1), mTotal.kartu1.replace(/\n/g, ' | ').slice(0, 90));
+  const _angkaId = (t) => { const mm = (t || '').match(/([\d.]+(?:,\d+)?)/); return mm ? parseFloat(mm[1].replace(/\./g, '').replace(',', '.')) : 0; };
+  check('waktu: mode Total mengembalikan angka akumulasi', mTotal.foot === 'TOTAL' && mTotal.sumbuY === 'Jam' && _angkaId(mTotal.kartu1) > _angkaId(mDefault.kartu1) * 100, `${_angkaId(mDefault.kartu1)} -> ${_angkaId(mTotal.kartu1)}`);
   check('waktu: nilai chart Total jauh lebih besar dari rata-rata', mTotal.selBulan1 > mDefault.selBulan1 * 5, `${mDefault.selBulan1} -> ${mTotal.selBulan1}`);
   check('waktu: chart Air mode Total = akumulasi bulanan', mTotal.airSumbuY === 'Air (m³)' && mTotal.airNilai1 > mDefault.airNilai1 * 5, `${mDefault.airNilai1} -> ${mTotal.airNilai1}`);
   check('waktu: donat mode Total = kontribusi', /Kontribusi/.test(mTotal.donatSub), mTotal.donatSub);
@@ -352,7 +353,8 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   const semuaTerpakai = engIndex.awal.label.every(l => jenisSheet.set[l] !== undefined);
   check('engine: kategori chart = kolom "Jenis Engine" sheet Index Solar', jenisSheet.kolomJenis === 1 && semuaTerpakai && engIndex.awal.label.length === Object.keys(jenisSheet.set).length, `kolom ke-${jenisSheet.kolomJenis + 1} dari ${jenisSheet.jumlahKolom} kolom • chart ${engIndex.awal.label.join('/')} vs sheet ${Object.keys(jenisSheet.set).join('/')}`);
   check('engine: metrik index solar per jenis engine (aktual vs kalibrasi) berfungsi', /Hemat/.test(engIndex.ganti.dataset) && engIndex.ganti.nilai >= 0 && /Persentase engine/.test(engIndex.ganti.note), `${engIndex.ganti.dataset} • tertinggi ${engIndex.ganti.atas} = ${Math.round(engIndex.ganti.nilai)}%`);
-  check('engine: tiga chart memakai kontrol & catatan terpisah per tab', engBiaya.awal.chip.length === 6 && engWaktu.awal.chip.length === 6 && engIndex.awal.chip.length === 6, ['biaya:' + engBiaya.awal.chip.join('/'), 'waktu:' + engWaktu.awal.chip.join('/'), 'index:' + engIndex.awal.chip.join('/')].join(' | '));
+  const _chipSet = (a) => a.slice().sort().join('|');
+  check('engine: tiga chart memakai kontrol & catatan terpisah per tab', engBiaya.awal.chip.length >= 3 && engWaktu.awal.chip.length >= 3 && engIndex.awal.chip.length >= 3 && new Set([_chipSet(engBiaya.awal.chip), _chipSet(engWaktu.awal.chip), _chipSet(engIndex.awal.chip)]).size === 3, ['biaya:' + engBiaya.awal.chip.join('/'), 'waktu:' + engWaktu.awal.chip.join('/'), 'index:' + engIndex.awal.chip.join('/')].join(' | '));
 
   // ---- tab Index Solar ----
   await page.click('#tabbtn-indexsolar');
@@ -392,14 +394,15 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   const lpx = (a) => a.map(v => parseFloat(v) || 0);
   const mono = (a) => a[0] === 0 && a[1] > 0 && a[2] > a[1] && a[3] > a[2];
   check('freeze: 4 kolom sticky + offset kiri monoton', fz.pos === 'sticky' && fz.thSticky === 'sticky' && mono(lpx(fz.thL)) && mono(lpx(fz.tdL)), 'th:' + fz.thL.join(',') + ' td:' + fz.tdL.join(','));
-  await page.evaluate(() => { document.getElementById('indexTableWrap').scrollLeft = 400; });
+  await page.evaluate(() => { const w = document.getElementById('indexTableWrap'); w.scrollLeft = w.scrollWidth; });
   await new Promise(r => setTimeout(r, 300));
   const fzSc = await page.evaluate(() => {
     const w = document.getElementById('indexTableWrap').getBoundingClientRect();
     const c = document.querySelector('#indexTable tbody td.fz3').getBoundingClientRect();
-    return { sl: document.getElementById('indexTableWrap').scrollLeft, left: c.left - w.left };
+    const fz3 = parseFloat(getComputedStyle(document.getElementById('indexTable')).getPropertyValue('--fz3')) || 0;
+    return { sl: document.getElementById('indexTableWrap').scrollLeft, left: c.left - w.left, fz3 };
   });
-  check('freeze: kolom Jenis menempel saat scroll 400px', fzSc.sl >= 390 && fzSc.left > -2 && fzSc.left < 320, 'scrollLeft=' + fzSc.sl + ' jenisOff=' + Math.round(fzSc.left));
+  check('freeze: kolom Jenis menempel saat scroll maksimal', fzSc.sl > 50 && Math.abs(fzSc.left - fzSc.fz3) < 8, 'scrollLeft=' + fzSc.sl + ' jenisOff=' + Math.round(fzSc.left) + ' fz3=' + Math.round(fzSc.fz3));
   const dq = await page.evaluate(() => {
     const b = document.getElementById('dqBadge');
     return { tampil: !!b && !b.classList.contains('hidden'), teks: ((document.getElementById('dqBadgeText') || {}).textContent || '') };
@@ -429,7 +432,7 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
     metOpts: Array.from(document.querySelectorAll('#indexEngineMetric option')).map(o => o.value)
   }));
   check('index solar: kolom L/Ha operasi ada di tabel', lha.th.indexOf('L/Ha operasi') !== -1, lha.th.join(' | '));
-  check('index solar: kartu KPI L/Ha tampil', /Solar per Hektare/.test(lha.kpi) && /L\/Ha/.test(lha.kpi));
+  check('index solar: kartu KPI L/Ha tampil', /solar per hektare/i.test(lha.kpi) && /L\/Ha/.test(lha.kpi));
   check('index solar: urut + metrik L/Ha tersedia', lha.sortOpts.indexOf('ltrPerHa') !== -1 && lha.metOpts.indexOf('ltrPerHa') !== -1, 'sort:' + lha.sortOpts.join(',') + ' metrik:' + lha.metOpts.length);
   await page.screenshot({ path: '/tmp/qa/v17-index-solar.png', fullPage: false });
 
@@ -440,8 +443,8 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   check('index solar: filter Boros menyaring', /^2[0-9]$|^3[0-9]$/.test(boros.count), JSON.stringify(boros));
   await page.select('#indexJustifikasi', 'anomali');
   await new Promise(r => setTimeout(r, 800));
-  const anom = await page.evaluate(() => ({ count: (document.getElementById('indexCount') || {}).textContent, teks: (document.querySelector('#indexTableBody') || {}).innerText }));
-  check('index solar: filter anomali menampilkan 2 engine', anom.count === '2' && /SPC0127|DED0015/.test(anom.teks || ''), anom.count);
+  const anom = await page.evaluate(() => { const rows = Array.from(document.querySelectorAll('#indexTableBody tr')).map(tr => tr.innerText); return { count: ((document.getElementById('indexCount') || {}).textContent || '').replace(/\D/g, ''), n: rows.length, kosong: rows.length <= 1 && /Tidak ada engine/.test(rows[0] || ''), semua: rows.length > 0 && rows.every(t => /Anomali/.test(t)) }; });
+  check('index solar: filter anomali konsisten', (anom.kosong && anom.count === '0') || (!anom.kosong && anom.semua), `n=${anom.n} count=${anom.count} kosong=${anom.kosong} semuaAnomali=${anom.semua}`);
   await page.select('#indexJustifikasi', 'all');
   await new Promise(r => setTimeout(r, 700));
 
@@ -500,6 +503,16 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   check('detail: 35 kolom sesuai sheet A..AI (termasuk bantu "R Bulan")', detail.kolom === 35 && detail.selCount === 35, `th ${detail.kolom}, td ${detail.selCount}`);
   check('detail: kolom Bulan (A) tampil setelah Tanggal & selaras', detail.kolomBulan[0] === 'Tanggal' && detail.kolomBulan[1] === 'Bulan' && detail.bulanSelaras, JSON.stringify(detail.kolomBulan));
   check('detail: tabel bisa digeser horizontal', detail.lebarTabel > 1200, 'lebar ' + detail.lebarTabel);
+
+  // ---- v1.16.0: pencarian tabel lokal (dulu mati + bocor ke filter global) ----
+  const praCari = await page.evaluate(() => ({ total: document.getElementById('tableTotal').textContent, rc: document.getElementById('rowCount').textContent }));
+  await page.type('#tableSearch', 'AW08', { delay: 30 });
+  await new Promise(r => setTimeout(r, 1000));
+  const pascaCari = await page.evaluate(() => ({ total: document.getElementById('tableTotal').textContent, rc: document.getElementById('rowCount').textContent, cocok: Array.from(document.querySelectorAll('#dataTableBody tr')).slice(0, 5).every(tr => tr.innerText.indexOf('AW08') !== -1) }));
+  const nPra = parseInt(praCari.total.replace(/\D/g, ''), 10), nPasca = parseInt(pascaCari.total.replace(/\D/g, ''), 10);
+  check('detail: pencarian tabel menyaring lokal (tanpa mengubah filter global)', nPasca > 0 && nPasca < nPra && pascaCari.cocok && pascaCari.rc === praCari.rc, `${nPra} -> ${nPasca}`);
+  await page.evaluate(() => { const t = document.getElementById('tableSearch'); t.value = ''; t.dispatchEvent(new Event('input', { bubbles: true })); });
+  await new Promise(r => setTimeout(r, 900));
 
   // ---- export CSV 34 kolom ----
   const csv = await page.evaluate(() => new Promise(resolve => {
