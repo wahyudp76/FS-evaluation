@@ -104,6 +104,11 @@ let filters = {
   search: '',
   tableSearch: ''
 };
+// v1.15.0 — mode mengikuti: selama true, rentang tanggal otomatis mengikuti tanggal
+// paling awal & terbaru dari data (di-refresh tiap payload jaringan baru). Mati saat
+// pengguna mengubah tanggal manual; hidup lagi via tombol "Semua"/"Reset". Sync tidak
+// pernah mengubah filter — hanya memperbarui data (ikuti rentang bila mode mengikuti).
+let _tglIkutiLive = true;
 
 // DOM helpers
 const $ = (s) => document.querySelector(s);
@@ -4275,8 +4280,8 @@ function initFiltersUI() {
     });
   }
   renderMonthChips();
-  $('#filterStart').addEventListener('change', e=>{ filters.start = parseLocalDate(e.target.value); currentPage=1; updateAll(); });
-  $('#filterEnd').addEventListener('change', e=>{ filters.end = parseLocalDate(e.target.value); currentPage=1; updateAll(); });
+  $('#filterStart').addEventListener('change', e=>{ filters.start = parseLocalDate(e.target.value); _tglIkutiLive = false; currentPage=1; updateAll(); });
+  $('#filterEnd').addEventListener('change', e=>{ filters.end = parseLocalDate(e.target.value); _tglIkutiLive = false; currentPage=1; updateAll(); });
   // Kembalikan periode tanggal ke seluruh rentang data (pengganti tombol 7H/30H/90H)
   const btnRangeAll = $('#btnRangeAll');
   if (btnRangeAll) {
@@ -4286,7 +4291,7 @@ function initFiltersUI() {
       const minDate = dates[0], maxDate = dates[dates.length-1];
       $('#filterStart').value = formatDateISO(minDate);
       $('#filterEnd').value = formatDateISO(maxDate);
-      filters.start = minDate; filters.end = maxDate;
+      filters.start = minDate; filters.end = maxDate; _tglIkutiLive = true;
       currentPage=1; updateAll();
     });
   }
@@ -4326,7 +4331,7 @@ function initFiltersUI() {
     if ($('#indexJustifikasi')) $('#indexJustifikasi').value='all';
     const dates = rawData.map(d=>d.date).sort((a,b)=>a-b);
     $('#filterStart').value = formatDateISO(dates[0]); $('#filterEnd').value = formatDateISO(dates[dates.length-1]);
-    filters.start = dates[0]; filters.end = dates[dates.length-1];
+    filters.start = dates[0]; filters.end = dates[dates.length-1]; _tglIkutiLive = true;
     currentPage=1; updateAll(); renderMonthChips();
   });
   // --- kontrol tab Waktu & Utilisasi (mode rata-rata/total) ---
@@ -4604,6 +4609,25 @@ function setSyncLabel(ts, fromCache) {
   el.textContent = `Sync ${jam} • ${formatInt(rawData.length)} records • ${src}`;
 }
 
+// v1.15.0 — samakan rentang tanggal dengan ujung data live (paling awal s.d.
+// paling terbaru). Hanya berjalan dalam mode mengikuti; pilihan manual pengguna
+// tidak pernah diubah (sync hanya menarik data, bukan me-reset filter).
+function _ikutiRentangLive() {
+  if (!_tglIkutiLive || !rawData.length) return;
+  const elS = $('#filterStart'), elE = $('#filterEnd');
+  let lo = rawData[0].date, hi = rawData[0].date;
+  for (let i = 1; i < rawData.length; i++) {
+    const t = rawData[i].date;
+    if (t < lo) lo = t;
+    if (t > hi) hi = t;
+  }
+  if (!filters.start || filters.start.getTime() !== lo.getTime() || !filters.end || filters.end.getTime() !== hi.getTime()) {
+    filters.start = lo; filters.end = hi;
+    if (elS) elS.value = formatDateISO(lo);
+    if (elE) elE.value = formatDateISO(hi);
+  }
+}
+
 // Terapkan payload ke dashboard: parse (sekali) + filter + render tab aktif
 function applyPayload(payload, { fromCache = false } = {}) {
   const t0 = performance.now();
@@ -4625,6 +4649,7 @@ function applyPayload(payload, { fromCache = false } = {}) {
   if (!filtersUIReady) { initFiltersUI(); initTabNav(); filtersUIReady = true; }
   lastMeta = { sig: payload.sig, ts: payload.ts, rows: rows.length, probe: payload.probe || null, fullTs: payload.ts };
   writeMeta(lastMeta);
+  _ikutiRentangLive();   // v1.15.0: default selalu awal–akhir data live; pilihan manual tak tersentuh
   applyFilters();
   updateTicker();
   safeRender('insights', renderInsights);

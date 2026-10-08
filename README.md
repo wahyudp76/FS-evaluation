@@ -133,6 +133,7 @@ Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rinci
 - Peringatan kualitas data disederhanakan menjadi ringkasan: jumlah data error + huruf kolom bermasalah beserta jumlahnya (mis. Kolom H: 802 data); tanpa rincian per baris (v1.12.0).
 - Panel peringatan menampilkan contoh nilai error (maks 5 nilai berbeda + nomor baris) dan keterangan kesalahan tiap kolom; cek QA kualitas data adaptif terhadap sheet bersih/bermasalah (v1.13.0).
 - Jaring pengaman kedua: cek batas wajar per kolom (mis. Kecepatan 0–200) menangkap angka janggal yang dinormalisasi Sheets (ketikan `40.00` tersimpan `4.000`) maupun salah ketik; seksi panel tersendiri + detektor titik kini toleran akhiran satuan (v1.14.0).
+- Rentang tanggal default selalu data paling awal s.d. paling terbaru dari spreadsheet (mode mengikuti, berlaku tiap refresh & payload baru); ubahan manual tidak pernah diubah sync — tombol Sync hanya menarik total data (v1.15.0).
 
 ### Kolom beku & chart Performa Waktu (v1.8.1)
 - **Kolom Wilayah beku** pada tabel *Rincian Waktu per Wilayah* (tab Waktu & Utilisasi): saat tabel digeser horizontal untuk melihat kolom waktu berikutnya, kolom **Wilayah** tetap menempel di kiri (latar solid, garis pemisah + bayangan) — berlaku juga untuk baris kepala dan baris kaki rata-rata. Tabel memakai `border-collapse: separate` agar `sticky` berfungsi benar di Chrome.

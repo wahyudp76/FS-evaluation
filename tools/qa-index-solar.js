@@ -30,6 +30,9 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   } catch (e) {}
   console.log('liveRows:', liveRows);
   check('data ZPAS637 baru termuat (= jumlah baris sheet)', liveRows > 0 && totalRows === liveRows, `${totalRows} vs sheet ${liveRows}`);
+  // v1.15.0: default = seluruh rentang data (paling awal s.d. paling terbaru)
+  const tapisAwal = parseInt(total.split('/')[0].replace(/\D/g, ''), 10);
+  check('default: menampilkan seluruh data awal–akhir (tersaring = total)', tapisAwal === totalRows, `${tapisAwal} vs ${totalRows}`);
 
   // ---- struktur tab ----
   const tabs = await page.$$eval('.tab-btn', els => els.map(e => e.dataset.tab));
@@ -536,6 +539,31 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   });
   check('data: overlay tanggal memakai kolom B (bukan A = "R Bulan")', kolomTanggal.pakaiB && !kolomTanggal.pakaiA, JSON.stringify(kolomTanggal));
   check('data: jumlah record dashboard = jumlah baris sheet', sumber.cocok, `sheet ${sumber.barisSheet - 1} baris vs dashboard ${sumber.angka}`);
+
+  // ---- v1.15.0: sync hanya menarik data — pilihan tanggal pengguna tidak di-reset ----
+  const praSync = await page.evaluate(() => {
+    const e = document.getElementById('filterEnd').value;   // hari terbaru (pasti ada datanya)
+    const s = document.getElementById('filterStart');
+    s.value = e;
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+    return e;
+  });
+  await page.waitForFunction(() => {
+    const t = (document.querySelector('#rowCount') || {}).textContent || '';
+    const p = t.split('/');
+    return p.length === 2 && parseInt(p[0].replace(/\D/g, ''), 10) < parseInt(p[1].replace(/\D/g, ''), 10);
+  }, { timeout: 30000 });
+  await page.evaluate(() => document.getElementById('btnSync').click());
+  await page.waitForFunction(() => { const b = document.getElementById('btnSync').textContent; return /Sync/.test(b) && !/Syncing/.test(b); }, { timeout: 120000 });
+  await new Promise(r => setTimeout(r, 1500));
+  const pascaSync = await page.evaluate(() => ({
+    start: document.getElementById('filterStart').value,
+    end: document.getElementById('filterEnd').value,
+    rowCount: document.getElementById('rowCount').textContent.trim()
+  }));
+  const psc = pascaSync.rowCount.split('/');
+  const tapisSync = parseInt(psc[0].replace(/\D/g, ''), 10), totalSync = parseInt(psc[1].replace(/\D/g, ''), 10);
+  check('sync: pilihan tanggal tidak di-reset', pascaSync.start === praSync && pascaSync.end === praSync && tapisSync < totalSync, `${pascaSync.start}..${pascaSync.end} • ${pascaSync.rowCount}`);
 
   const perf = await page.evaluate(() => {
     const n = performance.getEntriesByType('navigation')[0];
