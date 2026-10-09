@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.18.0 — filter Jenis Engine multi-pilih (ganti dropdown tunggal + cabut filter per kode unit)
-const VERSION = 'v1.18.0';
+// v1.19.0 — audit data biaya solar & upah, cegah fetch ganda saat cache kosong, sinkronisasi filter jenis engine ke index solar, optimasi batas tanggal
+const VERSION = 'v1.19.0';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)
@@ -15,7 +15,6 @@ const STATIC_ASSETS = [
   './assets/favicon-16.png',
   './assets/favicon-32.png',
   './assets/logo-white-192.png',
-  './assets/logo-white-512.png',
   './assets/apple-touch-icon.png',
   './assets/icon-72.png',
   './assets/icon-96.png',

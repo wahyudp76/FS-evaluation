@@ -30,6 +30,8 @@ const EARLY_GRACE_MS = 45000;   // unduhan awal sudah berjalan paling dulu -> te
 // State
 let rawData = [];
 let filteredData = [];
+let rawDataMinDate = null;
+let rawDataMaxDate = null;
 let charts = {};
 let granularity = 'daily';
 // Mode tampilan waktu pada tab "Waktu & Utilisasi": rata-rata per aktivitas (bawaan),
@@ -398,8 +400,12 @@ function toNumFast(v) {
   const n = v.length;
   if (n === 0) return 0;
   let i = 0;
+  while (i < n && v.charCodeAt(i) === 32) i++; // lewati spasi di awal
   // lewati awalan "Rp"
-  if (v.charCodeAt(0) === 82 /* R */ && v.charCodeAt(1) === 112 /* p */) i = 2;
+  if (i + 1 < n && v.charCodeAt(i) === 82 /* R */ && v.charCodeAt(i + 1) === 112 /* p */) {
+    i += 2;
+    while (i < n && v.charCodeAt(i) === 32) i++; // lewati spasi setelah "Rp"
+  }
   let sign = 1;
   let c = v.charCodeAt(i);
   if (c === 45) { sign = -1; i++; }        // '-'
@@ -796,6 +802,7 @@ async function fetchPayload({ preferCache = false } = {}) {
       const meta = readMeta();
       return { csv, dates, index, sig: meta ? meta.sig : fingerprint(csv), ts: meta ? meta.ts : Date.now(), fromCache: true };
     }
+    return null;   // cache kosong / belum ada: jangan unduh ulang dari jaringan di sini (sudah ditangani netPromise)
   }
   // paralel: CSV (sumber utama) + kolom tanggal (~3 KB).
   // Kalau index.html sudah memulai unduhan lebih awal, hasilnya dipakai ulang di sini.
@@ -1191,13 +1198,16 @@ function getWaktuTotal() {
 // ===== INDEX SOLAR: agregasi per engine (digabung dengan data ZPAS637) =====
 // Hasil: daftar engine dengan pemakaian solar aktual vs kalibrasi + rekap wilayah/jenis engine
 function getIndexSolarView() {
-  return memo('indexSolar:' + indexJust + ':' + indexSort + ':' + indexSearch, () => {
+  const jKey = [...filters.jenisEngine].sort().join(',');
+  return memo('indexSolar:' + indexJust + ':' + indexSort + ':' + indexSearch + ':' + jKey, () => {
     const wFilter = filters.wilayah;
+    const jFilter = filters.jenisEngine;
     const q = indexSearch ? indexSearch.toLowerCase() : null;
     // v1.9.0: tab Index mengikuti filter tahun & bulan sidebar (rentang tanggal harian
     // tidak diterapkan: baris Index adalah snapshot per engine, bukan aktivitas harian).
     const yF = (filters.year !== 'all') ? parseInt(filters.year, 10) : null;
     const mF = filters.months;
+    const peta = petaJenisEngine();
     const rows = [];
     // ringkasan aktivitas ZPAS637 per engine (mengikuti filter sidebar)
     const zp = {};
@@ -1212,6 +1222,7 @@ function getIndexSolarView() {
       if (wFilter.size && !wFilter.has(r.wilayah)) continue;
       if (yF !== null && !isNaN(yF) && r._y !== yF) continue;
       if (mF.size && !mF.has(r._m)) continue;
+      if (jFilter.size && !jFilter.has(kategoriJenisEngine(r, peta))) continue;
       if (q && r._s.indexOf(q) === -1) continue;
       if (indexJust === 'Hemat' && !(r.aktif && r.justifikasi === 'Hemat' && !r.anomali)) continue;
       if (indexJust === 'Boros' && !(r.aktif && r.justifikasi === 'Boros' && !r.anomali)) continue;
@@ -1323,7 +1334,8 @@ function kategoriJenisEngine(r, peta) {
 
 // Agregasi sheet Index Solar per JENIS ENGINE (mengikuti filter tab Index Solar)
 function getIndexPerJenis() {
-  return memo('indexJenis:' + indexJust + ':' + indexSearch, () => {
+  const jKey = [...filters.jenisEngine].sort().join(',');
+  return memo('indexJenis:' + indexJust + ':' + indexSearch + ':' + jKey, () => {
     const iv = getIndexSolarView();
     const peta = petaJenisEngine();
     const groups = {};
@@ -2351,7 +2363,7 @@ function renderWilayahDetail() {
     tbody.innerHTML = stats.map(s=>{
       let effBadge = '';
       if (_avgSkor > 0 && s.efisiensiScore > _avgSkor * 1.1) effBadge = '<span class="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">Efisien</span>';
-      else if (_avgSkor > 0 && s.efisiensiScore >= _avgSkor * 0.9) effBadge = '<span class="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-emerald-200">Cukup</span>';
+      else if (_avgSkor > 0 && s.efisiensiScore >= _avgSkor * 0.9) effBadge = '<span class="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200">Cukup</span>';
       else effBadge = '<span class="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200">Boros</span>';
       return `
         <tr class="hover:bg-slate-50/80 transition">
@@ -2469,7 +2481,9 @@ function calculateKPIsRaw() {
     luas += d.luasSiram || 0; solar += d.solarTerpakai || 0; oper += d.operatingTime || 0;
     solarJam += d.solarPerJam || 0; solarHa += d.solarPerHa || 0; kec += d.kecepatan || 0;
     tebal += d.tebalSiram || 0; avail += d.availability || 0; util += d.utilization || 0;
-    biaya += d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0));   // v1.16.0: fallback per baris biayaSolar += d.biayaSolar || 0; biayaUpah += d.biayaUpah || 0;
+    biaya += d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0));   // v1.16.0: fallback per baris
+    biayaSolar += d.biayaSolar || 0;
+    biayaUpah += d.biayaUpah || 0;
     biayaAlat += d.biayaAlat || 0; rpHaSum += d.rpPerHa || 0; haHari += d.haPerHari || 0;
     haJam += d.haPerJam || 0; plan += d.planTime || 0; prep += d.prepareTime || 0;
     wait += d.waitingTime || 0; air += d.air || 0;
@@ -4066,11 +4080,8 @@ function updateFilterSheetMeta() {
   if (filters.year !== 'all') n++;
   if (filters.jenisEngine.size) n++;
   if (filters.search) n++;
-  if (rawData.length && filters.start && filters.end) {
-    // rawData mengikuti urutan sheet (terbaru dulu) — cari rentang aktual secara eksplisit
-    let lo = Infinity, hi = -Infinity;
-    for (let i = 0; i < rawData.length; i++) { const t = rawData[i].date.getTime(); if (t < lo) lo = t; if (t > hi) hi = t; }
-    const full = filters.start.getTime() <= lo && filters.end.getTime() >= hi;
+  if (rawData.length && filters.start && filters.end && rawDataMinDate && rawDataMaxDate) {
+    const full = filters.start.getTime() <= rawDataMinDate.getTime() && filters.end.getTime() >= rawDataMaxDate.getTime();
     if (!full) n++;
   }
   el.textContent = n
@@ -4101,8 +4112,8 @@ function scheduleIdlePrefetch() {
 function initFiltersUI() {
   if (rawData.length===0) return;
   if (!$('#filterStart') || !$('#wilayahCheckboxes')) return;   // HTML tak lengkap -> pakai bawaan
-  const dates = rawData.map(d=>d.date).sort((a,b)=>a-b);
-  const minDate = dates[0], maxDate = dates[dates.length-1];
+  const minDate = rawDataMinDate || rawData[0].date;
+  const maxDate = rawDataMaxDate || rawData[rawData.length-1].date;
   $('#filterStart').value = formatDateISO(minDate);
   $('#filterEnd').value = formatDateISO(maxDate);
   filters.start = minDate;
@@ -4311,12 +4322,10 @@ function initFiltersUI() {
   const btnRangeAll = $('#btnRangeAll');
   if (btnRangeAll) {
     btnRangeAll.addEventListener('click', ()=>{
-      if (!rawData.length) return;
-      const dates = rawData.map(d=>d.date).sort((a,b)=>a-b);
-      const minDate = dates[0], maxDate = dates[dates.length-1];
-      $('#filterStart').value = formatDateISO(minDate);
-      $('#filterEnd').value = formatDateISO(maxDate);
-      filters.start = minDate; filters.end = maxDate; _tglIkutiLive = true;
+      if (!rawData.length || !rawDataMinDate || !rawDataMaxDate) return;
+      $('#filterStart').value = formatDateISO(rawDataMinDate);
+      $('#filterEnd').value = formatDateISO(rawDataMaxDate);
+      filters.start = rawDataMinDate; filters.end = rawDataMaxDate; _tglIkutiLive = true;
       currentPage=1; updateAll();
     });
   }
@@ -4353,9 +4362,12 @@ function initFiltersUI() {
     if ($('#indexSearch')) $('#indexSearch').value='';
     indexSearch=''; indexJust='all'; indexPage=1;
     if ($('#indexJustifikasi')) $('#indexJustifikasi').value='all';
-    const dates = rawData.map(d=>d.date).sort((a,b)=>a-b);
-    $('#filterStart').value = formatDateISO(dates[0]); $('#filterEnd').value = formatDateISO(dates[dates.length-1]);
-    filters.start = dates[0]; filters.end = dates[dates.length-1]; _tglIkutiLive = true;
+    const minDate = rawDataMinDate || (rawData[0] && rawData[0].date);
+    const maxDate = rawDataMaxDate || (rawData[rawData.length - 1] && rawData[rawData.length - 1].date);
+    if (minDate && maxDate) {
+      $('#filterStart').value = formatDateISO(minDate); $('#filterEnd').value = formatDateISO(maxDate);
+      filters.start = minDate; filters.end = maxDate; _tglIkutiLive = true;
+    }
     currentPage=1; updateAll(); renderMonthChips();
   });
   // --- kontrol tab Waktu & Utilisasi (mode rata-rata/total) ---
@@ -4637,14 +4649,9 @@ function setSyncLabel(ts, fromCache) {
 // paling terbaru). Hanya berjalan dalam mode mengikuti; pilihan manual pengguna
 // tidak pernah diubah (sync hanya menarik data, bukan me-reset filter).
 function _ikutiRentangLive() {
-  if (!_tglIkutiLive || !rawData.length) return;
+  if (!_tglIkutiLive || !rawData.length || !rawDataMinDate || !rawDataMaxDate) return;
   const elS = $('#filterStart'), elE = $('#filterEnd');
-  let lo = rawData[0].date, hi = rawData[0].date;
-  for (let i = 1; i < rawData.length; i++) {
-    const t = rawData[i].date;
-    if (t < lo) lo = t;
-    if (t > hi) hi = t;
-  }
+  const lo = rawDataMinDate, hi = rawDataMaxDate;
   if (!filters.start || filters.start.getTime() !== lo.getTime() || !filters.end || filters.end.getTime() !== hi.getTime()) {
     filters.start = lo; filters.end = hi;
     if (elS) elS.value = formatDateISO(lo);
@@ -4662,6 +4669,14 @@ function applyPayload(payload, { fromCache = false } = {}) {
   else { rows = parseGvizJSON(payload.json); payload.json = null; }
   if (!rows.length) throw new Error('Tidak ada baris data yang bisa dibaca (periksa kolom Date/Wilayah pada sheet)');
   rawData = rows;
+  let minD = rawData[0].date, maxD = rawData[0].date;
+  for (let i = 1; i < rawData.length; i++) {
+    const d = rawData[i].date;
+    if (d < minD) minD = d;
+    if (d > maxD) maxD = d;
+  }
+  rawDataMinDate = minD;
+  rawDataMaxDate = maxD;
   // sheet Index Solar (opsional: kalau gagal, dashboard utama tetap jalan)
   if (payload.index) {
     try { indexData = parseIndexSolar(payload.index); indexVersion++; }

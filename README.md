@@ -136,6 +136,13 @@ Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rinci
 - Rentang tanggal default selalu data paling awal s.d. paling terbaru dari spreadsheet (mode mengikuti, berlaku tiap refresh & payload baru); ubahan manual tidak pernah diubah sync — tombol Sync hanya menarik total data (v1.15.0).
 - Filter Engine multi-pilih di panel filter: daftar checkbox per kode engine + kotak pencarian + tombol Clear; digabung (AND) dengan filter lain & dihitung di meta filter aktif (v1.17.0; dicabut pada v1.18.0 — diganti filter per tipe).
 - Filter Jenis Engine multi-pilih (checkbox per tipe DEM/DED/DEC/dll + jumlah record) menggantikan dropdown tunggal; digabung (AND) dengan filter lain (v1.18.0).
+- Audit v1.19.0:
+  - **Kebenaran data**: membetulkan akumulasi `Biaya Solar` dan `Biaya Upah` pada kartu KPI sekunder tab Overview yang sebelumnya tertutup komentar sebaris di v1.16.0 (kini menampilkan data riil ~Rp 39 M / 48% dan ~Rp 9,7 M / 12%).
+  - **Sinkronisasi data & jaringan**: mengeliminasi permintaan ganda ke Google Sheets saat kunjungan pertama dengan cache kosong (`fetchPayload({ preferCache: true })` kini segera mengembalikan `null` bila cache belum terisi).
+  - **Harmonisasi filter**: filter Jenis Engine multi-pilih kini tersinkronisasi ke tab Index Solar (tabel dan agregasi ringkasan engine).
+  - **Stabilitas & performa**: batas tanggal awal–akhir (`rawDataMinDate` & `rawDataMaxDate`) di-cache sekali saat pemuatan data, mengeliminasi iterasi O(N) dan pengurutan O(N log N) dari 14.850 data pada `updateFilterSheetMeta`, `_ikutiRentangLive`, `btnRangeAll`, dan `btnClearFilters`.
+  - **Pembersihan repositori**: menghapus aset tak terpakai `assets/logo-white-512.png` dan skrip scratch `tools/screenshot-responsive.js`, memperbarui Service Worker (`v1.19.0`).
+  - **Ketahanan parser angka**: `toNumFast` kini toleran terhadap spasi sebelum atau sesudah prefiks `Rp`.
 - Audit v1.16.0: data contoh offline tak lagi menimpa cache; pencarian tabel jalan lokal; probe sync mencakup Index Solar; fallback Biaya Total konsisten per baris; badge efisiensi relatif rata-rata; label % & tren harian dibetulkan; formatter Rp di-cache; XSS opsi jenis engine ditutup; cache data dipertahankan tiap update; 5 cek QA rapuh dibuat adaptif.
 
 ### Kolom beku & chart Performa Waktu (v1.8.1)
@@ -268,7 +275,7 @@ Pastikan sheet **File > Share > Anyone with link - Viewer**.
 ## 🪧 Logo & Ikon
 Logo: tetes air + sprinkler irigasi (brand emerald `#10A05C`).
 - **Ikon transparan** (tanpa kotak putih): `favicon.svg`, `favicon.ico`, `favicon-16/32.png`, `icon-72…512.png` → tampil bersih di tab browser, bookmark, dan taskbar
-- **Glyph putih transparan**: `logo-white-192.png`, `logo-white-512.png` → dipakai di header dashboard & loading screen
+- **Glyph putih transparan**: `logo-white-192.png` → dipakai di header dashboard & loading screen
 - **Full-bleed hijau** (khusus platform yang tidak mendukung transparansi): `apple-touch-icon.png` (180 px)
 - **Maskable Android** (safe zone 66%): `icon-maskable-192.png`, `icon-maskable-512.png`
 - Ukuran kecil (16–32 px) memakai versi glyph disederhanakan (tetes air saja) agar tetap tajam
