@@ -98,6 +98,7 @@ let filters = {
   start: null,
   end: null,
   wilayah: new Set(),
+  engine: new Set(),
   months: new Set(),
   year: 'all',
   jenisEngine: 'all',
@@ -853,7 +854,7 @@ function applyFilters() {
   const t0 = performance.now();
   const startMs = filters.start ? filters.start.getTime() : null;
   const endMs = filters.end ? (filters.end.getTime() + 86399999) : null;
-  const fMonths = filters.months, fWilayah = filters.wilayah;
+  const fMonths = filters.months, fWilayah = filters.wilayah, fEng = filters.engine;
   const y = (filters.year !== 'all') ? parseInt(filters.year, 10) : null;
   const fEngine = filters.jenisEngine;
   const q1 = filters.search ? filters.search.toLowerCase() : null;
@@ -868,6 +869,7 @@ function applyFilters() {
     if (fMonths.size && !fMonths.has(d._m)) continue;
     if (y !== null && !isNaN(y) && d._y !== y) continue;
     if (fWilayah.size && !fWilayah.has(d.wilayah)) continue;
+    if (fEng.size && !fEng.has(d.engine)) continue;   // v1.17.0: filter engine multi-pilih
     if (fEngine !== 'all' && d.jenisEngine !== fEngine) continue;
     if (q1 && d._s.indexOf(q1) === -1) continue;
     out.push(d);
@@ -4063,6 +4065,7 @@ function updateFilterSheetMeta() {
   if (!el) return;
   let n = 0;
   if (filters.wilayah.size) n++;
+  if (filters.engine.size) n++;
   if (filters.months.size) n++;
   if (filters.year !== 'all') n++;
   if (filters.jenisEngine !== 'all') n++;
@@ -4130,6 +4133,49 @@ function initFiltersUI() {
       currentPage=1; updateAll();
     });
   });
+  // v1.17.0: filter Engine multi-pilih (checkbox + pencarian kode)
+  const engineCount = {};
+  for (let i = 0; i < rawData.length; i++) {
+    const e = rawData[i].engine;
+    if (e) engineCount[e] = (engineCount[e] || 0) + 1;
+  }
+  const engineContainer = $('#engineCheckboxes');
+  if (engineContainer) {
+    const engineSet = Object.keys(engineCount).sort();
+    engineContainer.innerHTML = engineSet.map(e=>`
+    <label class="engine-row flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white cursor-pointer transition" data-engine="${esc(e.toLowerCase())}">
+      <input type="checkbox" value="${esc(e)}" class="engine-cb h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+      <span class="text-[12px] font-medium text-slate-700 font-mono">${esc(e)}</span>
+      <span class="ml-auto text-[10px] font-mono text-slate-400">${formatInt(engineCount[e])}</span>
+    </label>
+  `).join('') || '<div class="px-2 py-3 text-center text-[11px] text-slate-400">Tidak ada data engine</div>';
+    engineContainer.querySelectorAll('.engine-cb').forEach(cb=>{
+      cb.addEventListener('change', (ev)=>{
+        if (ev.target.checked) filters.engine.add(ev.target.value);
+        else filters.engine.delete(ev.target.value);
+        currentPage=1; updateAll();
+      });
+    });
+    const engineSearch = $('#engineSearch');
+    if (engineSearch) {
+      engineSearch.addEventListener('input', debounce(ev=>{
+        const q = ev.target.value.trim().toLowerCase();
+        engineContainer.querySelectorAll('.engine-row').forEach(row=>{
+          row.style.display = (!q || (row.dataset.engine || '').indexOf(q) !== -1) ? '' : 'none';
+        });
+      }, 150));
+    }
+    const btnClearEngine = $('#btnClearEngine');
+    if (btnClearEngine) {
+      btnClearEngine.addEventListener('click', ()=>{
+        filters.engine.clear();
+        engineContainer.querySelectorAll('.engine-cb').forEach(cb=>{ cb.checked = false; });
+        if (engineSearch) engineSearch.value = '';
+        engineContainer.querySelectorAll('.engine-row').forEach(row=>{ row.style.display = ''; });
+        currentPage=1; updateAll();
+      });
+    }
+  }
   const jenisSet = [...new Set(rawData.map(d=>d.jenisEngine).filter(Boolean))].sort();
   const sel = $('#filterJenisEngine');
   sel.innerHTML = '<option value="all">Semua Jenis</option>' + jenisSet.map(j=>`<option value="${esc(j)}">${esc(j)}</option>`).join('');   // v1.16.0: escape nilai sheet (XSS)
@@ -4324,8 +4370,11 @@ function initFiltersUI() {
   $('#tableSearch').addEventListener('input', onTableSearch);
   $('#tableSearch').addEventListener('search', onTableSearch);
   $('#btnClearFilters').addEventListener('click', ()=>{
-    filters.wilayah.clear(); filters.months.clear(); filters.year='all'; filters.jenisEngine='all'; filters.search=''; filters.tableSearch='';
+    filters.wilayah.clear(); filters.months.clear(); filters.year='all'; filters.jenisEngine='all'; filters.search=''; filters.tableSearch=''; filters.engine.clear();
     $$('.wilayah-cb').forEach(cb=>cb.checked=false);
+    $$('.engine-cb').forEach(cb=>cb.checked=false);
+    if ($('#engineSearch')) $('#engineSearch').value='';
+    $$('.engine-row').forEach(row=>{ row.style.display=''; });
     $$('.month-btn').forEach(b=>{ b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100'); b.classList.add('bg-white','text-slate-600','border-slate-200'); });
     $('#filterJenisEngine').value='all';
     if ($('#filterYear')) $('#filterYear').value='all';

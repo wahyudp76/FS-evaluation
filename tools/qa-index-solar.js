@@ -514,6 +514,19 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   await page.evaluate(() => { const t = document.getElementById('tableSearch'); t.value = ''; t.dispatchEvent(new Event('input', { bubbles: true })); });
   await new Promise(r => setTimeout(r, 900));
 
+  // ---- v1.17.0: filter engine multi-pilih ----
+  const praEng = await page.evaluate(() => document.getElementById('rowCount').textContent);
+  const nEng = await page.evaluate(() => document.querySelectorAll('.engine-cb').length);
+  await page.evaluate(() => { const cbs = Array.from(document.querySelectorAll('.engine-cb')); [0, 1].forEach(i => { cbs[i].checked = true; cbs[i].dispatchEvent(new Event('change', { bubbles: true })); }); });
+  await new Promise(r => setTimeout(r, 1200));
+  const pascaEng = await page.evaluate(() => ({ rc: document.getElementById('rowCount').textContent, n: document.querySelectorAll('.engine-cb:checked').length }));
+  const ePra = parseInt(praEng.split('/')[0].replace(/\D/g, ''), 10), ePasca = parseInt(pascaEng.rc.split('/')[0].replace(/\D/g, ''), 10);
+  check('filter: daftar engine tersedia & multi-pilih menyaring (2 engine)', nEng > 10 && pascaEng.n === 2 && ePasca > 0 && ePasca < ePra, `${nEng} engine • ${ePra} -> ${ePasca}`);
+  await page.click('#btnClearFilters');
+  await new Promise(r => setTimeout(r, 1200));
+  const pulihEng = await page.evaluate(() => ({ rc: document.getElementById('rowCount').textContent, n: document.querySelectorAll('.engine-cb:checked').length }));
+  check('filter: Reset memulihkan pilihan engine', pulihEng.n === 0 && pulihEng.rc === praEng, pulihEng.rc);
+
   // ---- export CSV 34 kolom ----
   const csv = await page.evaluate(() => new Promise(resolve => {
     const orig = URL.createObjectURL;

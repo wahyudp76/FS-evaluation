@@ -202,7 +202,7 @@
                         <span class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100"><i data-lucide="sliders-horizontal" class="h-4 w-4"></i></span>
                         <div class="min-w-0">
                             <div class="text-[13px] font-semibold leading-tight text-slate-900">Filter &amp; Kontrol</div>
-                            <div id="filterSheetMeta" class="truncate text-[10px] text-slate-400">Periode, wilayah, jenis engine &amp; pencarian</div>
+                            <div id="filterSheetMeta" class="truncate text-[10px] text-slate-400">Periode, wilayah, engine &amp; pencarian</div>
                         </div>
                     </div>
                     <button id="btnCloseFilters" type="button" aria-label="Tutup panel filter" class="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50">
@@ -296,6 +296,22 @@
                         <select id="filterJenisEngine" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[13px] font-medium outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-50">
                             <option value="all">Semua Jenis</option>
                         </select>
+                    </div>
+
+                    <!-- Engine (multi-pilih) -->
+                    <div class="space-y-2 mb-5">
+                        <label class="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                            <span>Engine</span>
+                            <button id="btnClearEngine" class="text-[10px] font-medium normal-case tracking-normal text-emerald-600 hover:text-emerald-700">Clear</button>
+                        </label>
+                        <div class="relative">
+                            <i data-lucide="search" class="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"></i>
+                            <input id="engineSearch" type="text" placeholder="Cari kode engine..." class="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-2 text-[12px] outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
+                        </div>
+                        <div id="engineCheckboxes" class="max-h-[160px] overflow-y-auto space-y-1.5 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5">
+                            <div class="shimmer h-4 rounded"></div>
+                        </div>
+                        <p class="text-[10px] leading-relaxed text-slate-400">Centang 1 atau lebih engine; kosong = semua engine.</p>
                     </div>
 
                     <!-- Granularity -->
