@@ -98,10 +98,9 @@ let filters = {
   start: null,
   end: null,
   wilayah: new Set(),
-  engine: new Set(),
   months: new Set(),
   year: 'all',
-  jenisEngine: 'all',
+  jenisEngine: new Set(),   // v1.18.0: multi-pilih per tipe (dulu dropdown tunggal)
   search: '',
   tableSearch: ''
 };
@@ -854,9 +853,8 @@ function applyFilters() {
   const t0 = performance.now();
   const startMs = filters.start ? filters.start.getTime() : null;
   const endMs = filters.end ? (filters.end.getTime() + 86399999) : null;
-  const fMonths = filters.months, fWilayah = filters.wilayah, fEng = filters.engine;
+  const fMonths = filters.months, fWilayah = filters.wilayah, fJenis = filters.jenisEngine;
   const y = (filters.year !== 'all') ? parseInt(filters.year, 10) : null;
-  const fEngine = filters.jenisEngine;
   const q1 = filters.search ? filters.search.toLowerCase() : null;
   // v1.16.0: tableSearch pindah ke renderTable (lokal tabel; dulu mati & bocor ke filter global)
 
@@ -869,8 +867,7 @@ function applyFilters() {
     if (fMonths.size && !fMonths.has(d._m)) continue;
     if (y !== null && !isNaN(y) && d._y !== y) continue;
     if (fWilayah.size && !fWilayah.has(d.wilayah)) continue;
-    if (fEng.size && !fEng.has(d.engine)) continue;   // v1.17.0: filter engine multi-pilih
-    if (fEngine !== 'all' && d.jenisEngine !== fEngine) continue;
+    if (fJenis.size && !fJenis.has(d.jenisEngine)) continue;   // v1.18.0: filter jenis engine multi-pilih
     if (q1 && d._s.indexOf(q1) === -1) continue;
     out.push(d);
   }
@@ -4065,10 +4062,9 @@ function updateFilterSheetMeta() {
   if (!el) return;
   let n = 0;
   if (filters.wilayah.size) n++;
-  if (filters.engine.size) n++;
   if (filters.months.size) n++;
   if (filters.year !== 'all') n++;
-  if (filters.jenisEngine !== 'all') n++;
+  if (filters.jenisEngine.size) n++;
   if (filters.search) n++;
   if (rawData.length && filters.start && filters.end) {
     // rawData mengikuti urutan sheet (terbaru dulu) — cari rentang aktual secara eksplisit
@@ -4133,52 +4129,30 @@ function initFiltersUI() {
       currentPage=1; updateAll();
     });
   });
-  // v1.17.0: filter Engine multi-pilih (checkbox + pencarian kode)
-  const engineCount = {};
+  // v1.18.0: dropdown tunggal -> checkbox multi-pilih per tipe (DEM/DED/DEC/dll)
+  const jenisCount = {};
   for (let i = 0; i < rawData.length; i++) {
-    const e = rawData[i].engine;
-    if (e) engineCount[e] = (engineCount[e] || 0) + 1;
+    const j = rawData[i].jenisEngine;
+    if (j) jenisCount[j] = (jenisCount[j] || 0) + 1;
   }
-  const engineContainer = $('#engineCheckboxes');
-  if (engineContainer) {
-    const engineSet = Object.keys(engineCount).sort();
-    engineContainer.innerHTML = engineSet.map(e=>`
-    <label class="engine-row flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white cursor-pointer transition" data-engine="${esc(e.toLowerCase())}">
-      <input type="checkbox" value="${esc(e)}" class="engine-cb h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
-      <span class="text-[12px] font-medium text-slate-700 font-mono">${esc(e)}</span>
-      <span class="ml-auto text-[10px] font-mono text-slate-400">${formatInt(engineCount[e])}</span>
+  const jenisSet = Object.keys(jenisCount).sort();
+  const jenisContainer = $('#jenisCheckboxes');
+  if (jenisContainer) {
+    jenisContainer.innerHTML = jenisSet.map(j=>`
+    <label class="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white cursor-pointer transition">
+      <input type="checkbox" value="${esc(j)}" class="jenis-cb h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+      <span class="text-[12px] font-medium text-slate-700 font-mono">${esc(j)}</span>
+      <span class="ml-auto text-[10px] font-mono text-slate-400">${formatInt(jenisCount[j])}</span>
     </label>
-  `).join('') || '<div class="px-2 py-3 text-center text-[11px] text-slate-400">Tidak ada data engine</div>';
-    engineContainer.querySelectorAll('.engine-cb').forEach(cb=>{
+  `).join('') || '<div class="px-2 py-3 text-center text-[11px] text-slate-400">Tidak ada data jenis engine</div>';
+    jenisContainer.querySelectorAll('.jenis-cb').forEach(cb=>{
       cb.addEventListener('change', (ev)=>{
-        if (ev.target.checked) filters.engine.add(ev.target.value);
-        else filters.engine.delete(ev.target.value);
+        if (ev.target.checked) filters.jenisEngine.add(ev.target.value);
+        else filters.jenisEngine.delete(ev.target.value);
         currentPage=1; updateAll();
       });
     });
-    const engineSearch = $('#engineSearch');
-    if (engineSearch) {
-      engineSearch.addEventListener('input', debounce(ev=>{
-        const q = ev.target.value.trim().toLowerCase();
-        engineContainer.querySelectorAll('.engine-row').forEach(row=>{
-          row.style.display = (!q || (row.dataset.engine || '').indexOf(q) !== -1) ? '' : 'none';
-        });
-      }, 150));
-    }
-    const btnClearEngine = $('#btnClearEngine');
-    if (btnClearEngine) {
-      btnClearEngine.addEventListener('click', ()=>{
-        filters.engine.clear();
-        engineContainer.querySelectorAll('.engine-cb').forEach(cb=>{ cb.checked = false; });
-        if (engineSearch) engineSearch.value = '';
-        engineContainer.querySelectorAll('.engine-row').forEach(row=>{ row.style.display = ''; });
-        currentPage=1; updateAll();
-      });
-    }
   }
-  const jenisSet = [...new Set(rawData.map(d=>d.jenisEngine).filter(Boolean))].sort();
-  const sel = $('#filterJenisEngine');
-  sel.innerHTML = '<option value="all">Semua Jenis</option>' + jenisSet.map(j=>`<option value="${esc(j)}">${esc(j)}</option>`).join('');   // v1.16.0: escape nilai sheet (XSS)
   const yearsSet = [...new Set(rawData.map(d=>d.date.getFullYear()))].sort();
   const yearSel = $('#filterYear');
   if (yearSel) yearSel.innerHTML = '<option value="all">Semua Tahun</option>' + yearsSet.map(y=>`<option value="${y}">${y}</option>`).join('');
@@ -4359,7 +4333,6 @@ function initFiltersUI() {
   const onFilterSearch = debounce(e=>{ filters.search = e.target.value.trim(); currentPage=1; updateAll(); }, 220);
   $('#filterSearch').addEventListener('input', onFilterSearch);
   $('#filterSearch').addEventListener('search', onFilterSearch);
-  $('#filterJenisEngine').addEventListener('change', e=>{ filters.jenisEngine = e.target.value; currentPage=1; updateAll(); });
   const onTableSearch = debounce(e=>{
     const v = e.target.value.trim();
     // hindari filter 1 huruf (menghasilkan ribuan baris & re-render berat)
@@ -4370,13 +4343,10 @@ function initFiltersUI() {
   $('#tableSearch').addEventListener('input', onTableSearch);
   $('#tableSearch').addEventListener('search', onTableSearch);
   $('#btnClearFilters').addEventListener('click', ()=>{
-    filters.wilayah.clear(); filters.months.clear(); filters.year='all'; filters.jenisEngine='all'; filters.search=''; filters.tableSearch=''; filters.engine.clear();
+    filters.wilayah.clear(); filters.months.clear(); filters.year='all'; filters.jenisEngine.clear(); filters.search=''; filters.tableSearch='';
     $$('.wilayah-cb').forEach(cb=>cb.checked=false);
-    $$('.engine-cb').forEach(cb=>cb.checked=false);
-    if ($('#engineSearch')) $('#engineSearch').value='';
-    $$('.engine-row').forEach(row=>{ row.style.display=''; });
+    $$('.jenis-cb').forEach(cb=>cb.checked=false);
     $$('.month-btn').forEach(b=>{ b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100'); b.classList.add('bg-white','text-slate-600','border-slate-200'); });
-    $('#filterJenisEngine').value='all';
     if ($('#filterYear')) $('#filterYear').value='all';
     if ($('#filterMonthDropdown')) $('#filterMonthDropdown').value='all';
     $('#filterSearch').value=''; $('#tableSearch').value='';

@@ -134,7 +134,8 @@ Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rinci
 - Panel peringatan menampilkan contoh nilai error (maks 5 nilai berbeda + nomor baris) dan keterangan kesalahan tiap kolom; cek QA kualitas data adaptif terhadap sheet bersih/bermasalah (v1.13.0).
 - Jaring pengaman kedua: cek batas wajar per kolom (mis. Kecepatan 0–200) menangkap angka janggal yang dinormalisasi Sheets (ketikan `40.00` tersimpan `4.000`) maupun salah ketik; seksi panel tersendiri + detektor titik kini toleran akhiran satuan (v1.14.0).
 - Rentang tanggal default selalu data paling awal s.d. paling terbaru dari spreadsheet (mode mengikuti, berlaku tiap refresh & payload baru); ubahan manual tidak pernah diubah sync — tombol Sync hanya menarik total data (v1.15.0).
-- Filter Engine multi-pilih di panel filter: daftar checkbox per kode engine + kotak pencarian + tombol Clear; digabung (AND) dengan filter lain & dihitung di meta filter aktif (v1.17.0).
+- Filter Engine multi-pilih di panel filter: daftar checkbox per kode engine + kotak pencarian + tombol Clear; digabung (AND) dengan filter lain & dihitung di meta filter aktif (v1.17.0; dicabut pada v1.18.0 — diganti filter per tipe).
+- Filter Jenis Engine multi-pilih (checkbox per tipe DEM/DED/DEC/dll + jumlah record) menggantikan dropdown tunggal; digabung (AND) dengan filter lain (v1.18.0).
 - Audit v1.16.0: data contoh offline tak lagi menimpa cache; pencarian tabel jalan lokal; probe sync mencakup Index Solar; fallback Biaya Total konsisten per baris; badge efisiensi relatif rata-rata; label % & tren harian dibetulkan; formatter Rp di-cache; XSS opsi jenis engine ditutup; cache data dipertahankan tiap update; 5 cek QA rapuh dibuat adaptif.
 
 ### Kolom beku & chart Performa Waktu (v1.8.1)

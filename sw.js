@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.17.0 — filter Engine multi-pilih (checkbox + pencarian) di panel filter
-const VERSION = 'v1.17.0';
+// v1.18.0 — filter Jenis Engine multi-pilih (ganti dropdown tunggal + cabut filter per kode unit)
+const VERSION = 'v1.18.0';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)

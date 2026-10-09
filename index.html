@@ -290,28 +290,13 @@
                         </div>
                     </div>
 
-                    <!-- Jenis Engine -->
+                    <!-- Jenis Engine (multi-pilih) -->
                     <div class="space-y-2 mb-5">
                         <label class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Jenis Engine</label>
-                        <select id="filterJenisEngine" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[13px] font-medium outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-50">
-                            <option value="all">Semua Jenis</option>
-                        </select>
-                    </div>
-
-                    <!-- Engine (multi-pilih) -->
-                    <div class="space-y-2 mb-5">
-                        <label class="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                            <span>Engine</span>
-                            <button id="btnClearEngine" class="text-[10px] font-medium normal-case tracking-normal text-emerald-600 hover:text-emerald-700">Clear</button>
-                        </label>
-                        <div class="relative">
-                            <i data-lucide="search" class="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"></i>
-                            <input id="engineSearch" type="text" placeholder="Cari kode engine..." class="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-2 text-[12px] outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
-                        </div>
-                        <div id="engineCheckboxes" class="max-h-[160px] overflow-y-auto space-y-1.5 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5">
+                        <div id="jenisCheckboxes" class="max-h-[140px] overflow-y-auto space-y-1.5 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5">
                             <div class="shimmer h-4 rounded"></div>
                         </div>
-                        <p class="text-[10px] leading-relaxed text-slate-400">Centang 1 atau lebih engine; kosong = semua engine.</p>
+                        <p class="text-[10px] leading-relaxed text-slate-400">Centang 1 atau lebih tipe (DEM, DED, DEC, ...); kosong = semua.</p>
                     </div>
 
                     <!-- Granularity -->
