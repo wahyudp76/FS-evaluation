@@ -665,11 +665,25 @@ function parseIndexSolar(csvText) {
     const wilayah = g(cWil);
     const tgl = parseIndexDate(g(cDate), fallbackYear);
     const lpjSheet = numI(cLpj);
-    const lpjAktual = jam > 0 ? solar / jam : 0;          // dihitung sendiri agar akurat
+    const isSpe = (g(cJenis) === 'SPE') || (engine && engine.startsWith('SPE'));
+    const lpjAktual = (!isSpe && jam > 0) ? solar / jam : 0;          // dihitung sendiri agar akurat
     const aktif = !/tidak/i.test(wilayah) && !/^tid$/i.test(g(cJenis)) && jam > 0;
-    // Anomali: pemakaian jauh di atas kalibrasi (mis. salah input 46.258 L untuk 2 jam)
-    const anomali = aktif && kalibrasi > 0 && lpjAktual > kalibrasi * 5;
-    const justifikasi = /boros/i.test(justifikasiRaw) ? 'Boros' : (/hemat/i.test(justifikasiRaw) ? 'Hemat' : (aktif ? 'Hemat' : 'Tidak Ada Siram'));
+    // Anomali: pemakaian jauh di atas kalibrasi (khusus mesin diesel dengan kalibrasi)
+    const anomali = aktif && !isSpe && kalibrasi > 0 && lpjAktual > kalibrasi * 5;
+    let justifikasi;
+    if (!aktif) {
+      justifikasi = 'Tidak Ada Siram';
+    } else if (isSpe) {
+      justifikasi = 'SPE'; // Mesin Elektrik PLN (100% Listrik, Bebas Solar)
+    } else if (/boros/i.test(justifikasiRaw)) {
+      justifikasi = 'Boros';
+    } else if (/hemat/i.test(justifikasiRaw)) {
+      justifikasi = 'Hemat';
+    } else if (kalibrasi > 0 && lpjAktual > kalibrasi) {
+      justifikasi = 'Boros';
+    } else {
+      justifikasi = 'Hemat';
+    }
     out.push({
       engine,
       tanggalLabel: tgl.label,
@@ -994,15 +1008,13 @@ function getWilayahStatsRaw() {
       operatingTime: 0, prepareTime: 0, waitingTime: 0, kecepatan: 0, tebalSiram: 0,
       availability: 0, utilization: 0, rpPerHa: 0, biayaTotal: 0, air: 0,
       biayaSolar: 0, biayaUpah: 0, biayaAlat: 0,
+      // Pemisahan mesin diesel vs mesin elektrik (SPE)
+      dieselCount: 0, dieselLuas: 0, dieselOperating: 0, dieselSolar: 0,
       kwh: 0, speKwh: 0, speCount: 0, speOperating: 0, speLuas: 0, speEngines: new Set()
     };
     g.count++;
+    // Produktivitas, Waktu & Utilisasi: SEMUA ENGINE TERHITUNG (DIESEL + SPE)
     g.luasSiram += d.luasSiram || 0;
-    g.solarTerpakai += d.solarTerpakai || 0;
-    g.haPerJam += d.haPerJam || 0;
-    g.haPerHari += d.haPerHari || 0;
-    g.solarPerHa += d.solarPerHa || 0;
-    g.solarPerJam += d.solarPerJam || 0;
     g.operatingTime += d.operatingTime || 0;
     g.prepareTime += d.prepareTime || 0;
     g.waitingTime += d.waitingTime || 0;
@@ -1010,19 +1022,31 @@ function getWilayahStatsRaw() {
     g.tebalSiram += d.tebalSiram || 0;
     g.availability += d.availability || 0;
     g.utilization += d.utilization || 0;
-    g.rpPerHa += d.rpPerHa || 0;
-    g.biayaTotal += d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0));   // v1.16.0: fallback per baris, konsisten antar tab
+    g.haPerJam += d.haPerJam || 0;
+    g.haPerHari += d.haPerHari || 0;
+    g.biayaTotal += d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0));
     g.air += d.air || 0;
     g.biayaSolar += d.biayaSolar || 0;
     g.biayaUpah += d.biayaUpah || 0;
     g.biayaAlat += d.biayaAlat || 0;
     g.kwh += d.kwh || 0;
-    if (d.jenisEngine === 'SPE' || (d.engine && d.engine.startsWith('SPE'))) {
+
+    const isSpe = d.jenisEngine === 'SPE' || (d.engine && d.engine.startsWith('SPE'));
+    if (isSpe) {
       g.speCount++;
       g.speKwh += d.kwh || 0;
       g.speOperating += d.operatingTime || 0;
       g.speLuas += d.luasSiram || 0;
       if (d.engine) g.speEngines.add(d.engine);
+    } else {
+      // Khusus mesin diesel (solar)
+      g.dieselCount++;
+      g.dieselLuas += d.luasSiram || 0;
+      g.dieselOperating += d.operatingTime || 0;
+      g.dieselSolar += d.solarTerpakai || 0;
+      g.solarTerpakai += d.solarTerpakai || 0;
+      g.solarPerHa += d.solarPerHa || 0;
+      g.solarPerJam += d.solarPerJam || 0;
     }
   }
   const stats = [];
@@ -1030,17 +1054,19 @@ function getWilayahStatsRaw() {
     const g = groups[w];
     const n = g.count || 1;
     const avgHaPerJam = g.haPerJam / n, avgSolarPerHa = g.solarPerHa / n;
-    // Rasio operasional (total : total) — tidak bias oleh aktivitas kecil (v1.8.6).
+    // Rasio operasional produktivitas (semua engine)
     const opsHaPerJam = g.operatingTime ? g.luasSiram / g.operatingTime : 0;
-    const opsLtrPerHa = g.luasSiram ? g.solarTerpakai / g.luasSiram : 0;
-    const opsLtrPerJam = g.operatingTime ? g.solarTerpakai / g.operatingTime : 0;
+    // Rasio operasional bahan bakar (khusus mesin diesel agar tidak terdistorsi 0 L pompa listrik)
+    const dieselLtrPerHa = g.dieselLuas ? g.dieselSolar / g.dieselLuas : (g.luasSiram ? g.solarTerpakai / g.luasSiram : 0);
+    const dieselLtrPerJam = g.dieselOperating ? g.dieselSolar / g.dieselOperating : (g.operatingTime ? g.solarTerpakai / g.operatingTime : 0);
+    const avgDieselSolar = g.dieselCount ? g.dieselSolar / g.dieselCount : (g.solarTerpakai / n);
     stats.push({
       wilayah: g.wilayah,
       count: g.count,
       totalLuas: g.luasSiram,
       avgLuas: g.luasSiram / n,
       totalSolar: g.solarTerpakai,
-      avgSolar: g.solarTerpakai / n,
+      avgSolar: avgDieselSolar,
       avgHaPerJam,
       avgHaPerHari: g.haPerHari / n,
       avgSolarPerHa,
@@ -1054,8 +1080,11 @@ function getWilayahStatsRaw() {
       avgUtilization: g.utilization / n,
       avgRpPerHa: g.rpPerHa / n,
       haPerJam: opsHaPerJam,
-      ltrPerHa: opsLtrPerHa,
-      ltrPerJam: opsLtrPerJam,
+      ltrPerHa: dieselLtrPerHa,
+      ltrPerJam: dieselLtrPerJam,
+      dieselLuas: g.dieselLuas,
+      dieselOperating: g.dieselOperating,
+      dieselCount: g.dieselCount,
       totalBiaya: g.biayaTotal,
       totalAir: g.air,
       // BIAYA: rincian pemakaian biaya selama irigasi per wilayah
@@ -1077,8 +1106,8 @@ function getWilayahStatsRaw() {
       speEngines: Array.from(g.speEngines).sort(),
       kwhPerJam: g.speOperating ? g.speKwh / g.speOperating : 0,
       kwhPerHa: g.speLuas ? g.speKwh / g.speLuas : 0,
-      // efisiensi score: higher Ha/Jam and lower Ltr/Ha is better (memakai rasio operasional)
-      efisiensiScore: opsHaPerJam / (opsLtrPerHa || 1) * 100,
+      // efisiensi score: higher Ha/Jam and lower Ltr/Ha is better (memakai rasio operasional diesel murni)
+      efisiensiScore: opsHaPerJam / (dieselLtrPerHa || 1) * 100,
     });
   }
   // sort by selected wilayahSort
@@ -1251,8 +1280,9 @@ function getIndexSolarView() {
       if (jFilter.size && !jFilter.has(kategoriJenisEngine(r, peta))) continue;
       if (q && r._s.indexOf(q) === -1) continue;
       const isSpe = r.jenis === 'SPE' || (r.engine && r.engine.startsWith('SPE'));
-      if (indexJust === 'Hemat' && !(r.aktif && r.justifikasi === 'Hemat' && !r.anomali)) continue;
-      if (indexJust === 'Boros' && !(r.aktif && r.justifikasi === 'Boros' && !r.anomali)) continue;
+      if (indexJust === 'Hemat' && !(r.aktif && !isSpe && r.justifikasi === 'Hemat' && !r.anomali)) continue;
+      if (indexJust === 'Boros' && !(r.aktif && !isSpe && r.justifikasi === 'Boros' && !r.anomali)) continue;
+      if (indexJust === 'diesel' && isSpe) continue;
       if (indexJust === 'spe' && !isSpe) continue;
       if (indexJust === 'aktif' && !r.aktif) continue;
       if (indexJust === 'anomali' && !r.anomali) continue;
@@ -1282,15 +1312,16 @@ function getIndexSolarView() {
     rows.sort(sorters[indexSort] || sorters.selisih);
 
     const aktif = rows.filter(r => r.aktif && !r.anomali);
-    // "solar 0 L" dipisah: pemakaian belum tercatat, tidak adil disebut Hemat/Boros
-    const nolSolar = aktif.filter(r => r.solar === 0);
-    const terukur = aktif.filter(r => r.solar > 0);
+    const aktifDiesel = aktif.filter(r => !r.isSpe);
+    const terukur = aktifDiesel.filter(r => r.solar > 0);
+    const nolSolar = aktifDiesel.filter(r => r.solar === 0);
     const speEngines = rows.filter(r => r.isSpe);
     const speAktif = speEngines.filter(r => r.aktif);
     const ringkas = {
       total: rows.length,
       aktifAll: rows.filter(r => r.aktif).length,
-      aktif: aktif.length,
+      aktif: aktifDiesel.length,
+      aktifDiesel: aktifDiesel.length,
       terukur: terukur.length,
       nol: nolSolar.length,
       speCount: speEngines.length,
@@ -1302,23 +1333,23 @@ function getIndexSolarView() {
       boros: terukur.filter(r => r.justifikasi === 'Boros').length,
       anomaly: rows.filter(r => r.anomali).length,
       tanpaSiram: rows.filter(r => !r.aktif).length,
-      solar: aktif.reduce((a, r) => a + r.solar, 0),
-      jam: aktif.reduce((a, r) => a + r.jam, 0),
+      solar: aktifDiesel.reduce((a, r) => a + r.solar, 0),
+      jam: aktifDiesel.reduce((a, r) => a + r.jam, 0),
       selisih: terukur.reduce((a, r) => a + r.selisih, 0),
       selisihAbs: terukur.reduce((a, r) => a + Math.abs(r.selisih), 0),
       selisihAnomali: rows.filter(r => r.anomali).reduce((a, r) => a + r.selisih, 0),
-      kalibrasi: aktif.filter(r => r.kalibrasi > 0).reduce((a, r) => a + r.kalibrasi, 0),
-      kalibrasiN: aktif.filter(r => r.kalibrasi > 0).length,
+      kalibrasi: aktifDiesel.filter(r => r.kalibrasi > 0).reduce((a, r) => a + r.kalibrasi, 0),
+      kalibrasiN: aktifDiesel.filter(r => r.kalibrasi > 0).length,
       // rekap per jenis (kolom "Jenis Engine" pada sheet Index Solar)
       perJenisRingkas: {}
     };
     const jamTerukur = terukur.reduce((a, r) => a + r.jam, 0);
     ringkas.ltrPerJam = jamTerukur ? terukur.reduce((a, r) => a + r.solar, 0) / jamTerukur : 0;
-    // L/Ha operasional tertimbang: total solar ÷ total luas (ZPAS637, periode & filter aktif)
+    // L/Ha operasional tertimbang khusus mesin diesel (ZPAS637, periode & filter aktif)
     let _zpS = 0, _zpL = 0, _zpN = 0;
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
-      if (r.zpLuas > 0) { _zpS += r.zpSolar; _zpL += r.zpLuas; _zpN++; }
+      if (!r.isSpe && r.zpLuas > 0) { _zpS += r.zpSolar; _zpL += r.zpLuas; _zpN++; }
     }
     ringkas.zpSolar = _zpS; ringkas.zpLuas = _zpL; ringkas.zpN = _zpN;
     ringkas.ltrPerHa = _zpL ? _zpS / _zpL : 0;
@@ -1326,12 +1357,18 @@ function getIndexSolarView() {
     // rekap per wilayah & per jenis engine
     const perWilayah = {}, perJenis = {};
     aktif.forEach(r => {
-      const w = perWilayah[r.wilayah] || (perWilayah[r.wilayah] = { wilayah: r.wilayah, hemat: 0, boros: 0, solar: 0, jam: 0, selisih: 0 });
-      w.hemat += r.justifikasi === 'Hemat' ? 1 : 0;
-      w.boros += r.justifikasi === 'Boros' ? 1 : 0;
-      w.solar += r.solar; w.jam += r.jam; w.selisih += r.selisih;
-      const j = perJenis[r.jenis] || (perJenis[r.jenis] = { jenis: r.jenis, hemat: 0, boros: 0, solar: 0, jam: 0, n: 0 });
-      j.n++; j.hemat += r.justifikasi === 'Hemat' ? 1 : 0; j.boros += r.justifikasi === 'Boros' ? 1 : 0;
+      if (!r.isSpe) {
+        const w = perWilayah[r.wilayah] || (perWilayah[r.wilayah] = { wilayah: r.wilayah, hemat: 0, boros: 0, solar: 0, jam: 0, selisih: 0 });
+        w.hemat += r.justifikasi === 'Hemat' ? 1 : 0;
+        w.boros += r.justifikasi === 'Boros' ? 1 : 0;
+        w.solar += r.solar; w.jam += r.jam; w.selisih += r.selisih;
+      }
+      const j = perJenis[r.jenis] || (perJenis[r.jenis] = { jenis: r.jenis, hemat: 0, boros: 0, solar: 0, jam: 0, n: 0, isSpe: r.isSpe });
+      j.n++;
+      if (!r.isSpe && r.solar > 0) {
+        j.hemat += r.justifikasi === 'Hemat' ? 1 : 0;
+        j.boros += r.justifikasi === 'Boros' ? 1 : 0;
+      }
       j.solar += r.solar; j.jam += r.jam;
     });
     Object.keys(perJenis).forEach(k => { ringkas.perJenisRingkas[k] = perJenis[k]; });
@@ -1381,14 +1418,18 @@ function getIndexPerJenis() {
     iv.rows.forEach(r => {
       const key = kategoriJenisEngine(r, peta);
       let g = groups[key];
-      if (!g) g = groups[key] = { nama: key, n: 0, aktif: 0, terukur: 0, hemat: 0, boros: 0, nol: 0, anomali: 0, solar: 0, jam: 0, selisih: 0, _kal: 0, _kalN: 0, _solarTerukur: 0, _jamTerukur: 0, _zpSolar: 0, _zpLuas: 0 };
+      if (!g) g = groups[key] = { nama: key, n: 0, aktif: 0, terukur: 0, hemat: 0, boros: 0, nol: 0, anomali: 0, solar: 0, jam: 0, selisih: 0, isSpe: r.isSpe, _kal: 0, _kalN: 0, _solarTerukur: 0, _jamTerukur: 0, _zpSolar: 0, _zpLuas: 0 };
       g.n++;
       if (r.anomali) g.anomali++;
       if (!r.aktif) return;
       g.aktif++;
+      if (r.isSpe) {
+        g.nol++;
+        return; // Mesin elektrik: pemakaian solar = 0 L, dievaluasi terpisah berdasarkan kWh
+      }
       g.solar += r.solar; g.jam += r.jam; g.selisih += r.selisih;
       if (r.kalibrasi > 0) { g._kal += r.kalibrasi; g._kalN++; }
-      // L/Ha operasional: SEMUA engine aktif non-anomali (termasuk solar 0 seperti SPE elektrik)
+      // L/Ha operasional: KHUSUS mesin diesel
       if (!r.anomali && r.zpLuas > 0) { g._zpSolar += r.zpSolar; g._zpLuas += r.zpLuas; }
       if (r.solar > 0 && !r.anomali) {
         g.terukur++;
@@ -1403,7 +1444,7 @@ function getIndexPerJenis() {
       g.deviasi = g.kalibrasiAvg ? g.ltrPerJam - g.kalibrasiAvg : 0;       // + = boros, - = hemat
       g.devPct = g.kalibrasiAvg ? g.deviasi / g.kalibrasiAvg * 100 : 0;
       g.pctHemat = (g.hemat + g.boros) ? g.hemat / (g.hemat + g.boros) * 100 : 0;
-      g.solarPerEngine = g.aktif ? g.solar / g.aktif : 0;
+      g.solarPerEngine = (g.aktif && !g.isSpe) ? g.solar / g.aktif : 0;
       g.ltrPerHa = g._zpLuas ? g._zpSolar / g._zpLuas : 0;   // L/Ha operasional tertimbang (ZPAS637)
       delete g._kal; delete g._kalN; delete g._solarTerukur; delete g._jamTerukur; delete g._zpSolar; delete g._zpLuas;
       return g;
@@ -2391,6 +2432,7 @@ function renderWilayahDetail() {
           <div><span class="text-slate-400">Jam Op</span><div class="font-medium">${formatNumber(s.avgOperating,1)}h</div></div>
           <div><span class="text-slate-400">Util</span><div class="font-medium ${s.avgUtilization>=70?'text-emerald-600':'text-amber-600'}">${formatNumber(s.avgUtilization,1)}%</div></div>
         </div>
+        ${s.speCount ? `<div class="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px] text-purple-700 font-medium"><span>Listrik SPE (${s.speCount} unit)</span><span>${formatInt(s.totalKwh)} kWh • ${formatNumber(s.kwhPerJam, 2)} kWh/j</span></div>` : ''}
       </div>
     `).join('');
   }
@@ -2453,13 +2495,13 @@ function renderWilayahDetail() {
         tooltip:{
           backgroundColor:'#0f172a', cornerRadius:12,
           callbacks:{
-            label: ctx=> `${ctx.dataset.label}: ${formatNumber(ctx.raw.x,3)} Ha/Jam, ${formatNumber(ctx.raw.y,1)} L/Ha, Total ${formatNumber(stats.find(s=>s.wilayah===ctx.dataset.label)?.totalLuas||0,1)} Ha`
+            label: ctx=> `${ctx.dataset.label}: ${formatNumber(ctx.raw.x,3)} Ha/Jam (Semua Engine), ${formatNumber(ctx.raw.y,1)} L/Ha (Mesin Diesel), Total ${formatNumber(stats.find(s=>s.wilayah===ctx.dataset.label)?.totalLuas||0,1)} Ha`
           }
         }
       },
       scales:{
         x:{ title:{display:true,text:'Ha/Jam (Produktivitas) →',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} },
-        y:{ title:{display:true,text:'Ltr/Ha (Pemakaian) → ideal rendah',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} }
+        y:{ title:{display:true,text:'Ltr/Ha (BBM Diesel) → ideal rendah',font:{size:10}}, grid:{color:'#f1f5f9'}, ticks:{font:{size:10}} }
       }
     }
   });
@@ -2588,20 +2630,41 @@ function calculateKPIsRaw() {
   // satu lintasan untuk semua akumulasi
   let luas = 0, solar = 0, oper = 0, solarJam = 0, solarHa = 0, kec = 0, tebal = 0, avail = 0, util = 0,
       biaya = 0, biayaSolar = 0, biayaUpah = 0, biayaAlat = 0, rpHaSum = 0, haHari = 0, haJam = 0,
-      plan = 0, prep = 0, wait = 0, air = 0;
+      plan = 0, prep = 0, wait = 0, air = 0,
+      dieselCount = 0, dieselLuas = 0, dieselOper = 0,
+      speCount = 0, speLuas = 0, speOper = 0, speKwh = 0;
   for (let i = 0; i < n; i++) {
     const d = data[i];
-    luas += d.luasSiram || 0; solar += d.solarTerpakai || 0; oper += d.operatingTime || 0;
-    solarJam += d.solarPerJam || 0; solarHa += d.solarPerHa || 0; kec += d.kecepatan || 0;
-    tebal += d.tebalSiram || 0; avail += d.availability || 0; util += d.utilization || 0;
+    // PRODUKTIVITAS, WAKTU & UTILISASI: SEMUA ENGINE TERHITUNG (DIESEL + ELEKTRIK SPE)
+    luas += d.luasSiram || 0; oper += d.operatingTime || 0;
+    kec += d.kecepatan || 0; tebal += d.tebalSiram || 0;
+    avail += d.availability || 0; util += d.utilization || 0;
     biaya += d.biayaTotal || ((d.biayaSolar||0)+(d.biayaUpah||0)+(d.biayaAlat||0));   // v1.16.0: fallback per baris
     biayaSolar += d.biayaSolar || 0;
     biayaUpah += d.biayaUpah || 0;
     biayaAlat += d.biayaAlat || 0; rpHaSum += d.rpPerHa || 0; haHari += d.haPerHari || 0;
     haJam += d.haPerJam || 0; plan += d.planTime || 0; prep += d.prepareTime || 0;
     wait += d.waitingTime || 0; air += d.air || 0;
+
+    const isSpe = d.jenisEngine === 'SPE' || (d.engine && d.engine.startsWith('SPE'));
+    if (isSpe) {
+      speCount++;
+      speKwh += d.kwh || 0;
+      speLuas += d.luasSiram || 0;
+      speOper += d.operatingTime || 0;
+    } else {
+      dieselCount++;
+      dieselLuas += d.luasSiram || 0;
+      dieselOper += d.operatingTime || 0;
+      solar += d.solarTerpakai || 0;
+      solarJam += d.solarPerJam || 0;
+      solarHa += d.solarPerHa || 0;
+    }
   }
   const avg = (tot) => tot / n;
+  // Rasio bahan bakar solar khusus mesin diesel (agar tidak terdistorsi areal/jam pompa elektrik)
+  const dieselSolarPerJam = dieselOper ? solar / dieselOper : 0;
+  const dieselSolarPerHa = dieselLuas ? solar / dieselLuas : 0;
   return {
     totalLuasSiram: luas,
     totalSolar: solar,
@@ -2622,10 +2685,21 @@ function calculateKPIsRaw() {
     rpPerLiterSolar: solar ? biaya / solar : 0,
     avgHaPerHari: avg(haHari),
     avgHaPerJam: avg(haJam),
-    // Rasio operasional tertimbang (total : total) — dipakai KPI & ticker (v1.8.6).
+    // Rasio operasional tertimbang: produktivitas semua engine, solar khusus diesel
     opsHaPerJam: oper ? luas / oper : 0,
-    opsSolarPerHa: luas ? solar / luas : 0,
-    opsSolarPerJam: oper ? solar / oper : 0,
+    opsSolarPerHa: dieselSolarPerHa || (luas ? solar / luas : 0),
+    opsSolarPerJam: dieselSolarPerJam || (oper ? solar / oper : 0),
+    dieselCount,
+    dieselLuas,
+    dieselOper,
+    dieselSolarPerJam,
+    dieselSolarPerHa,
+    speCount,
+    speLuas,
+    speOper,
+    speKwh,
+    speKwhPerJam: speOper ? speKwh / speOper : 0,
+    speKwhPerHa: speLuas ? speKwh / speLuas : 0,
     avgPlan: avg(plan),
     avgPrepare: avg(prep),
     avgWaiting: avg(wait),
@@ -2644,8 +2718,8 @@ function renderKPIs() {
     return;
   }
   const cards = [
-    { label: 'Total Luas Siram', value: `${formatNumber(kpi.totalLuasSiram,2)} Ha`, sub: `${kpi.totalRecords} aktivitas • ${formatNumber(kpi.avgHaPerHari,2)} Ha/hari avg`, icon: 'map', color: 'emerald', trend: `${formatNumber(kpi.opsHaPerJam,3)} Ha/Jam` },
-    { label: 'Total Solar Terpakai', value: `${formatInt(kpi.totalSolar)} L`, sub: `${formatNumber(kpi.opsSolarPerJam,2)} L/jam • ${formatNumber(kpi.opsSolarPerHa,2)} L/Ha`, icon: 'fuel', color: 'amber', trend: `${formatNumber(kpi.totalAir,0)} L air` },
+    { label: 'Total Luas Siram', value: `${formatNumber(kpi.totalLuasSiram,2)} Ha`, sub: `${kpi.totalRecords} aktivitas (${kpi.dieselCount} diesel • ${kpi.speCount} SPE) • ${formatNumber(kpi.avgHaPerHari,2)} Ha/hari avg`, icon: 'map', color: 'emerald', trend: `${formatNumber(kpi.opsHaPerJam,3)} Ha/Jam` },
+    { label: 'Total Solar Terpakai', value: `${formatInt(kpi.totalSolar)} L`, sub: `${formatNumber(kpi.opsSolarPerJam,2)} L/jam • ${formatNumber(kpi.opsSolarPerHa,2)} L/Ha (mesin diesel)`, icon: 'fuel', color: 'amber', trend: `${formatNumber(kpi.totalAir,0)} L air` },
     { label: 'Jam Efektif Siram', value: `${formatNumber(kpi.avgOperating,2)} Jam`, sub: `Plan avg ${formatNumber(kpi.avgPlan,2)} Jam • Prepare ${formatNumber(kpi.avgPrepare,2)}`, icon: 'clock-3', color: 'blue', trend: `Util ${formatNumber(kpi.avgUtilization,1)}%` },
     { label: 'Efisiensi Operasional', value: `${formatNumber(kpi.opsHaPerJam,3)} Ha/Jam`, sub: `${formatNumber(kpi.avgHaPerHari,2)} Ha/Hari • Rp ${formatInt(kpi.rpPerHaOps)}/Ha`, icon: 'trending-up', color: 'violet', trend: `Avail ${formatNumber(kpi.avgAvailability,1)}%` },
   ];
@@ -2673,8 +2747,8 @@ function renderKPIs() {
     { label: 'Biaya Upah', value: `${formatInt(kpi.totalBiayaUpah/1000000)}`, unit: `Jt Rp • ${formatNumber(kpi.totalBiaya?kpi.totalBiayaUpah/kpi.totalBiaya*100:0,0)}%`, icon: 'users' },
     { label: 'Biaya Alat', value: `${formatInt(kpi.totalBiayaAlat/1000000)}`, unit: `Jt Rp • ${formatNumber(kpi.totalBiaya?kpi.totalBiayaAlat/kpi.totalBiaya*100:0,0)}%`, icon: 'settings' },
     { label: 'Biaya Rp/Ha', value: `${formatInt(kpi.rpPerHaOps)}`, unit: `Rp/Ha • ${formatNumber(kpi.totalLuasSiram,0)} Ha`, icon: 'calculator' },
-    { label: 'Solar Ltr/Ha', value: `${formatNumber(kpi.opsSolarPerHa,1)}`, unit: 'L/Ha', icon: 'droplet' },
-    { label: 'Waiting Time', value: `${formatNumber(kpi.avgWaiting,2)}`, unit: 'Jam', icon: 'pause' },
+    { label: 'Solar Ltr/Ha', value: `${formatNumber(kpi.opsSolarPerHa,1)}`, unit: 'L/Ha (Diesel)', icon: 'droplet' },
+    { label: 'Listrik Pompa SPE', value: `${formatInt(kpi.speKwh)}`, unit: `kWh • ${formatNumber(kpi.speKwhPerJam,2)} kWh/j`, icon: 'zap' },
     { label: 'Air Terpakai', value: `${formatInt(kpi.totalAir)}`, unit: 'L', icon: 'waves' },
   ];
   secondary.innerHTML = secCards.map(c => `
@@ -3075,16 +3149,16 @@ function renderIndexKPI() {
   const selisihTotal = r.selisih + r.selisihAnomali;
   const deviasiPct = r.kalibrasiAvg ? ((r.ltrPerJam - r.kalibrasiAvg) / r.kalibrasiAvg) * 100 : 0;
   const cards = [
-    { label:'Engine Dievaluasi', value:`${formatInt(r.aktifAll)}`, unit:'engine', sub:`${formatInt(r.nol)} tanpa catatan solar (${formatInt(r.speCount || 0)} SPE listrik) • ${formatInt(r.anomaly)} anomali • ${formatInt(r.tanpaSiram)} tanpa siram`, icon:'cpu', color:'slate' },
-    { label:'Pemakaian Solar (Index)', value:formatInt(r.solar), unit:'L', sub:`${formatNumber(r.jam,1)} jam operasi tercatat`, icon:'fuel', color:'amber' },
+    { label:'Engine Dievaluasi', value:`${formatInt(r.aktifDiesel || r.terukur)}`, unit:'engine diesel', sub:`${formatInt(r.hemat)} hemat • ${formatInt(r.boros)} boros (${formatInt(r.speCount || 0)} SPE listrik dianalisa terpisah)`, icon:'cpu', color:'slate' },
+    { label:'Pemakaian Solar (Index)', value:formatInt(r.solar), unit:'L', sub:`${formatNumber(r.jam,1)} jam operasi mesin diesel`, icon:'fuel', color:'amber' },
     { label:'Aktual vs Kalibrasi', value:`${formatNumber(r.ltrPerJam,2)}`, unit:'L/jam',
       sub:`kalibrasi rata-rata ${formatNumber(r.kalibrasiAvg,2)} L/jam (${deviasiPct>=0?'+':''}${formatNumber(deviasiPct,1)}%)`, icon:'gauge', color: deviasiPct<=0 ? 'emerald' : 'red' },
     { label:'Hasil Evaluasi', value:`${formatInt(r.hemat)} / ${formatInt(r.boros)}`, unit:'hemat / boros',
-      sub:`dari ${formatInt(r.terukur)} engine dengan pemakaian terukur (${formatNumber(r.terukur ? r.hemat / r.terukur * 100 : 0, 0)}% hemat)`, icon:'clipboard-check', color:'emerald' },
+      sub:`dari ${formatInt(r.terukur)} engine diesel terukur (${formatNumber(r.terukur ? r.hemat / r.terukur * 100 : 0, 0)}% hemat)`, icon:'clipboard-check', color:'emerald' },
     { label:'Total Selisih', value:formatInt(r.selisih), unit:'L',
-      sub: selisihTotal > r.selisih ? `+${formatInt(selisihTotal - r.selisih)} L dari ${formatInt(r.anomaly)} data anomali` : 'selisih terhadap kalibrasi', icon:'scale', color:'red' },
+      sub: selisihTotal > r.selisih ? `+${formatInt(selisihTotal - r.selisih)} L dari ${formatInt(r.anomaly)} data anomali` : 'selisih diesel terhadap kalibrasi', icon:'scale', color:'red' },
     { label:'Solar per Hektare', value:`${formatNumber(r.ltrPerHa,1)}`, unit:'L/Ha',
-      sub:`operasional ZPAS637 • ${formatInt(r.zpN)} engine berdata • ${formatInt(r.zpSolar)} L ÷ ${formatNumber(r.zpLuas,1)} Ha`, icon:'droplet', color:'sky' }
+      sub:`operasional mesin diesel ZPAS637 • ${formatInt(r.zpN)} engine • ${formatInt(r.zpSolar)} L ÷ ${formatNumber(r.zpLuas,1)} Ha`, icon:'droplet', color:'sky' }
   ];
   host.innerHTML = cards.map(c => `
     <div class="rounded-[18px] border border-slate-200/70 bg-white p-4 shadow-soft">
@@ -3149,7 +3223,7 @@ function renderIndexTable() {
   const badge = (r) => {
     if (r.anomali) return '<span class="inline-flex whitespace-nowrap rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200">Anomali</span>';
     if (!r.aktif) return '<span class="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200">Tidak ada siram</span>';
-    if (r.isSpe) return '<span class="inline-flex whitespace-nowrap rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 ring-1 ring-purple-200">SPE (Listrik)</span>';
+    if (r.isSpe) return '<span class="inline-flex whitespace-nowrap rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 ring-1 ring-purple-200">100% Listrik (SPE)</span>';
     if (r.solar === 0) return '<span class="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200">Solar 0 L</span>';
     return r.justifikasi === 'Boros'
       ? '<span class="inline-flex whitespace-nowrap rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200">Boros</span>'
@@ -3160,6 +3234,11 @@ function renderIndexTable() {
     const colZp = r.isSpe
       ? (r.zpN ? `<span class="text-purple-700 font-semibold">${formatInt(r.zpN)} act • ${formatInt(r.zpKwh)} kWh (${formatNumber(r.zpKwhPerJam, 2)} kWh/j)</span>` : '-')
       : (r.zpN ? formatInt(r.zpN) + ' act • ' + formatNumber(r.zpLtrPerJam, 1) + ' L/j' : '-');
+    const lpjTulis = r.isSpe ? '<span class="text-slate-400 font-normal">-</span>' : formatNumber(r.lpjAktual, 1);
+    const kalTulis = (r.isSpe || !r.kalibrasi) ? '<span class="text-slate-400 font-normal">-</span>' : formatNumber(r.kalibrasi, 2);
+    const devTulis = (r.isSpe || !r.kalibrasi) ? '<span class="text-slate-400 font-normal">-</span>' : (r.deviasi > 0 ? '+' : '') + formatNumber(r.deviasi, 1);
+    const selTulis = (r.isSpe || !r.selisih) ? '<span class="text-slate-400 font-normal">-</span>' : formatNumber(r.selisih, 0);
+    const lhaTulis = (r.isSpe || !r.zpLuas) ? '<span class="text-slate-400 font-normal">-</span>' : formatNumber(r.zpLtrPerHa, 1);
     return `
     <tr class="hover:bg-slate-50/80 transition">
       <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] font-semibold text-slate-900 fz fz0">${esc(r.engine)}</td>
@@ -3167,13 +3246,13 @@ function renderIndexTable() {
       <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] text-slate-600 fz fz2">${esc(r.lokasi)}</td>
       <td class="px-3 py-2.5 whitespace-nowrap text-[11px] text-slate-600 fz fz3">${esc(r.jenis)}</td>
       <td class="px-3 py-2.5 whitespace-nowrap text-[11px] text-slate-600">${esc(r.tanggalLabel || '-')}</td>
-      <td class="px-3 py-2.5 text-right font-medium">${formatInt(r.solar)}</td>
+      <td class="px-3 py-2.5 text-right font-medium">${r.isSpe ? '<span class="text-purple-700 font-semibold">0 L</span>' : formatInt(r.solar)}</td>
       <td class="px-3 py-2.5 text-right">${formatNumber(r.jam, 1)}</td>
-      <td class="px-3 py-2.5 text-right font-semibold">${formatNumber(r.lpjAktual, 1)}</td>
-      <td class="px-3 py-2.5 text-right text-slate-500">${r.kalibrasi ? formatNumber(r.kalibrasi, 2) : '-'}</td>
-      <td class="px-3 py-2.5 text-right ${devWarna}">${r.kalibrasi ? (r.deviasi > 0 ? '+' : '') + formatNumber(r.deviasi, 1) : '-'}</td>
-      <td class="px-3 py-2.5 text-right ${r.selisih ? 'font-medium text-slate-700' : 'text-slate-400'}">${formatNumber(r.selisih, 0)}</td>
-      <td class="px-3 py-2.5 text-right ${r.zpLuas ? 'font-medium text-emerald-700' : 'text-slate-400'}">${r.zpLuas ? formatNumber(r.zpLtrPerHa, 1) : '-'}</td>
+      <td class="px-3 py-2.5 text-right font-semibold">${lpjTulis}</td>
+      <td class="px-3 py-2.5 text-right text-slate-500">${kalTulis}</td>
+      <td class="px-3 py-2.5 text-right ${r.isSpe ? 'text-slate-400' : devWarna}">${devTulis}</td>
+      <td class="px-3 py-2.5 text-right font-medium text-slate-700">${selTulis}</td>
+      <td class="px-3 py-2.5 text-right font-medium text-emerald-700">${lhaTulis}</td>
       <td class="px-3 py-2.5 whitespace-nowrap text-center">${badge(r)}</td>
       <td class="px-3 py-2.5 text-right text-[11px] text-slate-500">${colZp}</td>
     </tr>`;
@@ -4060,24 +4139,31 @@ function renderCharts(tab) {
       const nol = r.nol;
       ensureChart('chartIndexHasil', {
         type: 'doughnut',
-        data: { labels:['Hemat (L/j < kalibrasi)','Boros (L/j > kalibrasi)','Tanpa catatan solar','Anomali','Tidak ada siram'],
-          datasets:[{ data:[ r.hemat, r.boros, nol, r.anomaly, r.tanpaSiram ],
-            backgroundColor:['#10b981','#ef4444','#cbd5e1','#8b5cf6','#e2e8f0'], borderWidth:0, hoverOffset:8 }] },
+        data: { labels:['Hemat (Diesel)','Boros (Diesel)','Mesin Elektrik (SPE)','Tanpa catatan solar','Anomali','Tidak ada siram'],
+          datasets:[{ data:[ r.hemat, r.boros, r.speCount || 0, nol, r.anomaly, r.tanpaSiram ],
+            backgroundColor:['#10b981','#ef4444','#a855f7','#cbd5e1','#8b5cf6','#e2e8f0'], borderWidth:0, hoverOffset:8 }] },
         options:{ responsive:true, maintainAspectRatio:false, cutout:'66%',
           plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#0f172a', cornerRadius:12 } } }
       });
       const legend = $('#indexHasilLegend');
       if (legend) {
         const items = [
-          ['Hemat', r.hemat, '#10b981'], ['Boros', r.boros, '#ef4444'], ['Tanpa catatan solar', nol, '#cbd5e1'],
+          ['Hemat', r.hemat, '#10b981'], ['Boros', r.boros, '#ef4444'],
+          ['Mesin Elektrik (SPE)', r.speCount || 0, '#a855f7'],
+          ['Tanpa catatan solar', nol, '#cbd5e1'],
           ['Anomali', r.anomaly, '#8b5cf6'], ['Tidak ada siram', r.tanpaSiram, '#e2e8f0']
         ];
         const perJenis = Object.keys(r.perJenisRingkas || {}).map(k => {
           const j = r.perJenisRingkas[k];
+          const isSpeType = k === 'SPE';
+          const statText = isSpeType
+            ? `<div class="mt-1 flex items-center justify-between text-[11px]"><span class="text-slate-600">Status Energi</span><span class="font-semibold text-purple-700">100% Listrik (0 L Solar)</span></div>
+               <div class="flex items-center justify-between text-[11px]"><span class="text-slate-600">Total Daya Listrik</span><span class="font-mono text-purple-700 font-semibold">${formatInt(r.speKwh || 0)} kWh</span></div>`
+            : `<div class="mt-1 flex items-center justify-between text-[11px]"><span class="text-slate-600">Hemat / Boros</span><span class="font-mono text-slate-500">${formatInt(j.hemat)} / ${formatInt(j.boros)}</span></div>
+               <div class="flex items-center justify-between text-[11px]"><span class="text-slate-600">L/jam tertimbang</span><span class="font-mono text-slate-500">${j.jam ? formatNumber(j.solar / j.jam, 2) : '-'}</span></div>`;
           return `<div class="mt-2 border-t border-slate-100 pt-2">
-            <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jenis ${esc(k)} • ${formatInt(j.n)} engine</div>
-            <div class="mt-1 flex items-center justify-between text-[11px]"><span class="text-slate-600">Hemat / Boros</span><span class="font-mono text-slate-500">${formatInt(j.hemat)} / ${formatInt(j.boros)}</span></div>
-            <div class="flex items-center justify-between text-[11px]"><span class="text-slate-600">L/jam tertimbang</span><span class="font-mono text-slate-500">${j.jam ? formatNumber(j.solar / j.jam, 2) : '-'}</span></div>
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jenis ${esc(k)} • ${formatInt(j.n)} engine ${isSpeType ? '(Elektrik)' : '(Diesel)'}</div>
+            ${statText}
           </div>`;
         }).join('');
         legend.innerHTML = items.map(([l, v, c]) =>
