@@ -505,6 +505,11 @@
                                         <option value="rpPerJam">Biaya Rp/Jam Operasi</option>
                                         <option value="rpPerLiter">Biaya Rp/Liter Solar</option>
                                     </optgroup>
+                                    <optgroup label="Konsumsi Listrik (Mesin SPE)">
+                                        <option value="kwh">Total Listrik SPE (kWh)</option>
+                                        <option value="kwhPerJam">kWh/Jam (Konsumsi Listrik SPE)</option>
+                                        <option value="kwhPerHa">kWh/Ha (Intensitas Listrik SPE)</option>
+                                    </optgroup>
                                 </select>
                             </div>
                         </div>
@@ -519,6 +524,8 @@
                             <button data-metric="ltrPerHa" class="wm-chip flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">Ltr/Ha</button>
                             <button data-metric="totalBiaya" class="wm-chip flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">Total Biaya</button>
                             <button data-metric="rpPerHa" class="wm-chip flex-shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50">Rp/Ha</button>
+                            <button data-metric="kwh" class="wm-chip flex-shrink-0 rounded-full border border-purple-200 bg-white px-3 py-1.5 text-[11px] font-medium text-purple-700 hover:bg-purple-50">Listrik SPE</button>
+                            <button data-metric="kwhPerJam" class="wm-chip flex-shrink-0 rounded-full border border-purple-200 bg-white px-3 py-1.5 text-[11px] font-medium text-purple-700 hover:bg-purple-50">kWh/Jam</button>
                         </div>
                         <div class="relative h-[380px]"><canvas id="chartWilayah"></canvas></div>
                         <!-- Mini avg cards per wilayah -->
@@ -546,6 +553,8 @@
                                 <option value="totalSolar">Total Solar Tertinggi</option>
                                 <option value="avgUtil">Utilization Tertinggi</option>
                                 <option value="avgRpPerHa">Biaya Rp/Ha Terendah</option>
+                                <option value="totalKwh">Total Listrik (kWh) Tertinggi</option>
+                                <option value="kwhPerJam">Konsumsi kWh/Jam Tertinggi</option>
                             </select>
                         </div>
                     </div>
@@ -586,6 +595,43 @@
                             <div class="relative h-[260px] bg-white rounded-xl border border-slate-200 p-3"><canvas id="chartWilayahCompare"></canvas></div>
                             <p class="mt-2 text-[10px] text-slate-500">Bandingkan rata-rata pemakaian solar dan hasil luas per wilayah.</p>
                         </div>
+                    </div>
+                </section>
+
+                <!-- Row 3c - Analisa Listrik Pompa Elektrik (SPE) per Wilayah -->
+                <section class="rounded-[20px] border border-purple-200/70 bg-gradient-to-br from-purple-50/40 via-white to-white p-5 md:p-6 shadow-soft">
+                    <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-purple-100 text-purple-700 shadow-sm"><i data-lucide="zap" class="h-4 w-4"></i></span>
+                                <h3 class="text-[14px] font-semibold text-slate-900">Analisa Konsumsi Listrik Pompa Elektrik (SPE) per Wilayah</h3>
+                                <span class="rounded-full bg-purple-100 px-2.5 py-0.5 text-[10px] font-semibold text-purple-800">Meteran kWh ZPAS637</span>
+                            </div>
+                            <p class="mt-1 text-[12px] text-slate-500">Unit pompa tipe SPE (Submersible/Stationary Pump Electric) beroperasi menggunakan motor listrik PLN dan tidak mengonsumsi solar (0 L). Analisa efisiensi energi dihitung berdasarkan rasio kWh/Jam dan kWh/Ha per afdeling.</p>
+                        </div>
+                    </div>
+                    <!-- SPE KPI Summary Cards -->
+                    <div id="speWilayahKpis" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5"></div>
+                    <!-- SPE Breakdown Table -->
+                    <div class="overflow-x-auto wide-table rounded-xl border border-purple-100 bg-white">
+                        <table class="w-full text-left text-[11px] tabular-nums">
+                            <thead class="bg-purple-50/60 text-[10px] font-semibold uppercase tracking-wider text-purple-900">
+                                <tr>
+                                    <th class="px-4 py-3 whitespace-nowrap">Wilayah</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-left">Unit SPE Terdata</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-center">Aktivitas SPE</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-right">Jam Operasi SPE</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-right">Luas Siram (Ha)</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-right">Total Listrik (kWh)</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-right">Rata-rata kWh/Jam</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-right">Intensitas kWh/Ha</th>
+                                    <th class="px-4 py-3 whitespace-nowrap text-center">Status Konsumsi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="speWilayahBody" class="divide-y divide-purple-50">
+                                <tr><td colspan="9" class="px-4 py-6 text-center text-slate-400">Memuat analisa listrik SPE...</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </section>
 
@@ -1008,6 +1054,45 @@
                         <p id="chartIndexEngineNote" class="mt-2 text-[10px] text-slate-400"></p>
                     </section>
 
+                    <!-- Evaluasi Konsumsi Listrik Mesin Elektrik (SPE) -->
+                    <section data-engine-card="spe-listrik" class="rounded-[20px] border border-purple-200/80 bg-gradient-to-br from-purple-50/30 via-white to-white p-5 md:p-6 shadow-soft">
+                        <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+                            <div>
+                                <h3 class="text-[14px] font-semibold text-slate-900 flex items-center gap-2">
+                                    <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-purple-100 text-purple-700"><i data-lucide="zap" class="h-3.5 w-3.5"></i></span>
+                                    Evaluasi Konsumsi Listrik Mesin Elektrik (SPE)
+                                </h3>
+                                <p class="mt-1 text-[11px] text-slate-500">Unit pompa SPE beroperasi menggunakan motor listrik PLN (pemakaian solar = 0 L). Evaluasi efisiensi energi dihitung berdasarkan konsumsi meteran kWh dari sheet ZPAS637.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="speIndexBadge" class="rounded-full bg-purple-100 px-3 py-1 text-[11px] font-semibold text-purple-800">20 Unit SPE Terdaftar</span>
+                            </div>
+                        </div>
+                        <div id="speIndexKpis" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"></div>
+                        <div class="overflow-x-auto wide-table rounded-xl border border-purple-100 bg-white">
+                            <table class="w-full text-left text-[11px] tabular-nums">
+                                <thead class="bg-purple-50/60 text-[10px] font-semibold uppercase tracking-wider text-purple-900">
+                                    <tr>
+                                        <th class="px-3 py-2.5 whitespace-nowrap">Kode Engine</th>
+                                        <th class="px-3 py-2.5 whitespace-nowrap">Wilayah</th>
+                                        <th class="px-3 py-2.5 whitespace-nowrap">Lokasi</th>
+                                        <th class="px-3 py-2.5 whitespace-nowrap text-center">Status Sheet</th>
+                                        <th class="px-3 py-2.5 whitespace-nowrap text-right">Aktivitas ZPAS</th>
+                                        <th class="px-3 py-2.5 whitespace-nowrap text-right">Jam Operasi</th>
+                                        <th class="px-3 py-2.5 whitespace-nowrap text-right">Luas Siram (Ha)</th>
+                                        <th class="px-3 py-2.5 whitespace-nowrap text-right">Total Listrik (kWh)</th>
+                                        <th class="px-3 py-2.5 whitespace-nowrap text-right">kWh / Jam</th>
+                                        <th class="px-3 py-2.5 whitespace-nowrap text-right">kWh / Ha</th>
+                                        <th class="px-3 py-2.5 whitespace-nowrap text-center">Catatan Evaluasi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="speIndexTableBody" class="divide-y divide-purple-50">
+                                    <tr><td colspan="11" class="px-4 py-6 text-center text-slate-400">Memuat evaluasi listrik SPE...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
                     <!-- Tabel per engine -->
                     <section class="rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
                         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -1020,6 +1105,7 @@
                                     <option value="all">Semua hasil</option>
                                     <option value="Hemat">Hemat (L/j &lt; kalibrasi)</option>
                                     <option value="Boros">Boros (L/j &gt; kalibrasi)</option>
+                                    <option value="spe">Mesin Elektrik SPE (Listrik)</option>
                                     <option value="aktif">Hanya yang ada siram</option>
                                     <option value="anomali">Hanya anomali</option>
                                 </select>
@@ -1075,8 +1161,8 @@
                 <div id="tab-data" role="tabpanel" aria-labelledby="tabbtn-data" tabindex="-1" class="tab-panel hidden space-y-6">
                     <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-slate-50 to-white p-5 md:p-6 shadow-soft">
                         <div>
-                            <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Detail Data Harian — 35 Kolom (A–AI)</h2>
-                            <p class="mt-1 max-w-2xl text-[12px] text-slate-500">Record aktivitas irigasi harian dari sheet ZPAS637 (kolom A–AI, termasuk kolom bantu "R Bulan" dari sheet). Sort dengan klik header, cari cepat, atur jumlah baris per halaman, dan export CSV.</p>
+                            <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Detail Data Harian — 36 Kolom (A–AJ)</h2>
+                            <p class="mt-1 max-w-2xl text-[12px] text-slate-500">Record aktivitas irigasi harian dari sheet ZPAS637 (kolom A–AJ, termasuk kolom bantu "R Bulan" dari sheet). Sort dengan klik header, cari cepat, atur jumlah baris per halaman, dan export CSV.</p>
                         </div>
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 ring-1 ring-slate-200">Raw Records</span>
                     </div>
@@ -1099,10 +1185,10 @@
                         <table class="w-full text-left text-[12px]">
                             <thead class="sticky top-0 z-10 bg-slate-50/95 backdrop-blur text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                                     <tr>
-                                        <th data-sort="date" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Tanggal <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="bulanR" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Bulan <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="wilayah" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Wilayah <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="lokasi" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Lokasi <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="engine" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Engine <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="irigator" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Irigator <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="jenisIrigator" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Jenis Irigator <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Plan Time</th><th data-sort="luasSiram" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Luas Siram <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Kecepatan</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Tebal Siram</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Prepare</th><th data-sort="operatingTime" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Operating <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Waiting</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Repair</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Down Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Standby</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Off Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Tot. Oper. Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Total Avail</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Total Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">% Avail</th><th data-sort="utilization" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">% Util <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="air" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Air <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="solarTerpakai" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Solar L <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Solar</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Upah</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Alat</th><th data-sort="biayaTotal" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Total <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Rp/Ha</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ha/Hari</th><th data-sort="haPerJam" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ha/Jam <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ltr/Jam</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ltr/Ha</th><th data-sort="jenisEngine" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Jenis Engine <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th>
+                                        <th data-sort="date" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Tanggal <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="bulanR" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Bulan <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="wilayah" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Wilayah <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="lokasi" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Lokasi <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="engine" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Engine <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="irigator" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Irigator <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="jenisIrigator" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Jenis Irigator <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Plan Time</th><th data-sort="luasSiram" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Luas Siram <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Kecepatan</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Tebal Siram</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Prepare</th><th data-sort="operatingTime" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Operating <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Waiting</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Repair</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Down Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Standby</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Off Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Tot. Oper. Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Total Avail</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Total Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">% Avail</th><th data-sort="utilization" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">% Util <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="air" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Air <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="solarTerpakai" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Solar L <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Solar</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Upah</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Alat</th><th data-sort="biayaTotal" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Total <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Rp/Ha</th><th data-sort="kwh" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Kosumsi kWh <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ha/Hari</th><th data-sort="haPerJam" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ha/Jam <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ltr/Jam</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ltr/Ha</th><th data-sort="jenisEngine" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Jenis Engine <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th>
                                     </tr>
                                     <tr class="bg-slate-50/70 text-[9px] font-medium tracking-normal text-slate-400">
-                                        <td colspan="35" class="px-3 py-1.5 text-left normal-case">Seluruh 35 kolom sheet ZPAS637 (A–AI) • geser ke kanan untuk kolom lainnya • klik header bertanda ↕ untuk mengurutkan</td>
+                                        <td colspan="36" class="px-3 py-1.5 text-left normal-case">Seluruh 36 kolom sheet ZPAS637 (A–AJ) • geser ke kanan untuk kolom lainnya • klik header bertanda ↕ untuk mengurutkan</td>
                                     </tr>
                                 </thead>
                             <tbody id="dataTableBody" class="divide-y divide-slate-100">

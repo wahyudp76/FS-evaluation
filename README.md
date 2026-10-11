@@ -136,6 +136,12 @@ Tombol **Rata-rata / Aktivitas • Rata-rata / Hari • Total** di bagian "Rinci
 - Rentang tanggal default selalu data paling awal s.d. paling terbaru dari spreadsheet (mode mengikuti, berlaku tiap refresh & payload baru); ubahan manual tidak pernah diubah sync — tombol Sync hanya menarik total data (v1.15.0).
 - Filter Engine multi-pilih di panel filter: daftar checkbox per kode engine + kotak pencarian + tombol Clear; digabung (AND) dengan filter lain & dihitung di meta filter aktif (v1.17.0; dicabut pada v1.18.0 — diganti filter per tipe).
 - Filter Jenis Engine multi-pilih (checkbox per tipe DEM/DED/DEC/dll + jumlah record) menggantikan dropdown tunggal; digabung (AND) dengan filter lain (v1.18.0).
+- Integrasi Analisa Listrik Pompa Elektrik (SPE) & Kolom Kosumsi kWh (v1.20.0):
+  - **Dukungan Kolom ZPAS637 ke-36 (`Kosumsi kWh`)**: Parser Google Sheets GViz CSV/JSON membaca kolom indeks 30 (`Kosumsi kWh` / kolom AE), diposisikan di antara `Biaya Total` dan `Ha/Hari`. Total struktur kolom data ZPAS637 kini terpetakan lengkap 36 kolom (A–AJ).
+  - **Tab Performance Wilayah**: Panel seksi baru "Analisa Konsumsi Listrik Pompa Elektrik (SPE) per Wilayah" menyajikan 4 kartu KPI (Total Konsumsi kWh, Konsumsi kWh/Jam Op, Intensitas kWh/Ha, Unit SPE Terpasang) serta tabel rincian per afdeling. Chart performa wilayah dan pembanding dilengkapi opsi metrik `Listrik SPE (kWh)` dan `Konsumsi Listrik/Jam (kWh/jam)`.
+  - **Tab Index Solar**: Panel khusus "Evaluasi Konsumsi Listrik Mesin Elektrik (SPE)" menyajikan KPI total daya, intensitas per Ha & jam, serta tabel evaluasi 20 unit SPE (15 beroperasi). Mesin SPE yang tidak mengonsumsi bahan bakar solar (0 L) diberi label status "Solar 0 L (SPE)" dan filter justifikasi "Mesin Elektrik (SPE)" sehingga tidak diklasifikasikan sebagai anomali deviasi solar.
+  - **Tab Detail Data Harian**: Tabel interaktif dan fitur Export CSV kini menyajikan seluruh 36 kolom (A–AJ) dengan kolom `Kosumsi kWh` berformat desimal rapi (`180,0` / `-`).
+  - **Service Worker & PWA**: Cache shell diperbarui ke `v1.20.0`, fallback offline `sample-data.csv` disinkronkan ke data live 36 kolom, dan seluruh rangkaian tes QA (157 cek) lulus 100%.
 - Audit v1.19.0:
   - **Kebenaran data**: membetulkan akumulasi `Biaya Solar` dan `Biaya Upah` pada kartu KPI sekunder tab Overview yang sebelumnya tertutup komentar sebaris di v1.16.0 (kini menampilkan data riil ~Rp 39 M / 48% dan ~Rp 9,7 M / 12%).
   - **Sinkronisasi data & jaringan**: mengeliminasi permintaan ganda ke Google Sheets saat kunjungan pertama dengan cache kosong (`fetchPayload({ preferCache: true })` kini segera mengembalikan `null` bila cache belum terisi).
@@ -262,8 +268,8 @@ const SHEET_NAME = 'ZPAS637';
 
 Pastikan sheet **File > Share > Anyone with link - Viewer**.
 
-## 📊 Struktur Kolom ZPAS637
-`Date | Wilayah | Lokasi | Engine | Irigator | Jenis Irigator | Plan Time | Luas Siram | Luas Cek | Kecepatan Rata-rata | Tebal Siram | Prepare Time | Operating Time | Waiting Time | Repair | Down Time | Standby | Off Time | Tot. Oper. Time | Total Avail | Total Time | % Availability | % Utilization | Air | Solar Terpakai (ltr) | Biaya Solar (Std) | Biaya Upah | Biaya Alat | Biaya Total | Rp/Ha | Ha/Hari | Ha/Jam | Solar Ltr/jam | Solar Ltr/Ha | Jenis Engine`
+## 📊 Struktur Kolom ZPAS637 (36 Kolom A–AJ)
+`Date | Wilayah | Lokasi | Engine | Irigator | Jenis Irigator | Plan Time | Luas Siram | Luas Cek | Kecepatan Rata-rata | Tebal Siram | Prepare Time | Operating Time | Waiting Time | Repair | Down Time | Standby | Off Time | Tot. Oper. Time | Total Avail | Total Time | % Availability | % Utilization | Air | Solar Terpakai (ltr) | Biaya Solar (Std) | Biaya Upah | Biaya Alat | Biaya Total | Rp/Ha | Kosumsi kWh | Ha/Hari | Ha/Jam | Solar Ltr/jam | Solar Ltr/Ha | Jenis Engine`
 
 ## 🎨 Desain
 - Minimalist, rounded 2xl, soft shadow, glass header

@@ -321,7 +321,8 @@ const DQ_BATAS = {
   '% Availability': [0, 100], '% Utilization': [0, 100], 'Air': [0, 10000],
   'Solar Terpakai (ltr)': [0, 2000], 'Biaya Solar (Std)': [0, 50000000],
   'Biaya Upah': [0, 10000000], 'Biaya Alat': [0, 50000000], 'Biaya Total': [0, 100000000],
-  'Rp/Ha': [0, 30000000], 'Ha/Hari': [0, 50], 'Ha/Jam': [0, 5],
+  'Rp/Ha': [0, 30000000], 'Kosumsi kWh': [0, 5000], 'Konsumsi kWh': [0, 5000], 'kwh': [0, 5000],
+  'Ha/Hari': [0, 50], 'Ha/Jam': [0, 5],
   'Solar Ltr/jam': [0, 100], 'Solar Ltr/Ha': [0, 1000],
   // sheet Index Solar (kunci berawalan nama sheet agar tak bentrok)
   'Index Solar|Pemakaian Solar': [0, 5000], 'Index Solar|Jam Operaton': [0, 500],
@@ -513,7 +514,9 @@ function buildRows(csvText, datesText) {
         cTotOper = (I('Tot, Oper, Time') !== undefined ? I('Tot, Oper, Time') : I('Tot. Oper. Time')),
         cTotAvail = I('Total Avail'), cTotTime = I('Total Time'), cAvail = I('% Availability'), cUtil = I('% Utilization'),
         cAir = I('Air'), cSolar = I('Solar Terpakai (ltr)'), cBSolar = I('Biaya Solar (Std)'), cBUpah = I('Biaya Upah'),
-        cBAlat = I('Biaya Alat'), cBTotal = I('Biaya Total'), cRpHa = I('Rp/Ha'), cHaHari = I('Ha/Hari'),
+        cBAlat = I('Biaya Alat'), cBTotal = I('Biaya Total'), cRpHa = I('Rp/Ha'),
+        cKwh = (I('Kosumsi kWh') !== undefined ? I('Kosumsi kWh') : (I('Konsumsi kWh') !== undefined ? I('Konsumsi kWh') : I('kwh'))),
+        cHaHari = I('Ha/Hari'),
         cHaJam = I('Ha/Jam'), cSolarJam = I('Solar Ltr/jam'), cSolarHa = I('Solar Ltr/Ha'), cJEng = I('Jenis Engine'),
         cBulan = I('R Bulan');
   need('Date'); need('Wilayah'); need('Luas Siram'); need('Biaya Total');
@@ -554,7 +557,7 @@ function buildRows(csvText, datesText) {
       availability: num(cAvail), utilization: num(cUtil), air: num(cAir),
       solarTerpakai: num(cSolar),
       biayaSolar: num(cBSolar), biayaUpah: num(cBUpah), biayaAlat: num(cBAlat), biayaTotal: num(cBTotal),
-      rpPerHa: num(cRpHa), haPerHari: num(cHaHari), haPerJam: num(cHaJam),
+      rpPerHa: num(cRpHa), kwh: num(cKwh), haPerHari: num(cHaHari), haPerJam: num(cHaJam),
       solarPerJam: num(cSolarJam), solarPerHa: num(cSolarHa),
       jenisEngine: g(cJEng).trim(),
       bulanR: g(cBulan).trim(),          // kolom A sheet: bantu bulan (Mei..Sep)
@@ -562,7 +565,7 @@ function buildRows(csvText, datesText) {
       _s: ''   // indeks pencarian, diisi di bawah
     };
     d._s = (lokasi + ' ' + engine + ' ' + irigator + ' ' + wilayah + ' ' + d.jenisIrigator + ' ' + d.jenisEngine + ' ' +
-            formatDateISO(date) + ' ' + rawDate).toLowerCase();
+            (d.kwh ? 'kwh ' + d.kwh + ' ' : '') + formatDateISO(date) + ' ' + rawDate).toLowerCase();
     out.push(d);
   }
 
@@ -720,13 +723,15 @@ function parseGvizJSON(text) {
       availability: num('% Availability'), utilization: num('% Utilization'), air: num('Air'),
       solarTerpakai: num('Solar Terpakai (ltr)'),
       biayaSolar: num('Biaya Solar (Std)'), biayaUpah: num('Biaya Upah'), biayaAlat: num('Biaya Alat'),
-      biayaTotal: num('Biaya Total'), rpPerHa: num('Rp/Ha'), haPerHari: num('Ha/Hari'), haPerJam: num('Ha/Jam'),
+      biayaTotal: num('Biaya Total'), rpPerHa: num('Rp/Ha'),
+      kwh: num('Kosumsi kWh') || num('Konsumsi kWh') || num('kwh'),
+      haPerHari: num('Ha/Hari'), haPerJam: num('Ha/Jam'),
       solarPerJam: num('Solar Ltr/jam'), solarPerHa: num('Solar Ltr/Ha'), jenisEngine: str('Jenis Engine'),
       bulanR: str('R Bulan'),
       _y: date.getFullYear(), _m: date.getMonth(), _s: ''
     };
     d._s = (d.lokasi + ' ' + d.engine + ' ' + d.irigator + ' ' + d.wilayah + ' ' + d.jenisIrigator + ' ' + d.jenisEngine + ' ' +
-            formatDateISO(date)).toLowerCase();
+            (d.kwh ? 'kwh ' + d.kwh + ' ' : '') + formatDateISO(date)).toLowerCase();
     out.push(d);
   }
   return out;
@@ -845,7 +850,7 @@ async function fetchPayload({ preferCache = false } = {}) {
 function parseCSVText(csvText, datesText) { return buildRows(csvText, datesText); }
 
 // Kolom angka yang bisa dicari di kotak pencarian tabel (perilaku lama dipertahankan)
-const NUM_SEARCH_FIELDS = ['luasSiram','solarTerpakai','biayaTotal','solarPerHa','solarPerJam','kecepatan','tebalSiram','utilization','availability','rpPerHa','operatingTime'];
+const NUM_SEARCH_FIELDS = ['luasSiram','solarTerpakai','biayaTotal','solarPerHa','solarPerJam','kecepatan','tebalSiram','utilization','availability','rpPerHa','operatingTime','kwh'];
 function rowNumericMatch(d, q) {
   for (let i = 0; i < NUM_SEARCH_FIELDS.length; i++) {
     const v = d[NUM_SEARCH_FIELDS[i]];
@@ -988,7 +993,8 @@ function getWilayahStatsRaw() {
       luasSiram: 0, solarTerpakai: 0, haPerJam: 0, haPerHari: 0, solarPerHa: 0, solarPerJam: 0,
       operatingTime: 0, prepareTime: 0, waitingTime: 0, kecepatan: 0, tebalSiram: 0,
       availability: 0, utilization: 0, rpPerHa: 0, biayaTotal: 0, air: 0,
-      biayaSolar: 0, biayaUpah: 0, biayaAlat: 0
+      biayaSolar: 0, biayaUpah: 0, biayaAlat: 0,
+      kwh: 0, speKwh: 0, speCount: 0, speOperating: 0, speLuas: 0, speEngines: new Set()
     };
     g.count++;
     g.luasSiram += d.luasSiram || 0;
@@ -1010,6 +1016,14 @@ function getWilayahStatsRaw() {
     g.biayaSolar += d.biayaSolar || 0;
     g.biayaUpah += d.biayaUpah || 0;
     g.biayaAlat += d.biayaAlat || 0;
+    g.kwh += d.kwh || 0;
+    if (d.jenisEngine === 'SPE' || (d.engine && d.engine.startsWith('SPE'))) {
+      g.speCount++;
+      g.speKwh += d.kwh || 0;
+      g.speOperating += d.operatingTime || 0;
+      g.speLuas += d.luasSiram || 0;
+      if (d.engine) g.speEngines.add(d.engine);
+    }
   }
   const stats = [];
   for (const w in groups) {
@@ -1054,6 +1068,15 @@ function getWilayahStatsRaw() {
       rpPerJam: g.operatingTime ? g.biayaTotal / g.operatingTime : 0,
       rpPerLiter: g.solarTerpakai ? g.biayaTotal / g.solarTerpakai : 0,
       avgBiayaPerRec: g.biayaTotal / n,
+      // LISTRIK (SPE)
+      totalKwh: g.kwh,
+      speKwh: g.speKwh,
+      speCount: g.speCount,
+      speOperating: g.speOperating,
+      speLuas: g.speLuas,
+      speEngines: Array.from(g.speEngines).sort(),
+      kwhPerJam: g.speOperating ? g.speKwh / g.speOperating : 0,
+      kwhPerHa: g.speLuas ? g.speKwh / g.speLuas : 0,
       // efisiensi score: higher Ha/Jam and lower Ltr/Ha is better (memakai rasio operasional)
       efisiensiScore: opsHaPerJam / (opsLtrPerHa || 1) * 100,
     });
@@ -1066,6 +1089,8 @@ function getWilayahStatsRaw() {
     if (wilayahSort==='totalSolar') return b.totalSolar - a.totalSolar;
     if (wilayahSort==='avgUtil') return b.avgUtilization - a.avgUtilization;
     if (wilayahSort==='avgRpPerHa') return a.rpPerHa - b.rpPerHa; // lower is better (rasio total:total)
+    if (wilayahSort==='totalKwh') return b.totalKwh - a.totalKwh;
+    if (wilayahSort==='kwhPerJam') return b.kwhPerJam - a.kwhPerJam;
     return b.totalLuas - a.totalLuas;
   });
   return stats;
@@ -1214,8 +1239,9 @@ function getIndexSolarView() {
     for (let i = 0; i < filteredData.length; i++) {
       const d = filteredData[i];
       let a = zp[d.engine];
-      if (!a) a = zp[d.engine] = { n: 0, jam: 0, solar: 0, luas: 0 };
+      if (!a) a = zp[d.engine] = { n: 0, jam: 0, solar: 0, luas: 0, kwh: 0 };
       a.n++; a.jam += d.operatingTime || 0; a.solar += d.solarTerpakai || 0; a.luas += d.luasSiram || 0;
+      a.kwh += d.kwh || 0;
     }
     for (let i = 0; i < indexData.length; i++) {
       const r = indexData[i];
@@ -1224,18 +1250,24 @@ function getIndexSolarView() {
       if (mF.size && !mF.has(r._m)) continue;
       if (jFilter.size && !jFilter.has(kategoriJenisEngine(r, peta))) continue;
       if (q && r._s.indexOf(q) === -1) continue;
+      const isSpe = r.jenis === 'SPE' || (r.engine && r.engine.startsWith('SPE'));
       if (indexJust === 'Hemat' && !(r.aktif && r.justifikasi === 'Hemat' && !r.anomali)) continue;
       if (indexJust === 'Boros' && !(r.aktif && r.justifikasi === 'Boros' && !r.anomali)) continue;
+      if (indexJust === 'spe' && !isSpe) continue;
       if (indexJust === 'aktif' && !r.aktif) continue;
       if (indexJust === 'anomali' && !r.anomali) continue;
       const z = zp[r.engine] || null;
       rows.push(Object.assign({}, r, {
+        isSpe,
         zpN: z ? z.n : 0,
         zpJam: z ? z.jam : 0,
         zpSolar: z ? z.solar : 0,
         zpLuas: z ? z.luas : 0,
+        zpKwh: z ? z.kwh : 0,
         zpLtrPerJam: z && z.jam ? z.solar / z.jam : 0,
-        zpLtrPerHa: z && z.luas ? z.solar / z.luas : 0
+        zpLtrPerHa: z && z.luas ? z.solar / z.luas : 0,
+        zpKwhPerJam: z && z.jam ? z.kwh / z.jam : 0,
+        zpKwhPerHa: z && z.luas ? z.kwh / z.luas : 0
       }));
     }
     const sorters = {
@@ -1253,12 +1285,19 @@ function getIndexSolarView() {
     // "solar 0 L" dipisah: pemakaian belum tercatat, tidak adil disebut Hemat/Boros
     const nolSolar = aktif.filter(r => r.solar === 0);
     const terukur = aktif.filter(r => r.solar > 0);
+    const speEngines = rows.filter(r => r.isSpe);
+    const speAktif = speEngines.filter(r => r.aktif);
     const ringkas = {
       total: rows.length,
       aktifAll: rows.filter(r => r.aktif).length,
       aktif: aktif.length,
       terukur: terukur.length,
       nol: nolSolar.length,
+      speCount: speEngines.length,
+      speAktif: speAktif.length,
+      speKwh: speEngines.reduce((a, r) => a + (r.zpKwh || 0), 0),
+      speLuas: speEngines.reduce((a, r) => a + (r.zpLuas || 0), 0),
+      speJam: speEngines.reduce((a, r) => a + (r.zpJam || 0), 0),
       hemat: terukur.filter(r => r.justifikasi === 'Hemat').length,
       boros: terukur.filter(r => r.justifikasi === 'Boros').length,
       anomaly: rows.filter(r => r.anomali).length,
@@ -2463,6 +2502,80 @@ function renderWilayahDetail() {
       }
     }
   });
+
+  safeRender('speWilayah', () => renderSpeWilayah(stats));
+}
+
+function renderSpeWilayah(stats) {
+  const kpiEl = $('#speWilayahKpis');
+  const tbody = $('#speWilayahBody');
+  if (!kpiEl && !tbody) return;
+
+  const speStats = stats.filter(s => (s.speCount && s.speCount > 0) || (s.totalKwh && s.totalKwh > 0)).sort((a, b) => b.totalKwh - a.totalKwh);
+  const totalKwh = speStats.reduce((a, s) => a + (s.totalKwh || 0), 0);
+  const totalSpeOperating = speStats.reduce((a, s) => a + (s.speOperating || 0), 0);
+  const totalSpeLuas = speStats.reduce((a, s) => a + (s.speLuas || 0), 0);
+  const totalSpeCount = speStats.reduce((a, s) => a + (s.speCount || 0), 0);
+  const uniqueEngines = new Set();
+  speStats.forEach(s => (s.speEngines || []).forEach(e => uniqueEngines.add(e)));
+
+  const overallKwhPerJam = totalSpeOperating ? totalKwh / totalSpeOperating : 0;
+  const overallKwhPerHa = totalSpeLuas ? totalKwh / totalSpeLuas : 0;
+
+  if (kpiEl) {
+    kpiEl.innerHTML = `
+      <div class="rounded-xl border border-purple-100 bg-white p-3.5 shadow-sm">
+        <div class="text-[10px] font-semibold uppercase tracking-wider text-purple-700">Total Konsumsi Listrik</div>
+        <div class="mt-1 text-[18px] font-bold text-slate-900">${formatInt(totalKwh)} <span class="text-[11px] font-medium text-purple-600">kWh</span></div>
+        <div class="mt-1 text-[10px] text-slate-500">dari ${formatInt(totalSpeCount)} record aktivitas SPE</div>
+      </div>
+      <div class="rounded-xl border border-purple-100 bg-white p-3.5 shadow-sm">
+        <div class="text-[10px] font-semibold uppercase tracking-wider text-purple-700">Konsumsi per Jam Op</div>
+        <div class="mt-1 text-[18px] font-bold text-slate-900">${formatNumber(overallKwhPerJam, 2)} <span class="text-[11px] font-medium text-purple-600">kWh/jam</span></div>
+        <div class="mt-1 text-[10px] text-slate-500">total ${formatNumber(totalSpeOperating, 1)} jam operasi SPE</div>
+      </div>
+      <div class="rounded-xl border border-purple-100 bg-white p-3.5 shadow-sm">
+        <div class="text-[10px] font-semibold uppercase tracking-wider text-purple-700">Intensitas Listrik / Ha</div>
+        <div class="mt-1 text-[18px] font-bold text-slate-900">${formatNumber(overallKwhPerHa, 2)} <span class="text-[11px] font-medium text-purple-600">kWh/Ha</span></div>
+        <div class="mt-1 text-[10px] text-slate-500">luas siram ${formatNumber(totalSpeLuas, 1)} Ha</div>
+      </div>
+      <div class="rounded-xl border border-purple-100 bg-white p-3.5 shadow-sm">
+        <div class="text-[10px] font-semibold uppercase tracking-wider text-purple-700">Unit SPE Terpasang</div>
+        <div class="mt-1 text-[18px] font-bold text-slate-900">${uniqueEngines.size} <span class="text-[11px] font-medium text-purple-600">unit</span></div>
+        <div class="mt-1 text-[10px] text-slate-500">di ${speStats.length} afdeling aktif</div>
+      </div>
+    `;
+  }
+
+  if (tbody) {
+    if (!speStats.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-6 text-center text-slate-400">Tidak ada data pompa elektrik SPE pada filter ini</td></tr>';
+      return;
+    }
+    tbody.innerHTML = speStats.map(s => {
+      let statusBadge = '';
+      if (s.totalKwh > 0 && s.kwhPerJam > 1.0) {
+        statusBadge = '<span class="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200">Tinggi (Beban Puncak)</span>';
+      } else if (s.totalKwh > 0) {
+        statusBadge = '<span class="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">Normal Operasional</span>';
+      } else {
+        statusBadge = '<span class="inline-flex rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200">kWh Belum Tercatat</span>';
+      }
+      return `
+        <tr class="hover:bg-purple-50/40 transition">
+          <td class="px-4 py-2.5 whitespace-nowrap font-semibold text-slate-900">${esc(s.wilayah)}</td>
+          <td class="px-4 py-2.5 text-slate-600 font-mono text-[10px]">${(s.speEngines && s.speEngines.length) ? esc(s.speEngines.join(', ')) : '-'}</td>
+          <td class="px-4 py-2.5 text-center"><span class="rounded-full bg-purple-50 px-2 py-0.5 font-medium text-purple-700">${formatInt(s.speCount || 0)}</span></td>
+          <td class="px-4 py-2.5 text-right text-slate-700">${formatNumber(s.speOperating || 0, 1)}</td>
+          <td class="px-4 py-2.5 text-right font-medium text-slate-800">${formatNumber(s.speLuas || 0, 2)}</td>
+          <td class="px-4 py-2.5 text-right font-bold text-purple-700">${formatInt(s.totalKwh || 0)}</td>
+          <td class="px-4 py-2.5 text-right font-semibold ${s.kwhPerJam > 1 ? 'text-amber-700' : 'text-slate-800'}">${s.kwhPerJam ? formatNumber(s.kwhPerJam, 2) : '-'}</td>
+          <td class="px-4 py-2.5 text-right text-slate-800">${s.kwhPerHa ? formatNumber(s.kwhPerHa, 2) : '-'}</td>
+          <td class="px-4 py-2.5 text-center">${statusBadge}</td>
+        </tr>
+      `;
+    }).join('');
+  }
 }
 
 function calculateKPIs() {
@@ -2962,7 +3075,7 @@ function renderIndexKPI() {
   const selisihTotal = r.selisih + r.selisihAnomali;
   const deviasiPct = r.kalibrasiAvg ? ((r.ltrPerJam - r.kalibrasiAvg) / r.kalibrasiAvg) * 100 : 0;
   const cards = [
-    { label:'Engine Dievaluasi', value:`${formatInt(r.aktifAll)}`, unit:'engine', sub:`${formatInt(r.nol)} tanpa catatan solar • ${formatInt(r.anomaly)} anomali • ${formatInt(r.tanpaSiram)} tanpa siram`, icon:'cpu', color:'slate' },
+    { label:'Engine Dievaluasi', value:`${formatInt(r.aktifAll)}`, unit:'engine', sub:`${formatInt(r.nol)} tanpa catatan solar (${formatInt(r.speCount || 0)} SPE listrik) • ${formatInt(r.anomaly)} anomali • ${formatInt(r.tanpaSiram)} tanpa siram`, icon:'cpu', color:'slate' },
     { label:'Pemakaian Solar (Index)', value:formatInt(r.solar), unit:'L', sub:`${formatNumber(r.jam,1)} jam operasi tercatat`, icon:'fuel', color:'amber' },
     { label:'Aktual vs Kalibrasi', value:`${formatNumber(r.ltrPerJam,2)}`, unit:'L/jam',
       sub:`kalibrasi rata-rata ${formatNumber(r.kalibrasiAvg,2)} L/jam (${deviasiPct>=0?'+':''}${formatNumber(deviasiPct,1)}%)`, icon:'gauge', color: deviasiPct<=0 ? 'emerald' : 'red' },
@@ -3036,6 +3149,7 @@ function renderIndexTable() {
   const badge = (r) => {
     if (r.anomali) return '<span class="inline-flex whitespace-nowrap rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200">Anomali</span>';
     if (!r.aktif) return '<span class="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200">Tidak ada siram</span>';
+    if (r.isSpe) return '<span class="inline-flex whitespace-nowrap rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 ring-1 ring-purple-200">SPE (Listrik)</span>';
     if (r.solar === 0) return '<span class="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200">Solar 0 L</span>';
     return r.justifikasi === 'Boros'
       ? '<span class="inline-flex whitespace-nowrap rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200">Boros</span>'
@@ -3043,6 +3157,9 @@ function renderIndexTable() {
   };
   tbody.innerHTML = pageRows.map(r => {
     const devWarna = !r.kalibrasi ? 'text-slate-400' : (r.deviasi > 0 ? 'text-red-600' : 'text-emerald-600');
+    const colZp = r.isSpe
+      ? (r.zpN ? `<span class="text-purple-700 font-semibold">${formatInt(r.zpN)} act • ${formatInt(r.zpKwh)} kWh (${formatNumber(r.zpKwhPerJam, 2)} kWh/j)</span>` : '-')
+      : (r.zpN ? formatInt(r.zpN) + ' act • ' + formatNumber(r.zpLtrPerJam, 1) + ' L/j' : '-');
     return `
     <tr class="hover:bg-slate-50/80 transition">
       <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] font-semibold text-slate-900 fz fz0">${esc(r.engine)}</td>
@@ -3058,16 +3175,100 @@ function renderIndexTable() {
       <td class="px-3 py-2.5 text-right ${r.selisih ? 'font-medium text-slate-700' : 'text-slate-400'}">${formatNumber(r.selisih, 0)}</td>
       <td class="px-3 py-2.5 text-right ${r.zpLuas ? 'font-medium text-emerald-700' : 'text-slate-400'}">${r.zpLuas ? formatNumber(r.zpLtrPerHa, 1) : '-'}</td>
       <td class="px-3 py-2.5 whitespace-nowrap text-center">${badge(r)}</td>
-      <td class="px-3 py-2.5 text-right text-[11px] text-slate-500">${r.zpN ? formatInt(r.zpN) + ' act • ' + formatNumber(r.zpLtrPerJam, 1) + ' L/j' : '-'}</td>
+      <td class="px-3 py-2.5 text-right text-[11px] text-slate-500">${colZp}</td>
     </tr>`;
   }).join('');
   syncIndexFreeze();
 }
+
+function renderSpeIndex(iv) {
+  const badgeEl = $('#speIndexBadge');
+  const kpiEl = $('#speIndexKpis');
+  const tbody = $('#speIndexTableBody');
+  if (!kpiEl && !tbody) return;
+
+  const rows = (iv && iv.rows) || [];
+  const speRows = rows.filter(r => r.isSpe).sort((a, b) => (b.zpKwh || 0) - (a.zpKwh || 0));
+
+  const totalSpeUnits = speRows.length;
+  const speAktif = speRows.filter(r => r.aktif || (r.zpN && r.zpN > 0));
+  const totalKwh = speRows.reduce((a, r) => a + (r.zpKwh || 0), 0);
+  const totalSpeJam = speRows.reduce((a, r) => a + (r.zpJam || 0), 0);
+  const totalSpeLuas = speRows.reduce((a, r) => a + (r.zpLuas || 0), 0);
+  const totalSpeAct = speRows.reduce((a, r) => a + (r.zpN || 0), 0);
+
+  const avgKwhPerJam = totalSpeJam ? totalKwh / totalSpeJam : 0;
+  const avgKwhPerHa = totalSpeLuas ? totalKwh / totalSpeLuas : 0;
+
+  if (badgeEl) {
+    badgeEl.textContent = `${totalSpeUnits} Unit SPE Terdaftar (${speAktif.length} Beroperasi)`;
+  }
+
+  if (kpiEl) {
+    kpiEl.innerHTML = `
+      <div class="rounded-xl border border-purple-100 bg-white p-3.5 shadow-sm">
+        <div class="text-[10px] font-semibold uppercase tracking-wider text-purple-700">Total Konsumsi Listrik</div>
+        <div class="mt-1 text-[18px] font-bold text-slate-900">${formatInt(totalKwh)} <span class="text-[11px] font-medium text-purple-600">kWh</span></div>
+        <div class="mt-1 text-[10px] text-slate-500">dari ${formatInt(totalSpeAct)} aktivitas ZPAS637</div>
+      </div>
+      <div class="rounded-xl border border-purple-100 bg-white p-3.5 shadow-sm">
+        <div class="text-[10px] font-semibold uppercase tracking-wider text-purple-700">Rata-rata kWh / Jam</div>
+        <div class="mt-1 text-[18px] font-bold text-slate-900">${formatNumber(avgKwhPerJam, 2)} <span class="text-[11px] font-medium text-purple-600">kWh/jam</span></div>
+        <div class="mt-1 text-[10px] text-slate-500">total ${formatNumber(totalSpeJam, 1)} jam kerja pompa</div>
+      </div>
+      <div class="rounded-xl border border-purple-100 bg-white p-3.5 shadow-sm">
+        <div class="text-[10px] font-semibold uppercase tracking-wider text-purple-700">Intensitas Listrik / Ha</div>
+        <div class="mt-1 text-[18px] font-bold text-slate-900">${formatNumber(avgKwhPerHa, 2)} <span class="text-[11px] font-medium text-purple-600">kWh/Ha</span></div>
+        <div class="mt-1 text-[10px] text-slate-500">total ${formatNumber(totalSpeLuas, 1)} Ha tersiram</div>
+      </div>
+      <div class="rounded-xl border border-purple-100 bg-white p-3.5 shadow-sm">
+        <div class="text-[10px] font-semibold uppercase tracking-wider text-purple-700">Status Bahan Bakar</div>
+        <div class="mt-1 text-[18px] font-bold text-emerald-700">0 L <span class="text-[11px] font-medium text-slate-500">(100% Listrik)</span></div>
+        <div class="mt-1 text-[10px] text-slate-500">Submersible Pump Electric</div>
+      </div>
+    `;
+  }
+
+  if (tbody) {
+    if (!speRows.length) {
+      tbody.innerHTML = '<tr><td colspan="11" class="px-4 py-6 text-center text-slate-400">Tidak ada engine SPE yang sesuai dengan filter</td></tr>';
+      return;
+    }
+    tbody.innerHTML = speRows.map(r => {
+      let statusCatatan = '';
+      if (!r.aktif && (!r.zpN || r.zpN === 0)) {
+        statusCatatan = '<span class="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">Standby / Tidak ada siram</span>';
+      } else if (r.zpKwh > 0) {
+        statusCatatan = `<span class="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 ring-1 ring-purple-200">Terukur (${formatNumber(r.zpKwhPerJam, 2)} kWh/j)</span>`;
+      } else {
+        statusCatatan = '<span class="inline-flex rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600">Mulai Dicatat Okt 2026</span>';
+      }
+
+      return `
+        <tr class="hover:bg-purple-50/40 transition">
+          <td class="px-3 py-2.5 whitespace-nowrap font-mono font-semibold text-slate-900">${esc(r.engine)}</td>
+          <td class="px-3 py-2.5 whitespace-nowrap"><span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">${esc(r.wilayah)}</span></td>
+          <td class="px-3 py-2.5 whitespace-nowrap font-mono text-slate-600">${esc(r.lokasi || '-')}</td>
+          <td class="px-3 py-2.5 whitespace-nowrap text-center"><span class="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">${r.solar === 0 ? 'Solar 0 L (SPE)' : formatInt(r.solar) + ' L'}</span></td>
+          <td class="px-3 py-2.5 whitespace-nowrap text-right font-medium">${formatInt(r.zpN || 0)} act</td>
+          <td class="px-3 py-2.5 whitespace-nowrap text-right text-slate-700">${formatNumber(r.zpJam || 0, 1)}</td>
+          <td class="px-3 py-2.5 whitespace-nowrap text-right text-slate-700">${formatNumber(r.zpLuas || 0, 2)}</td>
+          <td class="px-3 py-2.5 whitespace-nowrap text-right font-bold text-purple-700">${formatInt(r.zpKwh || 0)}</td>
+          <td class="px-3 py-2.5 whitespace-nowrap text-right font-semibold ${r.zpKwhPerJam > 1.0 ? 'text-amber-700' : 'text-slate-800'}">${r.zpKwhPerJam ? formatNumber(r.zpKwhPerJam, 2) : '-'}</td>
+          <td class="px-3 py-2.5 whitespace-nowrap text-right text-slate-700">${r.zpKwhPerHa ? formatNumber(r.zpKwhPerHa, 2) : '-'}</td>
+          <td class="px-3 py-2.5 whitespace-nowrap text-center">${statusCatatan}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+}
+
 function renderIndexSolar() {
   safeRender('indexKpi', renderIndexKPI);
   safeRender('charts-index', () => renderCharts('indexsolar'));
   safeRender('chartIndexEngine', renderIndexEngineChart);
   safeRender('indexTable', renderIndexTable);
+  safeRender('speIndex', () => renderSpeIndex(getIndexSolarView()));
 }
 
 // Render isi satu tab saja (dipakai oleh updateAll & activateTab)
@@ -3165,7 +3366,9 @@ const BAR_LABEL_FMT = {
   'Lint': v => formatInt(Math.round(v)) + ' L',
   'rpshort': v => formatRupiahShort(v),
   'signed2': v => (v > 0 ? '+' : '') + formatNumber(v, 2),
-  'pct1': v => formatNumber(v, 1) + '%'   // v1.16.0: dulu hilang -> label % tampil tanpa satuan
+  'pct1': v => formatNumber(v, 1) + '%',   // v1.16.0: dulu hilang -> label % tampil tanpa satuan
+  'kwh': v => formatInt(Math.round(v)) + ' kWh',
+  'kwh1': v => formatNumber(v, 1) + ' kWh'
 };
 
 let barLabelsRegistered = false;
@@ -3586,11 +3789,15 @@ function renderCharts(tab) {
     biayaUpah: { get:s=>(s.biayaUpah||0),   label:'Biaya Upah (Rp)',           color:'rgba(59,130,246,0.8)',  fmt:'rp' },
     biayaAlat: { get:s=>(s.biayaAlat||0),   label:'Biaya Alat (Rp)',           color:'rgba(139,92,246,0.8)',  fmt:'rp' },
     rpPerJam:  { get:s=>(s.rpPerJam!==undefined?s.rpPerJam:(s.totalOperating?s.totalBiaya/s.totalOperating:0)), label:'Biaya Rp/Jam Operasi', color:'rgba(14,116,144,0.85)', fmt:'rp' },
-    rpPerLiter:{ get:s=>(s.rpPerLiter!==undefined?s.rpPerLiter:0), label:'Biaya Rp/Liter Solar', color:'rgba(190,24,93,0.8)', fmt:'rp' }
+    rpPerLiter:{ get:s=>(s.rpPerLiter!==undefined?s.rpPerLiter:0), label:'Biaya Rp/Liter Solar', color:'rgba(190,24,93,0.8)', fmt:'rp' },
+    kwh:       { get:s=>s.totalKwh,  label:'Total Listrik SPE (kWh)',        color:'rgba(168,85,247,0.85)', fmt:'kwh' },
+    kwhPerJam: { get:s=>s.kwhPerJam, label:'Konsumsi Listrik SPE (kWh/Jam)', color:'rgba(147,51,234,0.85)', fmt:'num2' },
+    kwhPerHa:  { get:s=>s.kwhPerHa,  label:'Intensitas Listrik SPE (kWh/Ha)', color:'rgba(126,34,206,0.85)', fmt:'num2' }
   };
   const wm = WMETRIC[wilayahMetric] || WMETRIC.luas;
   const fmtVal = (v) => wm.fmt==='ha' ? formatNumber(v,2)+' Ha'
     : wm.fmt==='l' ? formatInt(v)+' L'
+    : wm.fmt==='kwh' ? formatInt(v)+' kWh'
     : wm.fmt==='rp' ? formatRupiah(v)
     : wm.fmt==='pct' ? formatNumber(v,1)+'%'
     : wm.fmt==='num3' ? formatNumber(v,3)
@@ -3996,6 +4203,7 @@ const DETAIL_COLS = [
   { h:'Biaya Alat',         s:'biayaAlat',     get:d=>d.biayaAlat,                   fmt:'rp',    align:'right' },
   { h:'Biaya Total',        s:'biayaTotal',    get:d=>d.biayaTotal,                  fmt:'rp',    align:'right', sort:true },
   { h:'Rp/Ha',              s:'rpPerHa',       get:d=>d.rpPerHa,                     fmt:'i0',    align:'right' },
+  { h:'Kosumsi kWh',        s:'kwh',           get:d=>d.kwh,                         fmt:'kwh',   align:'right', sort:true, cls:'text-purple-700 font-medium' },
   { h:'Ha/Hari',            s:'haPerHari',     get:d=>d.haPerHari,                   fmt:'n2',    align:'right' },
   { h:'Ha/Jam',             s:'haPerJam',      get:d=>d.haPerJam,                    fmt:'n3',    align:'right', sort:true, cls:'text-emerald-700 font-medium' },
   { h:'Solar Ltr/jam',      s:'solarPerJam',   get:d=>d.solarPerJam,                 fmt:'n1',    align:'right' },
@@ -4014,6 +4222,7 @@ function detailCell(col, d) {
     case 'n3': return formatNumber(v, 3);
     case 'n2b': return formatNumber(v, 2);
     case 'i0': return formatInt(v);
+    case 'kwh': return (v !== undefined && v !== null && v > 0) ? formatNumber(v, 1) : (d.jenisEngine === 'SPE' ? '0,0' : '-');
     case 'pct': return formatNumber(v, 1) + '%';
     case 'rp': return formatRupiah(v);
     case 'util': {
@@ -4470,7 +4679,7 @@ const EXPORT_COLS = [
   ['Total Avail', d=>d.totalAvail], ['Total Time', d=>d.totalTime], ['% Availability', d=>d.availability],
   ['% Utilization', d=>d.utilization], ['Air', d=>d.air], ['Solar Terpakai (ltr)', d=>d.solarTerpakai],
   ['Biaya Solar (Std)', d=>d.biayaSolar], ['Biaya Upah', d=>d.biayaUpah], ['Biaya Alat', d=>d.biayaAlat],
-  ['Biaya Total', d=>d.biayaTotal], ['Rp/Ha', d=>d.rpPerHa], ['Ha/Hari', d=>d.haPerHari],
+  ['Biaya Total', d=>d.biayaTotal], ['Rp/Ha', d=>d.rpPerHa], ['Kosumsi kWh', d=>d.kwh], ['Ha/Hari', d=>d.haPerHari],
   ['Ha/Jam', d=>d.haPerJam], ['Solar Ltr/jam', d=>d.solarPerJam], ['Solar Ltr/Ha', d=>d.solarPerHa],
   ['Jenis Engine', d=>d.jenisEngine]
 ];

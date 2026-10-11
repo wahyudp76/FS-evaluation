@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.19.0 — audit data biaya solar & upah, cegah fetch ganda saat cache kosong, sinkronisasi filter jenis engine ke index solar, optimasi batas tanggal
-const VERSION = 'v1.19.0';
+// v1.20.0 — integrasi kolom Kosumsi kWh, analisa listrik SPE per wilayah & per engine, detail table 36 kolom
+const VERSION = 'v1.20.0';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)

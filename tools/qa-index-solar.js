@@ -500,7 +500,7 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
     };
   });
   console.log('baris detail:', detail.cuplikan);
-  check('detail: 35 kolom sesuai sheet A..AI (termasuk bantu "R Bulan")', detail.kolom === 35 && detail.selCount === 35, `th ${detail.kolom}, td ${detail.selCount}`);
+  check('detail: 36 kolom sesuai sheet A..AJ (termasuk "Kosumsi kWh" & bantu "R Bulan")', detail.kolom === 36 && detail.selCount === 36, `th ${detail.kolom}, td ${detail.selCount}`);
   check('detail: kolom Bulan (A) tampil setelah Tanggal & selaras', detail.kolomBulan[0] === 'Tanggal' && detail.kolomBulan[1] === 'Bulan' && detail.bulanSelaras, JSON.stringify(detail.kolomBulan));
   check('detail: tabel bisa digeser horizontal', detail.lebarTabel > 1200, 'lebar ' + detail.lebarTabel);
 
@@ -538,7 +538,7 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   const lines = String(csv).split(/\r?\n/);
   const header = lines[0].replace(/^\ufeff/, '');
   const nKolom = header.split(',').length;
-  check('export CSV: 35 kolom (A..AI) + seluruh baris', nKolom === 35 && lines.length > 12000, `${nKolom} kolom, ${lines.length} baris`);
+  check('export CSV: 36 kolom (A..AJ) + seluruh baris', nKolom === 36 && lines.length > 12000, `${nKolom} kolom, ${lines.length} baris`);
   check('export CSV: urut sheet — dibuka kolom "R Bulan" lalu "Date"', header.indexOf('R Bulan') === 0 && header.indexOf('Date') > 0, header.slice(0, 40));
   console.log('header CSV:', header.slice(0, 150));
 

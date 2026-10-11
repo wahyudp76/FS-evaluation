@@ -3,16 +3,23 @@
 # pakai: bash tools/push.sh <GITHUB_PAT> [pesan commit]
 set -euo pipefail
 
-PAT="${1:-}"
-MSG="${2:-perf: optimasi performa, perbaikan bug & stabilitas dashboard}"
+PAT="${GITHUB_PAT:-${1:-}}"
+MSG="${2:-v1.20.0 — analisa konsumsi listrik kWh pompa elektrik SPE pada tab Performance Wilayah & Index Solar serta dukungan 36 kolom ZPAS637}"
 SRC="/home/user"
 REPO="${REPO_DIR:-/tmp/fs-eval}"
 BRANCH="${REPO_BRANCH:-main}"
 
 if [ -z "$PAT" ]; then
-  echo "Pemakaian: bash tools/push.sh <GITHUB_PAT> [pesan commit]" >&2
+  echo "Pemakaian: GITHUB_PAT=... bash tools/push.sh [pesan commit]" >&2
   exit 2
 fi
+
+cleanup() {
+  if [ -d "$REPO/.git" ]; then
+    git -C "$REPO" remote set-url origin "https://github.com/wahyudp76/FS-evaluation.git" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
 
 if [ -d "$REPO/.git" ]; then
   echo "==> memperbarui clone yang ada: $REPO"
@@ -27,7 +34,7 @@ else
 fi
 
 echo "==> salin file dari workspace"
-for f in index.html app.js sw.js manifest.json README.md; do
+for f in index.html app.js sw.js manifest.json README.md .gitignore; do
   [ -f "$SRC/$f" ] && cp "$SRC/$f" "$REPO/$f"
 done
 rm -rf "$REPO/assets" "$REPO/tools" "$REPO/.github"
