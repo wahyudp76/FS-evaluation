@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.20.1 — pemisahan tegas evaluasi solar/BBM diesel vs listrik SPE, produktivitas & utilisasi mencakup semua engine
-const VERSION = 'v1.20.1';
+// v1.20.3 — penambahan resume waktu operasional & utilisasi alat pada tab Overview
+const VERSION = 'v1.20.3';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)

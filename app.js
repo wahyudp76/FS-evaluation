@@ -20,6 +20,7 @@ const GVIZ_URL = `${GVIZ_BASE}?tqx=out:json&sheet=${SHEET_NAME}`;
 const INDEX_SHEET = 'Index Solar';
 const INDEX_URL = `${GVIZ_BASE}?tqx=out:csv&sheet=${encodeURIComponent(INDEX_SHEET)}`;
 const SAMPLE_URL = './assets/sample-data.csv';
+const SAMPLE_INDEX_URL = './assets/sample-index.csv';
 const DATA_CACHE = 'pg2-data-v1';
 const META_KEY = 'pg2-meta-v1';
 const AUTO_SYNC_MS = 5 * 60 * 1000;
@@ -823,22 +824,22 @@ async function fetchPayload({ preferCache = false } = {}) {
     }
     return null;   // cache kosong / belum ada: jangan unduh ulang dari jaringan di sini (sudah ditangani netPromise)
   }
-  // paralel: CSV (sumber utama) + kolom tanggal (~3 KB).
+  // paralel: CSV (sumber utama) + kolom tanggal (~3 KB) + Index Solar (~16 KB).
   // Kalau index.html sudah memulai unduhan lebih awal, hasilnya dipakai ulang di sini.
   let csv = null, dates = null, index = null;
-  const earlyCsv = window.__pgCsvEarly, earlyDates = window.__pgDatesEarly;
-  const indexPromise = fetchText(INDEX_URL).catch(() => null);   // ~13 KB, dijalankan paralel
-  if (earlyCsv || earlyDates) {
+  const earlyCsv = window.__pgCsvEarly, earlyDates = window.__pgDatesEarly, earlyIndex = window.__pgIndexEarly;
+  if (earlyCsv || earlyDates || earlyIndex) {
     // Bila unduhan awal gagal, batalkan dulu sebelum mengulang (hindari dua unduhan
     // besar berjalan bersamaan di jaringan lambat). promise awal membawa .abort().
     const pakaiAwal = (p, nama) => p ? withTimeout(p, EARLY_GRACE_MS, nama).catch(() => {
       try { if (p.abort) p.abort(); } catch (_e) {}
       return null;
     }) : Promise.resolve(null);
-    const [c, d] = await Promise.all([pakaiAwal(earlyCsv, 'csv'), pakaiAwal(earlyDates, 'dates')]);
-    csv = c; dates = d;
-    window.__pgCsvEarly = null; window.__pgDatesEarly = null;   // lepas teks besar dari memori
+    const [c, d, idx] = await Promise.all([pakaiAwal(earlyCsv, 'csv'), pakaiAwal(earlyDates, 'dates'), pakaiAwal(earlyIndex, 'index')]);
+    csv = c; dates = d; index = idx;
+    window.__pgCsvEarly = null; window.__pgDatesEarly = null; window.__pgIndexEarly = null;   // lepas teks dari memori
   }
+  const indexPromise = index ? Promise.resolve(index) : fetchText(INDEX_URL).catch(() => null);   // ~16 KB, dijalankan paralel
   if (!csv || !dates) {
     // lengkapi/ulangi bagian yang belum berhasil (juga menutup kasus unduhan awal gagal)
     const retries = await Promise.allSettled([
@@ -1530,8 +1531,7 @@ function getBiayaWilayahStatsRaw() {
   totals.pctSolar = grandTotal ? totals.biayaSolar/grandTotal*100 : 0;
   totals.pctUpah = grandTotal ? totals.biayaUpah/grandTotal*100 : 0;
   totals.pctAlat = grandTotal ? totals.biayaAlat/grandTotal*100 : 0;
-  totals.pctLuas = 0;
-  totals.pctLuas = grandTotal ? 100 : 0;
+  totals.pctLuas = grandLuas ? 100 : 0;
   return { list, totals };
 }
 
@@ -2826,6 +2826,215 @@ function renderOverviewWilayah() {
   }).join('');
 }
 
+// ===== OVERVIEW: Resume Waktu Operasional & Utilisasi Alat =====
+function renderOverviewWaktuResume() {
+  const host = $('#overviewWaktuResume');
+  if (!host) return;
+  const t = getWaktuTotal();
+  const kpi = calculateKPIs();
+  const meta = $('#overviewWaktuMeta');
+  if (!t.count || !kpi) {
+    host.innerHTML = '<div class="py-6 text-center text-[12px] text-slate-400">Tidak ada data waktu untuk filter ini</div>';
+    if (meta) meta.textContent = '-';
+    return;
+  }
+  const nAkt = t.count || 1;
+  const nHari = t.hari || 1;
+  if (meta) meta.textContent = `${formatInt(nAkt)} aktivitas • ${formatInt(nHari)} hari operasi`;
+
+  const totTime = t.totalTime || (t.operating + t.prepare + t.waiting + t.repair + t.down + t.standby + t.off) || 1;
+  const pctOper = Math.min(100, (t.operating / totTime) * 100);
+  const pctPrep = Math.min(100, (t.prepare / totTime) * 100);
+  const pctWait = Math.min(100, (t.waiting / totTime) * 100);
+  const troubleJam = t.repair + t.down;
+  const pctTrouble = Math.min(100, (troubleJam / totTime) * 100);
+  const standbyOffJam = t.standby + t.off;
+  const pctStandbyOff = Math.max(0, 100 - (pctOper + pctPrep + pctWait + pctTrouble));
+
+  const wStats = getWilayahStats();
+  const sortedUtil = [...wStats].sort((a, b) => b.avgUtilization - a.avgUtilization);
+  const bestUtil = sortedUtil[0] || { wilayah: '-', avgUtilization: 0, avgOperating: 0 };
+  const lowestUtil = sortedUtil[sortedUtil.length - 1] || { wilayah: '-', avgUtilization: 0, avgOperating: 0 };
+
+  const utilBadge = kpi.avgUtilization >= 80
+    ? '<span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200"><i data-lucide="check-circle-2" class="h-3 w-3"></i> Optimal (≥70%)</span>'
+    : (kpi.avgUtilization >= 70
+      ? '<span class="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-semibold text-blue-700 ring-1 ring-blue-200"><i data-lucide="check-circle-2" class="h-3 w-3"></i> Cukup Baik</span>'
+      : '<span class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200"><i data-lucide="alert-triangle" class="h-3 w-3"></i> Perlu Peningkatan</span>');
+
+  const availBadge = kpi.avgAvailability >= 95
+    ? '<span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200"><i data-lucide="shield-check" class="h-3 w-3"></i> Kesiapan Prima</span>'
+    : '<span class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200"><i data-lucide="alert-triangle" class="h-3 w-3"></i> Perlu Perawatan</span>';
+
+  let html = `
+    <!-- Top 4 KPI Metrics -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <!-- 1. % Utilization -->
+      <div class="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-emerald-50/40 via-white to-white p-4 shadow-sm">
+        <div class="flex items-center justify-between gap-1.5">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Tingkat Utilisasi</span>
+          ${utilBadge}
+        </div>
+        <div class="mt-2 text-[26px] font-extrabold tracking-tight text-slate-900">${formatNumber(kpi.avgUtilization, 1)}<span class="text-[14px] font-bold text-emerald-600">%</span></div>
+        <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200/70">
+          <div class="h-full rounded-full bg-emerald-500 transition-all duration-500" style="width:${Math.min(100, Math.max(0, kpi.avgUtilization))}%"></div>
+        </div>
+        <div class="mt-2.5 flex items-center justify-between text-[10px] text-slate-500">
+          <span>Tertinggi: <b class="text-slate-800">${esc(bestUtil.wilayah)}</b> (${formatNumber(bestUtil.avgUtilization, 1)}%)</span>
+          <span>Terendah: <b class="text-slate-800">${esc(lowestUtil.wilayah)}</b> (${formatNumber(lowestUtil.avgUtilization, 1)}%)</span>
+        </div>
+      </div>
+
+      <!-- 2. % Availability -->
+      <div class="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-blue-50/40 via-white to-white p-4 shadow-sm">
+        <div class="flex items-center justify-between gap-1.5">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Kesiapan Alat</span>
+          ${availBadge}
+        </div>
+        <div class="mt-2 text-[26px] font-extrabold tracking-tight text-slate-900">${formatNumber(kpi.avgAvailability, 1)}<span class="text-[14px] font-bold text-blue-600">%</span></div>
+        <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200/70">
+          <div class="h-full rounded-full bg-blue-500 transition-all duration-500" style="width:${Math.min(100, Math.max(0, kpi.avgAvailability))}%"></div>
+        </div>
+        <div class="mt-2.5 flex items-center justify-between text-[10px] text-slate-500">
+          <span>Waktu Siap: <b class="text-slate-800">${formatNumber(t.totalAvail, 1)} jam</b></span>
+          <span class="text-slate-400">Loss: ${formatNumber(troubleJam, 1)} jam</span>
+        </div>
+      </div>
+
+      <!-- 3. Jam Operasi Produktif -->
+      <div class="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-indigo-50/40 via-white to-white p-4 shadow-sm">
+        <div class="flex items-center justify-between gap-1.5">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Jam Operasi (Aktif)</span>
+          <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-200">${formatNumber((t.operating / (t.plan || 1)) * 100, 1)}% Plan</span>
+        </div>
+        <div class="mt-2 text-[26px] font-extrabold tracking-tight text-slate-900">${formatNumber(t.operating, 1)} <span class="text-[13px] font-medium text-slate-400">jam</span></div>
+        <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200/70">
+          <div class="h-full rounded-full bg-indigo-500 transition-all duration-500" style="width:${Math.min(100, (t.operating / (t.plan || 1)) * 100)}%"></div>
+        </div>
+        <div class="mt-2.5 flex items-center justify-between text-[10px] text-slate-500">
+          <span>Rata-rata: <b class="text-slate-800">${formatNumber(t.operating / nAkt, 2)} j/akt</b></span>
+          <span><b class="text-slate-800">${formatNumber(t.operating / nHari, 1)} j/hari</b></span>
+        </div>
+      </div>
+
+      <!-- 4. Rencana Kerja & Total Operasional -->
+      <div class="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50 via-white to-white p-4 shadow-sm">
+        <div class="flex items-center justify-between gap-1.5">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Rencana Jam Kerja</span>
+          <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200">${formatInt(nHari)} hari</span>
+        </div>
+        <div class="mt-2 text-[26px] font-extrabold tracking-tight text-slate-900">${formatNumber(t.plan, 1)} <span class="text-[13px] font-medium text-slate-400">jam</span></div>
+        <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200/70">
+          <div class="h-full rounded-full bg-slate-700 transition-all duration-500" style="width:100%"></div>
+        </div>
+        <div class="mt-2.5 flex items-center justify-between text-[10px] text-slate-500">
+          <span>Plan: <b class="text-slate-800">${formatNumber(t.plan / nAkt, 2)} j/akt</b></span>
+          <span>Tot Oper: <b class="text-blue-700">${formatNumber(t.totOper, 1)} jam</b></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Visual Stacked Bar Alokasi Waktu -->
+    <div class="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2 text-[11px]">
+        <span class="font-bold text-slate-800 flex items-center gap-1.5">
+          <i data-lucide="bar-chart-2" class="h-3.5 w-3.5 text-blue-600"></i> Proporsi Alokasi Total Waktu (${formatNumber(totTime, 1)} jam = 100%)
+        </span>
+        <span class="text-slate-500">Operasi: <b class="text-blue-600">${formatNumber(pctOper, 1)}%</b> • Persiapan: <b class="text-teal-600">${formatNumber(pctPrep, 1)}%</b> • Non-produktif: <b class="text-amber-600">${formatNumber(pctWait + pctTrouble, 1)}%</b></span>
+      </div>
+      <div class="h-3 w-full overflow-hidden rounded-full bg-slate-200 flex shadow-inner">
+        <div style="width:${pctOper}%" class="bg-blue-600 transition-all" title="Operating: ${formatNumber(t.operating, 1)} jam (${formatNumber(pctOper, 1)}%)"></div>
+        <div style="width:${pctPrep}%" class="bg-teal-500 transition-all" title="Prepare: ${formatNumber(t.prepare, 1)} jam (${formatNumber(pctPrep, 1)}%)"></div>
+        <div style="width:${pctWait}%" class="bg-amber-400 transition-all" title="Waiting: ${formatNumber(t.waiting, 1)} jam (${formatNumber(pctWait, 1)}%)"></div>
+        <div style="width:${pctTrouble}%" class="bg-rose-500 transition-all" title="Repair & Down: ${formatNumber(troubleJam, 1)} jam (${formatNumber(pctTrouble, 1)}%)"></div>
+        <div style="width:${pctStandbyOff}%" class="bg-slate-400 transition-all" title="Standby & Off: ${formatNumber(standbyOffJam, 1)} jam (${formatNumber(pctStandbyOff, 1)}%)"></div>
+      </div>
+
+      <!-- 6 Mini Detail Cards -->
+      <div class="mt-3.5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        <div class="rounded-xl border border-blue-200/70 bg-white p-2.5 shadow-sm">
+          <div class="flex items-center gap-1 text-[10px] font-semibold text-blue-700">
+            <span class="h-2 w-2 rounded-full bg-blue-600"></span> Operating Time
+          </div>
+          <div class="mt-1 font-bold text-[13px] text-slate-900">${formatNumber(t.operating, 1)} <span class="text-[10px] font-normal text-slate-400">jam</span></div>
+          <div class="mt-0.5 text-[10px] text-slate-500">${formatNumber(t.operating / nAkt, 2)} j/akt • ${formatNumber(pctOper, 1)}%</div>
+        </div>
+
+        <div class="rounded-xl border border-teal-200/70 bg-white p-2.5 shadow-sm">
+          <div class="flex items-center gap-1 text-[10px] font-semibold text-teal-700">
+            <span class="h-2 w-2 rounded-full bg-teal-500"></span> Prepare Time
+          </div>
+          <div class="mt-1 font-bold text-[13px] text-slate-900">${formatNumber(t.prepare, 1)} <span class="text-[10px] font-normal text-slate-400">jam</span></div>
+          <div class="mt-0.5 text-[10px] text-slate-500">${formatNumber(t.prepare / nAkt, 2)} j/akt • ${formatNumber(pctPrep, 1)}%</div>
+        </div>
+
+        <div class="rounded-xl border border-amber-200/70 bg-white p-2.5 shadow-sm">
+          <div class="flex items-center gap-1 text-[10px] font-semibold text-amber-700">
+            <span class="h-2 w-2 rounded-full bg-amber-400"></span> Waiting Time
+          </div>
+          <div class="mt-1 font-bold text-[13px] text-slate-900">${formatNumber(t.waiting, 1)} <span class="text-[10px] font-normal text-slate-400">jam</span></div>
+          <div class="mt-0.5 text-[10px] text-slate-500">${formatNumber(t.waiting / nAkt, 2)} j/akt • ${formatNumber(pctWait, 1)}%</div>
+        </div>
+
+        <div class="rounded-xl border border-rose-200/70 bg-white p-2.5 shadow-sm">
+          <div class="flex items-center gap-1 text-[10px] font-semibold text-rose-700">
+            <span class="h-2 w-2 rounded-full bg-rose-500"></span> Repair &amp; Down
+          </div>
+          <div class="mt-1 font-bold text-[13px] text-slate-900">${formatNumber(troubleJam, 1)} <span class="text-[10px] font-normal text-slate-400">jam</span></div>
+          <div class="mt-0.5 text-[10px] text-slate-500">Rep ${formatNumber(t.repair, 1)} • Dn ${formatNumber(t.down, 1)}</div>
+        </div>
+
+        <div class="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
+          <div class="flex items-center gap-1 text-[10px] font-semibold text-slate-700">
+            <span class="h-2 w-2 rounded-full bg-violet-400"></span> Standby Time
+          </div>
+          <div class="mt-1 font-bold text-[13px] text-slate-900">${formatNumber(t.standby, 1)} <span class="text-[10px] font-normal text-slate-400">jam</span></div>
+          <div class="mt-0.5 text-[10px] text-slate-500">${formatNumber(t.standby / nAkt, 2)} j/akt • ${formatNumber((t.standby / totTime) * 100, 1)}%</div>
+        </div>
+
+        <div class="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
+          <div class="flex items-center gap-1 text-[10px] font-semibold text-slate-600">
+            <span class="h-2 w-2 rounded-full bg-slate-400"></span> Off Time
+          </div>
+          <div class="mt-1 font-bold text-[13px] text-slate-900">${formatNumber(t.off, 1)} <span class="text-[10px] font-normal text-slate-400">jam</span></div>
+          <div class="mt-0.5 text-[10px] text-slate-500">${formatNumber(t.off / nAkt, 2)} j/akt • ${formatNumber((t.off / totTime) * 100, 1)}%</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sebaran Utilisasi per Afdeling (Chips) -->
+    <div class="rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+        <span class="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+          <i data-lucide="gauge" class="h-3.5 w-3.5 text-emerald-600"></i> Sebaran Tingkat Utilisasi per Wilayah
+        </span>
+        <span class="text-[10px] text-slate-400">Diurutkan dari utilisasi tertinggi ke terendah</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+        ${sortedUtil.map(w => {
+          const isHigh = w.avgUtilization >= 82;
+          const isMed = w.avgUtilization >= 80;
+          const bgBadge = isHigh ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : (isMed ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-slate-50 text-slate-800 border-slate-200');
+          const barColor = isHigh ? 'bg-emerald-500' : (isMed ? 'bg-blue-500' : 'bg-slate-500');
+          return `
+            <div class="rounded-xl border ${bgBadge} p-2 text-center transition hover:shadow-sm">
+              <div class="text-[11px] font-bold">${esc(w.wilayah)}</div>
+              <div class="mt-1 text-[13px] font-extrabold">${formatNumber(w.avgUtilization, 1)}%</div>
+              <div class="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-slate-200">
+                <div class="h-full ${barColor}" style="width:${Math.min(100, Math.max(0, w.avgUtilization))}%"></div>
+              </div>
+              <div class="mt-1 text-[9px] text-slate-500">${formatNumber(w.avgOperating, 1)} j/akt</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+
+  host.innerHTML = html;
+  refreshIcons();
+}
+
 // ===== TAB UTILISASI: kartu waktu alat + tabel ringkas per wilayah =====
 const WAKTU_CARDS = [
   { k:'plan',      label:'Plan Time',      icon:'calendar-clock', color:'slate',   fmt:'jam', desc:'Rencana jam kerja' },
@@ -3353,7 +3562,12 @@ function renderIndexSolar() {
 // Render isi satu tab saja (dipakai oleh updateAll & activateTab)
 function renderTab(tab) {
   if (!rawData.length) return;
-  if (tab === 'overview') { safeRender('kpi', renderKPIs); safeRender('overviewWilayah', renderOverviewWilayah); safeRender('charts-ovw', () => renderCharts('overview')); }
+  if (tab === 'overview') {
+    safeRender('kpi', renderKPIs);
+    safeRender('overviewWilayah', renderOverviewWilayah);
+    safeRender('overviewWaktu', renderOverviewWaktuResume);
+    safeRender('charts-ovw', () => renderCharts('overview'));
+  }
   else if (tab === 'wilayah') { safeRender('charts-wil', () => renderCharts('wilayah')); safeRender('wilayahDetail', renderWilayahDetail); }
   else if (tab === 'biaya') { safeRender('biaya', renderBiaya); }
   else if (tab === 'utilisasi') { renderUtilisasiTab(); }
@@ -4694,11 +4908,18 @@ function initFiltersUI() {
   const idxNext = $('#indexNextPage');
   if (idxNext && !idxNext.dataset.bound) {
     idxNext.dataset.bound = '1';
-    idxNext.addEventListener('click', () => { indexPage++; renderIndexTable(); });
+    idxNext.addEventListener('click', () => {
+      const iv = getIndexSolarView();
+      const totalPages = Math.max(1, Math.ceil(iv.rows.length / indexPageSize));
+      if (indexPage < totalPages) { indexPage++; renderIndexTable(); }
+    });
   }
 
   $('#btnPrevPage').addEventListener('click', ()=>{ if (currentPage>1){ currentPage--; renderTable(); } });
-  $('#btnNextPage').addEventListener('click', ()=>{ currentPage++; renderTable(); });
+  $('#btnNextPage').addEventListener('click', ()=>{
+    const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize));
+    if (currentPage < totalPages) { currentPage++; renderTable(); }
+  });
   const psSelect = $('#pageSizeSelect');
   if (psSelect) {
     psSelect.addEventListener('change', (e)=>{
@@ -5086,9 +5307,12 @@ async function loadData(opts = {}) {
     if (first && rawData.length === 0) {
       // belum ada data sama sekali -> coba file contoh lokal
       try {
-        const txt = await fetchText(SAMPLE_URL);
+        const [txt, idxTxt] = await Promise.all([
+          fetchText(SAMPLE_URL),
+          fetchText(SAMPLE_INDEX_URL).catch(() => null)
+        ]);
         dataSource = 'sample';
-        applyPayload({ csv: txt, dates: null, sig: 'sample', ts: Date.now() }, { fromCache: true });
+        applyPayload({ csv: txt, dates: null, index: idxTxt, sig: 'sample', ts: Date.now() }, { fromCache: true });
         showToast('Live sync gagal — memakai data contoh (offline)', 'warn', 9000);
         syncFailures = 0;
       } catch (e2) {

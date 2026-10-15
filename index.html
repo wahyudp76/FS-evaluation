@@ -39,8 +39,10 @@
         };
         window.__pgCsvEarly = grab(base + '?tqx=out:csv&sheet=ZPAS637');
         window.__pgDatesEarly = grab(base + '?tq=' + encodeURIComponent('select B') + '&tqx=out:json&sheet=ZPAS637');
+        window.__pgIndexEarly = grab(base + '?tqx=out:csv&sheet=' + encodeURIComponent('Index Solar'));
         if (window.__pgCsvEarly) window.__pgCsvEarly.catch(function () {});
         if (window.__pgDatesEarly) window.__pgDatesEarly.catch(function () {});
+        if (window.__pgIndexEarly) window.__pgIndexEarly.catch(function () {});
       })();
     </script>
     <link rel="dns-prefetch" href="https://docs.google.com">
@@ -406,6 +408,33 @@
                         <span id="overviewWilayahMeta" class="text-[10px] font-medium uppercase tracking-wider text-slate-400">-</span>
                     </div>
                     <div id="overviewWilayahCards" class="grid grid-cols-2 md:grid-cols-4 gap-2.5"></div>
+                </section>
+
+                <!-- Resume Waktu & Utilisasi Alat -->
+                <section class="rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
+                    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+                        <div>
+                            <h3 class="text-[14px] font-semibold text-slate-900 flex items-center gap-2">
+                                <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><i data-lucide="timer" class="h-3.5 w-3.5"></i></span>
+                                Resume Waktu &amp; Utilisasi Alat
+                            </h3>
+                            <p class="mt-1 text-[11px] text-slate-500">Ringkasan alokasi jam kerja alat (operasi, persiapan, tunggu, gangguan, standby) dan tingkat utilisasi seluruh armada</p>
+                        </div>
+                        <div class="flex items-center gap-2.5">
+                            <span id="overviewWaktuMeta" class="text-[10px] font-medium uppercase tracking-wider text-slate-400">-</span>
+                            <button type="button" onclick="activateTab('utilisasi')" class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 hover:bg-slate-200 px-3 py-1.5 text-[11px] font-medium text-slate-700 transition">
+                                Detail Waktu &amp; Utilisasi <i data-lucide="arrow-right" class="h-3 w-3"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="overviewWaktuResume" class="space-y-4">
+                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-3.5"><div class="shimmer h-16 rounded-lg"></div></div>
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-3.5"><div class="shimmer h-16 rounded-lg"></div></div>
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-3.5"><div class="shimmer h-16 rounded-lg"></div></div>
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-3.5"><div class="shimmer h-16 rounded-lg"></div></div>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Main Charts Row 1 -->
