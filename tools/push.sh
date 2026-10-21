@@ -54,7 +54,7 @@ fi
 
 echo "==> push"
 git -C "$REPO" remote set-url origin "https://${PAT}@github.com/wahyudp76/FS-evaluation.git"
-git -C "$REPO" push origin "$BRANCH"
+git -C "$REPO" push --quiet origin "$BRANCH"
 git -C "$REPO" remote set-url origin "https://github.com/wahyudp76/FS-evaluation.git"
 
 echo "==> selesai. Cek: https://github.com/wahyudp76/FS-evaluation/actions"

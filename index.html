@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>PG2 Irrigation Evaluation Dashboard | ZPAS637</title>
     <meta name="description" content="Dashboard evaluasi realisasi aktivitas irigasi PG2 - ZPAS637. Monitoring solar, jam efektif, luas siram, kecepatan, ketebalan, serta analisa biaya irigasi (solar, upah, alat, Rp/Ha) per wilayah dan per periode.">
     <!-- PWA & Icons -->
@@ -158,6 +161,7 @@
                             <span class="inline-flex min-w-0 items-center gap-1.5 truncate rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
                                 <span class="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"></span><span class="truncate">ZPAS637 LIVE</span>
                             </span>
+                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.20.4</span>
                             <span class="hidden sm:inline">•</span>
                             <span id="lastSync" class="hidden min-w-0 truncate sm:inline">Syncing...</span>
                             <button id="dqBadge" type="button" title="Lihat peringatan kualitas data" class="hidden min-w-0 flex-shrink-0 items-center gap-1.5 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-500/30 transition hover:bg-amber-100"><i data-lucide="alert-triangle" class="h-3 w-3 flex-shrink-0"></i><span id="dqBadgeText" class="truncate">0 nilai titik</span></button>
@@ -365,7 +369,7 @@
                             <i data-lucide="table-2" class="h-3.5 w-3.5"></i><span>Detail Data Harian</span>
                         </button>
                         <span class="ml-auto hidden flex-shrink-0 items-center gap-1.5 pl-3 pr-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 xl:inline-flex">
-                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync
+                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.20.4</span>
                         </span>
                     </div>
                 </nav>
@@ -1250,7 +1254,7 @@
 
                 <footer class="flex flex-col md:flex-row items-center justify-between gap-3 rounded-[16px] border border-slate-200 bg-white px-5 py-4 text-[11px] text-slate-500">
                     <div class="flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-white"><i data-lucide="shield-check" class="h-3.5 w-3.5"></i></span> PG2 Irrigation Evaluation • Built for wahyudp76/FS-evaluation • Auto-sync Google Sheets ZPAS637</div>
-                    <div class="font-mono">v1.0 • 2026 • Modern Minimalist Dashboard</div>
+                    <div class="font-mono font-medium text-slate-700">v1.20.4 • 2026 • Modern Minimalist Dashboard</div>
                 </footer>
             </main>
         </div>
@@ -1266,37 +1270,33 @@
         </div>
     </div>
 
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./app.js?v=1.20.4"></script>
     <script>
         // Ikon digambar setelah library (defer) selesai dimuat
         (function renderIcons() {
             if (window.lucide) { window.lucide.createIcons(); }
             else { window.addEventListener('load', () => window.lucide && window.lucide.createIcons()); }
         })();
-        // PWA Service Worker Registration
+        // PWA Service Worker Registration - Auto activate & controllerchange reload
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
+                let refreshing = false;
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (!refreshing) {
+                        refreshing = true;
+                        window.location.reload();
+                    }
+                });
+                navigator.serviceWorker.register('./sw.js?v=1.20.4')
                     .then(reg => {
                         console.log('SW registered:', reg.scope);
-                        // Check for updates
+                        reg.update().catch(() => {});
                         reg.addEventListener('updatefound', () => {
                             const newWorker = reg.installing;
+                            if (!newWorker) return;
                             newWorker.addEventListener('statechange', () => {
                                 if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                    // v1.9.0: banner non-blokir (ganti confirm() yang menghentikan interaksi)
-                                    try {
-                                        const bar = document.createElement('div');
-                                        bar.setAttribute('role', 'status');
-                                        bar.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:10px;background:#0f172a;color:#fff;font-size:12px;font-weight:500;padding:10px 12px 10px 16px;border-radius:999px;box-shadow:0 10px 30px -8px rgba(0,0,0,.35);';
-                                        bar.innerHTML = '<span>Update dashboard tersedia</span>';
-                                        const btn = document.createElement('button');
-                                        btn.textContent = 'Reload';
-                                        btn.style.cssText = 'background:#10b981;color:#fff;border:0;border-radius:999px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;';
-                                        btn.onclick = () => window.location.reload();
-                                        bar.appendChild(btn);
-                                        document.body.appendChild(bar);
-                                    } catch (e) { window.location.reload(); }
+                                    newWorker.postMessage({ type: 'SKIP_WAITING' });
                                 }
                             });
                         });

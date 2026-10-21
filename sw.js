@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.20.3 — penambahan resume waktu operasional & utilisasi alat pada tab Overview
-const VERSION = 'v1.20.3';
+// v1.20.4 — sinkronisasi 15.750 data ZPAS637, auto-activation service worker, visual version tag, dan cache-busting
+const VERSION = 'v1.20.4';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)
@@ -40,6 +40,13 @@ self.addEventListener('install', (event) => {
     )
   );
   self.skipWaiting();
+});
+
+// Pesan skipWaiting dari klien (auto-activation)
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // Activate — hapus cache versi lama
