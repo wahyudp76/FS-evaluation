@@ -545,20 +545,26 @@ function buildRows(csvText, datesText) {
     const wilayah = g(cWil).trim(), engine = g(cEng).trim(), irigator = g(cIri).trim(), lokasi = g(cLok).trim();
     _dqCtx = { baris: r + 1, kolom: '', huruf: '' };
     const yr = date.getFullYear(), mo = date.getMonth();
+    const rowBSolar = num(cBSolar), rowBUpah = num(cBUpah), rowBAlat = num(cBAlat);
+    const rowBTotRaw = num(cBTotal);
+    const rowBTotal = (rowBTotRaw > 0) ? rowBTotRaw : (rowBSolar + rowBUpah + rowBAlat);
+    const rowLuas = num(cLuas);
+    const rowRpHaRaw = num(cRpHa);
+    const rowRpHa = (rowRpHaRaw > 0) ? rowRpHaRaw : (rowLuas > 0 ? rowBTotal / rowLuas : 0);
     const d = {
       date,
       dateLabel: rawDate,
       wilayah, lokasi, engine, irigator,
       jenisIrigator: g(cJIri).trim(),
-      planTime: num(cPlan), luasSiram: num(cLuas), luasCek: 0,
+      planTime: num(cPlan), luasSiram: rowLuas, luasCek: 0,
       kecepatan: num(cKec), tebalSiram: num(cTebal),
       prepareTime: num(cPrep), operatingTime: num(cOper), waitingTime: num(cWait),
       repair: num(cRep), downTime: num(cDown), standby: num(cStand), offTime: num(cOff),
       totOperTime: num(cTotOper), totalAvail: num(cTotAvail), totalTime: num(cTotTime),
       availability: num(cAvail), utilization: num(cUtil), air: num(cAir),
       solarTerpakai: num(cSolar),
-      biayaSolar: num(cBSolar), biayaUpah: num(cBUpah), biayaAlat: num(cBAlat), biayaTotal: num(cBTotal),
-      rpPerHa: num(cRpHa), kwh: num(cKwh), haPerHari: num(cHaHari), haPerJam: num(cHaJam),
+      biayaSolar: rowBSolar, biayaUpah: rowBUpah, biayaAlat: rowBAlat, biayaTotal: rowBTotal,
+      rpPerHa: rowRpHa, kwh: num(cKwh), haPerHari: num(cHaHari), haPerJam: num(cHaJam),
       solarPerJam: num(cSolarJam), solarPerHa: num(cSolarHa),
       jenisEngine: g(cJEng).trim(),
       bulanR: g(cBulan).trim(),          // kolom A sheet: bantu bulan (Mei..Sep)
@@ -725,11 +731,17 @@ function parseGvizJSON(text) {
     const num = (label) => { const n = Number(val(label)); return isNaN(n) ? 0 : n; };
     const date = parseGvizDate(val('Date')) || parseGvizDate(c[idx['Date']] && c[idx['Date']].f);
     if (!date || isNaN(date)) continue;
+    const rowBSolar = num('Biaya Solar (Std)'), rowBUpah = num('Biaya Upah'), rowBAlat = num('Biaya Alat');
+    const rowBTotRaw = num('Biaya Total');
+    const rowBTotal = (rowBTotRaw > 0) ? rowBTotRaw : (rowBSolar + rowBUpah + rowBAlat);
+    const rowLuas = num('Luas Siram');
+    const rowRpHaRaw = num('Rp/Ha');
+    const rowRpHa = (rowRpHaRaw > 0) ? rowRpHaRaw : (rowLuas > 0 ? rowBTotal / rowLuas : 0);
     const d = {
       date, dateLabel: '',
       wilayah: str('Wilayah'), lokasi: str('Lokasi'), engine: str('Engine'), irigator: str('Irigator'),
       jenisIrigator: str('Jenis Irigator'),
-      planTime: num('Plan Time'), luasSiram: num('Luas Siram'),
+      planTime: num('Plan Time'), luasSiram: rowLuas,
       luasCek: idx['Luas Cek'] !== undefined ? num('Luas Cek') : 0,
       kecepatan: num('Kecepatan Rata-rata'), tebalSiram: num('Tebal Siram'),
       prepareTime: num('Prepare Time'), operatingTime: num('Operating Time'), waitingTime: num('Waiting Time'),
@@ -737,8 +749,8 @@ function parseGvizJSON(text) {
       totOperTime: num(idx['Tot, Oper, Time'] !== undefined ? 'Tot, Oper, Time' : 'Tot. Oper. Time'), totalAvail: num('Total Avail'), totalTime: num('Total Time'),
       availability: num('% Availability'), utilization: num('% Utilization'), air: num('Air'),
       solarTerpakai: num('Solar Terpakai (ltr)'),
-      biayaSolar: num('Biaya Solar (Std)'), biayaUpah: num('Biaya Upah'), biayaAlat: num('Biaya Alat'),
-      biayaTotal: num('Biaya Total'), rpPerHa: num('Rp/Ha'),
+      biayaSolar: rowBSolar, biayaUpah: rowBUpah, biayaAlat: rowBAlat,
+      biayaTotal: rowBTotal, rpPerHa: rowRpHa,
       kwh: num('Kosumsi kWh') || num('Konsumsi kWh') || num('kwh'),
       haPerHari: num('Ha/Hari'), haPerJam: num('Ha/Jam'),
       solarPerJam: num('Solar Ltr/jam'), solarPerHa: num('Solar Ltr/Ha'), jenisEngine: str('Jenis Engine'),
