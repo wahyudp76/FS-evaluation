@@ -161,7 +161,7 @@
                             <span class="inline-flex min-w-0 items-center gap-1.5 truncate rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
                                 <span class="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"></span><span class="truncate">ZPAS637 LIVE</span>
                             </span>
-                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.20.5</span>
+                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.21.0</span>
                             <span class="hidden sm:inline">•</span>
                             <span id="lastSync" class="hidden min-w-0 truncate sm:inline">Syncing...</span>
                             <button id="dqBadge" type="button" title="Lihat peringatan kualitas data" class="hidden min-w-0 flex-shrink-0 items-center gap-1.5 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-500/30 transition hover:bg-amber-100"><i data-lucide="alert-triangle" class="h-3 w-3 flex-shrink-0"></i><span id="dqBadgeText" class="truncate">0 nilai titik</span></button>
@@ -369,7 +369,7 @@
                             <i data-lucide="table-2" class="h-3.5 w-3.5"></i><span>Detail Data Harian</span>
                         </button>
                         <span class="ml-auto hidden flex-shrink-0 items-center gap-1.5 pl-3 pr-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 xl:inline-flex">
-                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.20.5</span>
+                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.21.0</span>
                         </span>
                     </div>
                 </nav>
@@ -1139,6 +1139,8 @@
                                     <option value="diesel">Khusus Mesin Diesel (Solar)</option>
                                     <option value="Hemat">Hemat (L/j &lt; kalibrasi)</option>
                                     <option value="Boros">Boros (L/j &gt; kalibrasi)</option>
+                                    <option value="aman">Rekomendasi: Aman</option>
+                                    <option value="kalibrasiUlang">Rekomendasi: Kalibrasi Ulang</option>
                                     <option value="spe">Mesin Elektrik SPE (Listrik)</option>
                                     <option value="aktif">Hanya yang ada siram</option>
                                     <option value="anomali">Hanya anomali</option>
@@ -1151,6 +1153,8 @@
                                     <option value="solar">Urut: Pemakaian solar terbesar</option>
                                     <option value="jam">Urut: Jam operasi terbanyak</option>
                                     <option value="engine">Urut: Kode engine (A-Z)</option>
+                                    <option value="reason">Urut: Rekomendasi (Reason)</option>
+                                    <option value="irigator">Urut: Irrigator</option>
                                 </select>
                                 <div class="relative">
                                     <i data-lucide="search" class="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"></i>
@@ -1165,8 +1169,9 @@
                                         <th class="px-3 py-3 text-left whitespace-nowrap fz fz0">Kode Engine</th>
                                         <th class="px-3 py-3 text-left whitespace-nowrap fz fz1">Wilayah</th>
                                         <th class="px-3 py-3 text-left whitespace-nowrap fz fz2">Lokasi</th>
-                                        <th class="px-3 py-3 text-left whitespace-nowrap fz fz3">Jenis (sheet)</th>
-                                        <th class="px-3 py-3 text-left whitespace-nowrap">Tanggal</th>
+                                        <th class="px-3 py-3 text-left whitespace-nowrap fz fz3">Jenis Engine</th>
+                                        <th class="px-3 py-3 text-left whitespace-nowrap">Tanggal Siram</th>
+                                        <th class="px-3 py-3 text-left whitespace-nowrap">Irrigator</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">Solar (L)</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">Jam</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">L/jam aktual</th>
@@ -1175,6 +1180,7 @@
                                         <th class="px-3 py-3 text-right whitespace-nowrap">Selisih (L)</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">L/Ha operasi</th>
                                         <th class="px-3 py-3 text-center whitespace-nowrap">Hasil</th>
+                                        <th class="px-3 py-3 text-center whitespace-nowrap">Rekomendasi (Reason)</th>
                                         <th class="px-3 py-3 text-right whitespace-nowrap">ZPAS637</th>
                                     </tr>
                                 </thead>
@@ -1254,7 +1260,7 @@
 
                 <footer class="flex flex-col md:flex-row items-center justify-between gap-3 rounded-[16px] border border-slate-200 bg-white px-5 py-4 text-[11px] text-slate-500">
                     <div class="flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-white"><i data-lucide="shield-check" class="h-3.5 w-3.5"></i></span> PG2 Irrigation Evaluation • Built for wahyudp76/FS-evaluation • Auto-sync Google Sheets ZPAS637</div>
-                    <div class="font-mono font-medium text-slate-700">v1.20.5 • 2026 • Modern Minimalist Dashboard</div>
+                    <div class="font-mono font-medium text-slate-700">v1.21.0 • 2026 • Modern Minimalist Dashboard</div>
                 </footer>
             </main>
         </div>
@@ -1270,7 +1276,7 @@
         </div>
     </div>
 
-    <script type="module" src="./app.js?v=1.20.5"></script>
+    <script type="module" src="./app.js?v=1.21.0"></script>
     <script>
         // Ikon digambar setelah library (defer) selesai dimuat
         (function renderIcons() {
@@ -1287,7 +1293,7 @@
                         window.location.reload();
                     }
                 });
-                navigator.serviceWorker.register('./sw.js?v=1.20.5')
+                navigator.serviceWorker.register('./sw.js?v=1.21.0')
                     .then(reg => {
                         console.log('SW registered:', reg.scope);
                         reg.update().catch(() => {});

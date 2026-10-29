@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.20.5 — sinkronisasi 16.529 data ZPAS637 (s.d. 20-Okt-2026), audit matematis fidelity biaya, auto-fallback Biaya Total 14 baris kosong, dan optimasi performa
-const VERSION = 'v1.20.5';
+// v1.21.0 — adaptasi struktur 15-kolom tb_index (Index Solar), kolom Irrigator, Deviasi L/jam, Selisih, dan Rekomendasi (Reason: Aman / Kalibrasi Ulang)
+const VERSION = 'v1.21.0';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)

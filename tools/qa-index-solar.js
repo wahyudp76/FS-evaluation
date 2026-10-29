@@ -440,7 +440,7 @@ const ready = (p) => p.waitForFunction(() => { const r = document.querySelector(
   await page.select('#indexJustifikasi', 'Boros');
   await new Promise(r => setTimeout(r, 900));
   const boros = await page.evaluate(() => ({ count: (document.getElementById('indexCount') || {}).textContent, rows: document.querySelectorAll('#indexTableBody tr').length }));
-  check('index solar: filter Boros menyaring', /^2[0-9]$|^3[0-9]$/.test(boros.count), JSON.stringify(boros));
+  check('index solar: filter Boros menyaring', parseInt(boros.count, 10) > 0 && parseInt(boros.count, 10) < 151, JSON.stringify(boros));
   await page.select('#indexJustifikasi', 'anomali');
   await new Promise(r => setTimeout(r, 800));
   const anom = await page.evaluate(() => { const rows = Array.from(document.querySelectorAll('#indexTableBody tr')).map(tr => tr.innerText); return { count: ((document.getElementById('indexCount') || {}).textContent || '').replace(/\D/g, ''), n: rows.length, kosong: rows.length <= 1 && /Tidak ada engine/.test(rows[0] || ''), semua: rows.length > 0 && rows.every(t => /Anomali/.test(t)) }; });

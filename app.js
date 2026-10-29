@@ -524,6 +524,16 @@ function buildRows(csvText, datesText) {
 
   const out = [];
   let badOverlay = 0;
+  const lokasiToWil = {};
+  if (cWil !== undefined && cLok !== undefined) {
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      const w = String(row[cWil] || '').trim();
+      const l = String(row[cLok] || '').trim();
+      if (w && l && !lokasiToWil[l]) lokasiToWil[l] = w;
+    }
+  }
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length < 3) continue;
@@ -542,7 +552,9 @@ function buildRows(csvText, datesText) {
       _dqCekBatas(v);
       return v;
     };
-    const wilayah = g(cWil).trim(), engine = g(cEng).trim(), irigator = g(cIri).trim(), lokasi = g(cLok).trim();
+    let wilayah = g(cWil).trim();
+    const engine = g(cEng).trim(), irigator = g(cIri).trim(), lokasi = g(cLok).trim();
+    if (!wilayah && lokasi && lokasiToWil[lokasi]) wilayah = lokasiToWil[lokasi];
     _dqCtx = { baris: r + 1, kolom: '', huruf: '' };
     const yr = date.getFullYear(), mo = date.getMonth();
     const rowBSolar = num(cBSolar), rowBUpah = num(cBUpah), rowBAlat = num(cBAlat);
@@ -641,15 +653,17 @@ function parseIndexSolar(csvText) {
   const cDate = colIndex(headers, ['Tanggal Siram', 'Tanggal']);
   const cWil = colIndex(headers, ['Wilayah']);
   const cLok = colIndex(headers, ['Lokasi']);
-  const cIri = colIndex(headers, ['Kode Irrigator', 'Irigator']);
+  const cIri = colIndex(headers, ['Kode Irrigator', 'Kode Irigator', 'Irigator']);
   const cJenis = colIndex(headers, ['Jenis Engine', 'Jenis Engine (Kategori)']);
-  const cJIri = colIndex(headers, ['Jenis Irrigator']);
+  const cJIri = colIndex(headers, ['Jenis Irrigator', 'Jenis Irigator']);
   const cSolar = colIndex(headers, ['Pemakaian Solar', 'Solar Terpakai']);
   const cJam = colIndex(headers, ['Jam Operaton', 'Jam Operation', 'Jam Operasi', 'Jam']);
   const cLpj = colIndex(headers, ['Liter/jam', 'Liter per jam']);
   const cKal = colIndex(headers, ['Kalibrasi']);
   const cJust = colIndex(headers, ['Justifikasi']);
+  const cDev = colIndex(headers, ['Deviasi L/jam', 'Deviasi', 'Deviasi L/j']);
   const cSel = colIndex(headers, ['Selisih']);
+  const cReason = colIndex(headers, ['Reason', 'Alasan', 'Rekomendasi', 'Keterangan']);
   if (cEngine < 0) { console.warn('[index solar] kolom "Kode Engine" tidak ditemukan'); return []; }
   _dqMulai('Index Solar');
 
@@ -691,6 +705,11 @@ function parseIndexSolar(csvText) {
     } else {
       justifikasi = 'Hemat';
     }
+    const deviasiRaw = g(cDev);
+    const deviasiSheet = (cDev >= 0 && deviasiRaw !== '' && !isNaN(toNumFast(deviasiRaw))) ? toNumFast(deviasiRaw) : null;
+    const reasonRaw = g(cReason);
+    const reason = reasonRaw ? reasonRaw.trim() : (justifikasi === 'Hemat' ? 'Aman' : 'Kalibrasi Ulang');
+    const selisihRaw = g(cSel);
     out.push({
       engine,
       tanggalLabel: tgl.label,
@@ -703,10 +722,16 @@ function parseIndexSolar(csvText) {
       jenis: g(cJenis) || '-',
       jenisIrigator: g(cJIri) || '-',
       solar, jam, kalibrasi, lpjSheet, lpjAktual,
-      selisih: parseSelisih(g(cSel), cSel, headers),
-      deviasi: kalibrasi > 0 ? lpjAktual - kalibrasi : 0,
-      justifikasi, aktif, anomali,
-      _s: (engine + ' ' + g(cLok) + ' ' + g(cIri) + ' ' + wilayah + ' ' + g(cJenis) + ' ' + tgl.label).toLowerCase()
+      selisihRaw,
+      selisih: parseSelisih(selisihRaw, cSel, headers),
+      deviasiSheet,
+      deviasi: (deviasiSheet !== null) ? deviasiSheet : (kalibrasi > 0 ? lpjAktual - kalibrasi : 0),
+      deviasiAktual: (kalibrasi > 0 ? lpjAktual - kalibrasi : 0),
+      justifikasi,
+      justifikasiSheet: justifikasiRaw,
+      reason,
+      aktif, anomali,
+      _s: (engine + ' ' + g(cLok) + ' ' + g(cIri) + ' ' + g(cJIri) + ' ' + wilayah + ' ' + g(cJenis) + ' ' + tgl.label + ' ' + reason + ' ' + justifikasi).toLowerCase()
     });
   }
   _dqSelesai();
@@ -724,6 +749,17 @@ function parseGvizJSON(text) {
   for (let i = 0; i < cols.length; i++) idx[cols[i]] = i;
   const rows = data.table.rows;
   const out = [];
+  const lokasiToWil = {};
+  const iWil = idx['Wilayah'], iLok = idx['Lokasi'];
+  if (iWil !== undefined && iLok !== undefined) {
+    for (let r = 0; r < rows.length; r++) {
+      const c = rows[r].c;
+      if (c && c[iWil] && c[iLok] && c[iWil].v && c[iLok].v) {
+        const w = String(c[iWil].v).trim(), l = String(c[iLok].v).trim();
+        if (w && l && !lokasiToWil[l]) lokasiToWil[l] = w;
+      }
+    }
+  }
   for (let r = 0; r < rows.length; r++) {
     const c = rows[r].c; if (!c) continue;
     const val = (label) => { const i = idx[label]; return i === undefined || !c[i] ? null : c[i].v; };
@@ -737,9 +773,12 @@ function parseGvizJSON(text) {
     const rowLuas = num('Luas Siram');
     const rowRpHaRaw = num('Rp/Ha');
     const rowRpHa = (rowRpHaRaw > 0) ? rowRpHaRaw : (rowLuas > 0 ? rowBTotal / rowLuas : 0);
+    let wilayah = str('Wilayah');
+    const lokasi = str('Lokasi');
+    if (!wilayah && lokasi && lokasiToWil[lokasi]) wilayah = lokasiToWil[lokasi];
     const d = {
       date, dateLabel: '',
-      wilayah: str('Wilayah'), lokasi: str('Lokasi'), engine: str('Engine'), irigator: str('Irigator'),
+      wilayah, lokasi, engine: str('Engine'), irigator: str('Irigator'),
       jenisIrigator: str('Jenis Irigator'),
       planTime: num('Plan Time'), luasSiram: rowLuas,
       luasCek: idx['Luas Cek'] !== undefined ? num('Luas Cek') : 0,
@@ -1295,6 +1334,8 @@ function getIndexSolarView() {
       const isSpe = r.jenis === 'SPE' || (r.engine && r.engine.startsWith('SPE'));
       if (indexJust === 'Hemat' && !(r.aktif && !isSpe && r.justifikasi === 'Hemat' && !r.anomali)) continue;
       if (indexJust === 'Boros' && !(r.aktif && !isSpe && r.justifikasi === 'Boros' && !r.anomali)) continue;
+      if (indexJust === 'aman' && !(/aman/i.test(r.reason))) continue;
+      if (indexJust === 'kalibrasiUlang' && !(/kalibrasi ulang/i.test(r.reason))) continue;
       if (indexJust === 'diesel' && isSpe) continue;
       if (indexJust === 'spe' && !isSpe) continue;
       if (indexJust === 'aktif' && !r.aktif) continue;
@@ -1320,7 +1361,9 @@ function getIndexSolarView() {
       jam: (a, b) => b.jam - a.jam,
       lpj: (a, b) => b.lpjAktual - a.lpjAktual,
       ltrPerHa: (a, b) => b.zpLtrPerHa - a.zpLtrPerHa,
-      engine: (a, b) => a.engine.localeCompare(b.engine)
+      engine: (a, b) => a.engine.localeCompare(b.engine),
+      reason: (a, b) => (a.reason || '').localeCompare(b.reason || ''),
+      irigator: (a, b) => (a.irigator || '').localeCompare(b.irigator || '')
     };
     rows.sort(sorters[indexSort] || sorters.selisih);
 
@@ -1344,6 +1387,8 @@ function getIndexSolarView() {
       speJam: speEngines.reduce((a, r) => a + (r.zpJam || 0), 0),
       hemat: terukur.filter(r => r.justifikasi === 'Hemat').length,
       boros: terukur.filter(r => r.justifikasi === 'Boros').length,
+      aman: terukur.filter(r => /aman/i.test(r.reason)).length,
+      kalibrasiUlang: terukur.filter(r => /kalibrasi ulang/i.test(r.reason)).length,
       anomaly: rows.filter(r => r.anomali).length,
       tanpaSiram: rows.filter(r => !r.aktif).length,
       solar: aktifDiesel.reduce((a, r) => a + r.solar, 0),
@@ -3375,7 +3420,7 @@ function renderIndexKPI() {
     { label:'Aktual vs Kalibrasi', value:`${formatNumber(r.ltrPerJam,2)}`, unit:'L/jam',
       sub:`kalibrasi rata-rata ${formatNumber(r.kalibrasiAvg,2)} L/jam (${deviasiPct>=0?'+':''}${formatNumber(deviasiPct,1)}%)`, icon:'gauge', color: deviasiPct<=0 ? 'emerald' : 'red' },
     { label:'Hasil Evaluasi', value:`${formatInt(r.hemat)} / ${formatInt(r.boros)}`, unit:'hemat / boros',
-      sub:`dari ${formatInt(r.terukur)} engine diesel terukur (${formatNumber(r.terukur ? r.hemat / r.terukur * 100 : 0, 0)}% hemat)`, icon:'clipboard-check', color:'emerald' },
+      sub:`${formatInt(r.aman || r.hemat)} aman • ${formatInt(r.kalibrasiUlang || r.boros)} kalibrasi ulang (${formatNumber(r.terukur ? r.hemat / r.terukur * 100 : 0, 0)}% hemat)`, icon:'clipboard-check', color:'emerald' },
     { label:'Total Selisih', value:formatInt(r.selisih), unit:'L',
       sub: selisihTotal > r.selisih ? `+${formatInt(selisihTotal - r.selisih)} L dari ${formatInt(r.anomaly)} data anomali` : 'selisih diesel terhadap kalibrasi', icon:'scale', color:'red' },
     { label:'Solar per Hektare', value:`${formatNumber(r.ltrPerHa,1)}`, unit:'L/Ha',
@@ -3437,7 +3482,7 @@ function renderIndexTable() {
   const next = $('#indexNextPage'); if (next) next.disabled = indexPage >= totalPages;
 
   if (!pageRows.length) {
-    tbody.innerHTML = '<tr><td colspan="14" class="px-4 py-10 text-center text-slate-400">Tidak ada engine yang cocok</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="16" class="px-4 py-10 text-center text-slate-400">Tidak ada engine yang cocok</td></tr>';
     syncIndexFreeze();
     return;
   }
@@ -3450,6 +3495,16 @@ function renderIndexTable() {
       ? '<span class="inline-flex whitespace-nowrap rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200">Boros</span>'
       : '<span class="inline-flex whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">Hemat</span>';
   };
+  const badgeReason = (r) => {
+    if (r.isSpe || !r.aktif) return '<span class="text-slate-400 font-normal">-</span>';
+    if (/aman/i.test(r.reason)) {
+      return '<span class="inline-flex whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">Aman</span>';
+    }
+    if (/kalibrasi ulang/i.test(r.reason)) {
+      return '<span class="inline-flex whitespace-nowrap rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-200">Kalibrasi Ulang</span>';
+    }
+    return r.reason ? `<span class="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">${esc(r.reason)}</span>` : '<span class="text-slate-400 font-normal">-</span>';
+  };
   tbody.innerHTML = pageRows.map(r => {
     const devWarna = !r.kalibrasi ? 'text-slate-400' : (r.deviasi > 0 ? 'text-red-600' : 'text-emerald-600');
     const colZp = r.isSpe
@@ -3460,6 +3515,9 @@ function renderIndexTable() {
     const devTulis = (r.isSpe || !r.kalibrasi) ? '<span class="text-slate-400 font-normal">-</span>' : (r.deviasi > 0 ? '+' : '') + formatNumber(r.deviasi, 1);
     const selTulis = (r.isSpe || !r.selisih) ? '<span class="text-slate-400 font-normal">-</span>' : formatNumber(r.selisih, 0);
     const lhaTulis = (r.isSpe || !r.zpLuas) ? '<span class="text-slate-400 font-normal">-</span>' : formatNumber(r.zpLtrPerHa, 1);
+    const iriTulis = (r.irigator && r.irigator !== '-')
+      ? `<div class="font-medium text-slate-800">${esc(r.irigator)}</div>${r.jenisIrigator && r.jenisIrigator !== '-' ? `<div class="text-[10px] text-slate-400">${esc(r.jenisIrigator)}</div>` : ''}`
+      : '<span class="text-slate-400 font-normal">-</span>';
     return `
     <tr class="hover:bg-slate-50/80 transition">
       <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] font-semibold text-slate-900 fz fz0">${esc(r.engine)}</td>
@@ -3467,6 +3525,7 @@ function renderIndexTable() {
       <td class="px-3 py-2.5 whitespace-nowrap font-mono text-[11px] text-slate-600 fz fz2">${esc(r.lokasi)}</td>
       <td class="px-3 py-2.5 whitespace-nowrap text-[11px] text-slate-600 fz fz3">${esc(r.jenis)}</td>
       <td class="px-3 py-2.5 whitespace-nowrap text-[11px] text-slate-600">${esc(r.tanggalLabel || '-')}</td>
+      <td class="px-3 py-2.5 whitespace-nowrap text-[11px]">${iriTulis}</td>
       <td class="px-3 py-2.5 text-right font-medium">${r.isSpe ? '<span class="text-purple-700 font-semibold">0 L</span>' : formatInt(r.solar)}</td>
       <td class="px-3 py-2.5 text-right">${formatNumber(r.jam, 1)}</td>
       <td class="px-3 py-2.5 text-right font-semibold">${lpjTulis}</td>
@@ -3475,6 +3534,7 @@ function renderIndexTable() {
       <td class="px-3 py-2.5 text-right font-medium text-slate-700">${selTulis}</td>
       <td class="px-3 py-2.5 text-right font-medium text-emerald-700">${lhaTulis}</td>
       <td class="px-3 py-2.5 whitespace-nowrap text-center">${badge(r)}</td>
+      <td class="px-3 py-2.5 whitespace-nowrap text-center">${badgeReason(r)}</td>
       <td class="px-3 py-2.5 text-right text-[11px] text-slate-500">${colZp}</td>
     </tr>`;
   }).join('');
