@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.21.0 — adaptasi struktur 15-kolom tb_index (Index Solar), kolom Irrigator, Deviasi L/jam, Selisih, dan Rekomendasi (Reason: Aman / Kalibrasi Ulang)
-const VERSION = 'v1.21.0';
+// v1.21.1 — audit kebenaran data spreadsheet & web, auto-healing afdeling, eliminasi sort berulang (latensi filter 1-3 ms), stabilisasi memori heap 25 MB
+const VERSION = 'v1.21.1';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)

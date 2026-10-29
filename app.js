@@ -329,7 +329,8 @@ const DQ_BATAS = {
   'Index Solar|Pemakaian Solar': [0, 5000], 'Index Solar|Jam Operaton': [0, 500],
   'Index Solar|Jam Operasi': [0, 500], 'Index Solar|Jam Operation': [0, 500],
   'Index Solar|Jam': [0, 500], 'Index Solar|Liter/jam': [0, 200],
-  'Index Solar|Kalibrasi': [0, 100], 'Index Solar|Selisih': [-100000, 100000]
+  'Index Solar|Kalibrasi': [0, 100], 'Index Solar|Selisih': [-100000, 100000],
+  'Index Solar|Deviasi L/jam': [-200, 200], 'Index Solar|Deviasi': [-200, 200], 'Index Solar|Deviasi L/j': [-200, 200]
 };
 
 let _dqContoh = {};       // contoh nilai berbeda per kolom {namaKolom: [{nilai, baris}]}, maks 5
@@ -707,6 +708,11 @@ function parseIndexSolar(csvText) {
     }
     const deviasiRaw = g(cDev);
     const deviasiSheet = (cDev >= 0 && deviasiRaw !== '' && !isNaN(toNumFast(deviasiRaw))) ? toNumFast(deviasiRaw) : null;
+    if (deviasiSheet !== null && _dqCtx) {
+      _dqCtx.kolom = (cDev >= 0 && headers[cDev]) ? headers[cDev] : 'Deviasi L/jam';
+      _dqCtx.huruf = cDev >= 0 ? colLetter(cDev) : '?';
+      _dqCekBatas(deviasiSheet);
+    }
     const reasonRaw = g(cReason);
     const reason = reasonRaw ? reasonRaw.trim() : (justifikasi === 'Hemat' ? 'Aman' : 'Kalibrasi Ulang');
     const selisihRaw = g(cSel);
@@ -949,11 +955,11 @@ function applyFilters() {
     if (q1 && d._s.indexOf(q1) === -1) continue;
     out.push(d);
   }
-  out.sort((a, b) => a.date - b.date);
+  // rawData sudah terurut kronologis sejak muat -> out otomatis terurut tanpa sort ulang
   filteredData = out;
   // filter berubah -> semua hasil turunan (agregasi, statistik, KPI) dihitung ulang
   dataVersion++;
-  if (memoStore.size > 400) memoStore.clear();
+  memoStore.clear();
   dirtyTabs = new Set(TAB_IDS);
   console.debug('[filter]', rawData.length, '->', out.length, 'baris dalam', Math.round(performance.now() - t0), 'ms');
 }
@@ -5256,15 +5262,10 @@ function applyPayload(payload, { fromCache = false } = {}) {
   if (payload.csv) { rows = buildRows(payload.csv, payload.dates); payload.csv = null; payload.dates = null; }
   else { rows = parseGvizJSON(payload.json); payload.json = null; }
   if (!rows.length) throw new Error('Tidak ada baris data yang bisa dibaca (periksa kolom Date/Wilayah pada sheet)');
+  rows.sort((a, b) => a.date - b.date);
   rawData = rows;
-  let minD = rawData[0].date, maxD = rawData[0].date;
-  for (let i = 1; i < rawData.length; i++) {
-    const d = rawData[i].date;
-    if (d < minD) minD = d;
-    if (d > maxD) maxD = d;
-  }
-  rawDataMinDate = minD;
-  rawDataMaxDate = maxD;
+  rawDataMinDate = rawData[0].date;
+  rawDataMaxDate = rawData[rawData.length - 1].date;
   // sheet Index Solar (opsional: kalau gagal, dashboard utama tetap jalan)
   if (payload.index) {
     try { indexData = parseIndexSolar(payload.index); indexVersion++; }
