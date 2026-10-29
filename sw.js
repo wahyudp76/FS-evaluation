@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.21.1 — audit kebenaran data spreadsheet & web, auto-healing afdeling, eliminasi sort berulang (latensi filter 1-3 ms), stabilisasi memori heap 25 MB
-const VERSION = 'v1.21.1';
+// v1.22.0 — notifikasi data error, audit kualitas data (rumus kosong, kolom wajib kosong, format angka tidak sesuai, batas wajar), auto-healing kalkulasi, salin laporan markdown & unduh CSV audit
+const VERSION = 'v1.22.0';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)

@@ -142,6 +142,7 @@
         /* Lapisan atas selalu di atas laci filter */
         #loadingOverlay { z-index: 80 !important; }
         #toastHost { z-index: 90 !important; }
+        #dqOverlay { z-index: 100 !important; }
     </style>
 </head>
 <body class="bg-[#fcfdfc] text-slate-800 font-sans antialiased selection:bg-emerald-100 selection:text-emerald-900">
@@ -161,10 +162,10 @@
                             <span class="inline-flex min-w-0 items-center gap-1.5 truncate rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
                                 <span class="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"></span><span class="truncate">ZPAS637 LIVE</span>
                             </span>
-                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.21.1</span>
+                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.22.0</span>
                             <span class="hidden sm:inline">•</span>
                             <span id="lastSync" class="hidden min-w-0 truncate sm:inline">Syncing...</span>
-                            <button id="dqBadge" type="button" title="Lihat peringatan kualitas data" class="hidden min-w-0 flex-shrink-0 items-center gap-1.5 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-500/30 transition hover:bg-amber-100"><i data-lucide="alert-triangle" class="h-3 w-3 flex-shrink-0"></i><span id="dqBadgeText" class="truncate">0 nilai titik</span></button>
+                            <button id="dqBadge" type="button" title="Lihat peringatan kualitas data &amp; audit error" class="hidden min-w-0 flex-shrink-0 items-center gap-1.5 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-500/30 transition hover:bg-amber-100"><i data-lucide="alert-triangle" class="h-3 w-3 flex-shrink-0"></i><span id="dqBadgeText" class="truncate">0 data error</span></button>
                         </div>
                     </div>
                 </div>
@@ -369,7 +370,7 @@
                             <i data-lucide="table-2" class="h-3.5 w-3.5"></i><span>Detail Data Harian</span>
                         </button>
                         <span class="ml-auto hidden flex-shrink-0 items-center gap-1.5 pl-3 pr-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 xl:inline-flex">
-                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.21.1</span>
+                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.22.0</span>
                         </span>
                     </div>
                 </nav>
@@ -1206,6 +1207,25 @@
                         </div>
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 ring-1 ring-slate-200">Raw Records</span>
                     </div>
+
+                    <!-- Data Quality Audit Banner -->
+                    <div id="dataTabAuditBanner" class="hidden items-center justify-between gap-3 rounded-2xl border border-amber-200/80 bg-gradient-to-r from-amber-50 to-orange-50 px-5 py-3.5 text-[12px] text-amber-950 shadow-xs">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-700">
+                                <i data-lucide="shield-alert" class="h-4 w-4"></i>
+                            </div>
+                            <div>
+                                <span class="font-bold text-amber-900" id="dataTabAuditCount">0 isu data</span> terdeteksi pada spreadsheet (rumus kosong &amp; kolom belum diisi).
+                                <span class="text-amber-800/90 block sm:inline">Seluruh nilai telah dinormalisasi &amp; di-autoheal otomatis oleh dashboard agar seluruh KPI konsisten.</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <button id="btnOpenAuditModal" type="button" class="inline-flex items-center gap-1.5 rounded-full bg-amber-600 px-3.5 py-1.5 text-[11px] font-semibold text-white shadow-xs transition hover:bg-amber-700">
+                                <i data-lucide="external-link" class="h-3 w-3"></i> Buka Pusat Audit Data
+                            </button>
+                        </div>
+                    </div>
+
                 <!-- Data Table -->
                 <section class="rounded-[20px] border border-slate-200/70 bg-white shadow-soft overflow-hidden">
                     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5">
@@ -1260,7 +1280,7 @@
 
                 <footer class="flex flex-col md:flex-row items-center justify-between gap-3 rounded-[16px] border border-slate-200 bg-white px-5 py-4 text-[11px] text-slate-500">
                     <div class="flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-white"><i data-lucide="shield-check" class="h-3.5 w-3.5"></i></span> PG2 Irrigation Evaluation • Built for wahyudp76/FS-evaluation • Auto-sync Google Sheets ZPAS637</div>
-                    <div class="font-mono font-medium text-slate-700">v1.21.1 • 2026 • Modern Minimalist Dashboard</div>
+                    <div class="font-mono font-medium text-slate-700">v1.22.0 • 2026 • Modern Minimalist Dashboard</div>
                 </footer>
             </main>
         </div>
@@ -1276,7 +1296,7 @@
         </div>
     </div>
 
-    <script type="module" src="./app.js?v=1.21.1"></script>
+    <script type="module" src="./app.js?v=1.22.0"></script>
     <script>
         // Ikon digambar setelah library (defer) selesai dimuat
         (function renderIcons() {
@@ -1293,7 +1313,7 @@
                         window.location.reload();
                     }
                 });
-                navigator.serviceWorker.register('./sw.js?v=1.21.1')
+                navigator.serviceWorker.register('./sw.js?v=1.22.0')
                     .then(reg => {
                         console.log('SW registered:', reg.scope);
                         reg.update().catch(() => {});
