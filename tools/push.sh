@@ -41,6 +41,8 @@ rm -rf "$REPO/assets" "$REPO/tools" "$REPO/.github"
 cp -r "$SRC/assets" "$REPO/assets"
 cp -r "$SRC/tools" "$REPO/tools"
 cp -r "$SRC/.github" "$REPO/.github"
+rm -rf "$REPO/apps-script"
+[ -d "$SRC/apps-script" ] && cp -r "$SRC/apps-script" "$REPO/apps-script"
 echo "    root:"; ls -1 "$REPO" | sed 's#.*#      #' | head -n 20
 
 git -C "$REPO" config user.email "wahyudp76@users.noreply.github.com"

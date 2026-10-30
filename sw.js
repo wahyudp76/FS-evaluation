@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.22.0 — notifikasi data error, audit kualitas data (rumus kosong, kolom wajib kosong, format angka tidak sesuai, batas wajar), auto-healing kalkulasi, salin laporan markdown & unduh CSV audit
-const VERSION = 'v1.22.0';
+// v1.22.1 — notifikasi data error, audit kualitas data (rumus kosong, kolom wajib kosong, format angka tidak sesuai, batas wajar), auto-healing kalkulasi, salin laporan markdown & unduh CSV audit
+const VERSION = 'v1.22.1';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)

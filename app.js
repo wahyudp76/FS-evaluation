@@ -5699,6 +5699,10 @@ function openDQPanel() {
               <i data-lucide="download" class="h-3.5 w-3.5 text-slate-500"></i>
               <span>CSV</span>
             </button>
+            <button id="dqRepairBtn" type="button" title="Tinjau dan perbaiki rumus kosong di spreadsheet" class="inline-flex h-8 items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 text-[11px] font-semibold text-amber-800 shadow-xs transition hover:bg-amber-100 active:scale-95">
+              <i data-lucide="wrench" class="h-3.5 w-3.5"></i>
+              <span>Repair all</span>
+            </button>
           </div>
         </div>
 
@@ -5722,6 +5726,9 @@ function openDQPanel() {
 
     document.getElementById('dqCopyBtn').addEventListener('click', copyDQIssues);
     document.getElementById('dqDownloadBtn').addEventListener('click', downloadDQCsv);
+    document.getElementById('dqRepairBtn').addEventListener('click', () => {
+      window.open('https://script.google.com/macros/s/AKfycbx7D34TzAqn8wWfs8BspVwtGQjRyPzEkNny5I5d-MXxUq7LQor5orGR_D-DAQf1dfj0lA/exec', '_blank', 'noopener,noreferrer');
+    });
     document.getElementById('dqSearchInput').addEventListener('input', debounce((e) => {
       _dqSearchQuery = e.target.value.trim();
       const cont = document.getElementById('dqCardsContainer');
