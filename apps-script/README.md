@@ -56,6 +56,25 @@ var CFG = {
 Setiap kali `RepairAll.gs` diubah: **Deploy → Manage deployments → Edit → New version → Deploy**.
 Mengubah kode tanpa versi baru **tidak** mengubah endpoint yang sudah beredar.
 
+## 3b. Jalan pintas: jalankan dari editor (tanpa deploy)
+
+Kalau tombol Repair melaporkan error atau versi deployment belum sinkron,
+kode yang sama bisa dijalankan langsung dari editor Apps Script:
+
+1. Tempel isi `RepairAll.gs` terbaru, simpan.
+2. Pada dropdown fungsi di toolbar, pilih **`cekStatus`** lalu **Run** →
+   Execution log menampilkan versi build + daftar sel yang siap diperbaiki
+   (tidak menulis apa pun).
+3. Pilih **`perbaikiSekarang`** lalu **Run** → perbaikan langsung ditulis,
+   lengkap dengan verifikasi dan log per sel.
+
+Cara ini melewati Web App sepenuhnya, jadi tidak terpengaruh masalah
+deployment/CORS/POST.
+
+**Cek versi yang benar-benar ter-deploy:** buka `…/exec?action=ping`.
+Kode terbaru membalas `{"ok":true,"version":"1.23.0","build":"b2",…}`.
+Bila tidak ada `build` atau build-nya bukan `b2`, deployment masih versi lama.
+
 ## 4. Catatan penting: POST pada Apps Script
 
 Deployment Apps Script mengalihkan `POST` menjadi `GET`, sehingga isi body JSON

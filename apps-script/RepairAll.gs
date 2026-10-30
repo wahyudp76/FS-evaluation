@@ -45,6 +45,7 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   VERSION: '1.23.0',
+  BUILD: 'b2',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -89,6 +90,41 @@ function doPost(e) {
   return jsonOut_(handle_(body));
 }
 
+/**
+ * JALAN PINTAS DARI EDITOR — tidak perlu deploy Web App sama sekali.
+ * Buka editor Apps Script -> pilih fungsi "perbaikiSekarang" -> Run.
+ * Hasil lengkap muncul di panel Execution log.
+ */
+function perbaikiSekarang() {
+  var res = apply_(null);
+  if (!res || !res.ok) {
+    Logger.log('GAGAL: ' + ((res && res.error) || 'tidak diketahui'));
+    return res;
+  }
+  Logger.log('SELESAI — ' + res.applied + ' sel diperbaiki, ' + res.verified + ' terverifikasi.');
+  (res.items || []).forEach(function (it) {
+    Logger.log('  ' + it.kunci + ' [' + it.kolom + '] -> ' + (it.hasil || it.nilaiBaru || it.rumus));
+  });
+  var gagal = res.gagal || [];
+  if (gagal.length) {
+    Logger.log('DILEWATI (' + gagal.length + '):');
+    gagal.forEach(function (g) { Logger.log('  ' + g.kunci + ' — ' + g.alasan); });
+  }
+  return res;
+}
+
+/**
+ * Cek cepat tanpa membuka spreadsheet: cek koneksi + jumlah sel yang siap diperbaiki.
+ */
+function cekStatus() {
+  var p = preview_(null);
+  Logger.log('Versi ' + CFG.VERSION + ' build ' + CFG.BUILD + ' — ' + p.items.length + ' sel siap diperbaiki.');
+  (p.items || []).forEach(function (it) {
+    Logger.log('  ' + it.kunci + ' [' + it.kolom + '] -> ' + (it.nilaiBaru || it.rumus));
+  });
+  return p;
+}
+
 /** Dipakai halaman HtmlService lewat google.script.run. */
 function api(req) {
   return handle_(req || {});
@@ -99,7 +135,7 @@ function handle_(req) {
   try {
     if (action === 'ping') {
       return {
-        ok: true, pong: true, version: CFG.VERSION,
+        ok: true, pong: true, version: CFG.VERSION, build: CFG.BUILD,
         time: new Date().toISOString(),
         user: userEmail_(),
         sheets: CFG.SHEETS

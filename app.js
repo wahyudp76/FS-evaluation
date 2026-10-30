@@ -6436,8 +6436,36 @@ function tampilkanRepairGagal(err) {
     <div class="mt-1 text-[11px] text-rose-900/90">${esc(pesan)}</div>`, 'error');
 
   const body = document.getElementById('repairBody');
+  // Kode di Apps Script belum ikut diperbarui (versi deployment lama) -> beri jalan pintas.
+  const kodeLama = /tryLock|getDocumentLock|null/i.test(pesan) && /null|tryLock/i.test(pesan);
+
   if (body) {
     body.innerHTML = `
+      ${kodeLama ? `
+      <div class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-950">
+        <div class="font-bold">Kode di Apps Script masih versi lama</div>
+        <div class="mt-1">Pesan di atas muncul karena kode <code class="rounded bg-white px-1">RepairAll.gs</code> yang ter-deploy belum memuat perbaikan terbaru.
+        Ada dua cara menyelesaikannya — pilih yang paling mudah:</div>
+
+        <div class="mt-2.5 rounded-lg bg-white/70 p-2.5">
+          <div class="font-bold text-slate-900">Cara A — tanpa deploy (paling cepat)</div>
+          <ol class="mt-1 list-decimal space-y-0.5 pl-4">
+            <li>Buka spreadsheet → <b>Extensions → Apps Script</b></li>
+            <li>Tempel isi <code class="rounded bg-white px-1">apps-script/RepairAll.gs</code> yang terbaru</li>
+            <li>Di daftar fungsi, pilih <b><code class="rounded bg-white px-1">perbaikiSekarang</code></b> lalu tekan <b>Run</b></li>
+            <li>Perbaikan langsung jalan; hasilnya ada di panel <b>Execution log</b></li>
+          </ol>
+        </div>
+
+        <div class="mt-2 rounded-lg bg-white/70 p-2.5">
+          <div class="font-bold text-slate-900">Cara B — perbarui deployment</div>
+          <ol class="mt-1 list-decimal space-y-0.5 pl-4">
+            <li>Tempel isi <code class="rounded bg-white px-1">apps-script/RepairAll.gs</code> yang terbaru</li>
+            <li><b>Deploy → Manage deployments → Edit → New version → Deploy</b></li>
+            <li>Pastikan <code class="rounded bg-white px-1">?action=ping</code> menampilkan <code class="rounded bg-white px-1">"build":"b2"</code></li>
+          </ol>
+        </div>
+      </div>` : `
       <div class="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-[11px] leading-relaxed text-rose-950">
         <div class="font-bold">Cara mengaktifkan tombol Repair:</div>
         <ol class="mt-1 list-decimal space-y-1 pl-4">
@@ -6446,7 +6474,7 @@ function tampilkanRepairGagal(err) {
           <li><b>Deploy → Manage deployments → Edit → New version → Deploy</b>, dan izinkan akses Google saat diminta.</li>
           <li>Pastikan <code>REPAIR_TOKEN</code> di <code>app.js</code> sama dengan <code>CFG.TOKEN</code> di Apps Script.</li>
         </ol>
-      </div>
+      </div>`}
       <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-700">
         <div class="font-semibold text-slate-900">Sementara itu</div>
         <div class="mt-1">Anda tetap bisa memperbaiki manual: buka konsol perbaikan, salin daftar sel dari panel audit, atau unduh CSV audit lalu kirim ke PIC spreadsheet.</div>
