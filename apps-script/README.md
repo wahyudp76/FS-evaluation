@@ -56,7 +56,19 @@ var CFG = {
 Setiap kali `RepairAll.gs` diubah: **Deploy → Manage deployments → Edit → New version → Deploy**.
 Mengubah kode tanpa versi baru **tidak** mengubah endpoint yang sudah beredar.
 
-## 4. Cek cepat endpoint
+## 4. Catatan penting: POST pada Apps Script
+
+Deployment Apps Script mengalihkan `POST` menjadi `GET`, sehingga isi body JSON
+hilang dan permintaan bisa berakhir `405 / Script function not found: doPost`.
+Karena itu dashboard memakai urutan:
+
+1. `POST` body JSON (coba lebih dulu),
+2. bila gagal → `GET ?action=…&token=…` (jalur yang selalu bekerja).
+
+Keduanya ditangani `doGet`/`doPost` di `RepairAll.gs`, jadi tombol Repair tetap
+berfungsi apa pun perilaku deployment-nya.
+
+## 5. Cek cepat endpoint
 
 Buka di browser (ganti `TOKEN`):
 
@@ -95,7 +107,10 @@ Bila sebuah sel tidak memenuhi satu pun aturan di atas, sel itu masuk daftar
 
 ## Keselamatan & jejak audit
 
-- `LockService` mencegah dua proses menulis bersamaan.
+- `LockService` mencegah dua proses menulis bersamaan. Skrip ini kompatibel dengan
+  proyek **standalone** maupun yang terikat pada spreadsheet: `getDocumentLock()`
+  dipakai bila tersedia, jika tidak otomatis jatuh ke `getScriptLock()`.
+  (Di proyek standalone `getDocumentLock()` mengembalikan `null` — sudah ditangani.)
 - Maksimum **800 sel** per sekali terapkan.
 - Maksimum **40 kali terapkan per jam** (throttle berbasis cache).
 - Setiap perubahan dicatat di sheet **`Log Repair PG2`** (otomatis disembunyikan):

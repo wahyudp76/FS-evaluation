@@ -150,9 +150,15 @@ function preview_(keys) {
 }
 
 function apply_(keys) {
-  var lock = LockService.getDocumentLock();
-  if (!lock.tryLock(20000)) {
-    return { ok: false, error: 'Spreadsheet sedang dipakai proses lain (locked). Coba lagi beberapa detik lagi.' };
+  // getDocumentLock() hanya tersedia bila skrip terikat pada spreadsheet. Proyek
+  // standalone mengembalikan null -> pakai getScriptLock() sebagai gantinya.
+  var lock = ambilLock_();
+  var adaLock = false;
+  if (lock) {
+    try { adaLock = lock.tryLock(20000); } catch (e) { adaLock = false; }
+    if (!adaLock) {
+      return { ok: false, error: 'Spreadsheet sedang dipakai proses lain (locked). Coba lagi beberapa detik lagi.' };
+    }
   }
   try {
     var batas = cekThrottle_();
@@ -271,8 +277,20 @@ function apply_(keys) {
       at: new Date().toISOString()
     };
   } finally {
-    try { lock.releaseLock(); } catch (e) {}
+    if (adaLock) { try { lock.releaseLock(); } catch (e) {} }
   }
+}
+
+/**
+ * Lock yang aman untuk skrip standalone maupun terikat.
+ * getDocumentLock() null bila skrip tidak terikat pada dokumen.
+ */
+function ambilLock_() {
+  try {
+    var dl = LockService.getDocumentLock();
+    if (dl) return dl;
+  } catch (e) { /* standalone: tidak ada document lock */ }
+  try { return LockService.getScriptLock(); } catch (e) { return null; }
 }
 
 function cekThrottle_() {
