@@ -1,5 +1,6 @@
 // PG2 Irrigation Evaluation Dashboard - ZPAS637
 // Auto-sync to Google Sheets ID: 1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o
+// v1.23.0 — tombol Repair pada notifikasi data error (tulis ke Sheets via Apps Script)
 // Updated: sheet ZPAS637 = 38 kolom A..AL (kolom bantu 'R ...' di A + 3 di ujung), parsing berbasis label
 const SPREADSHEET_ID = '1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o';
 const SHEET_NAME = 'ZPAS637';
@@ -5497,6 +5498,11 @@ function renderDQBADGE() {
       openBtn.dataset.bound = '1';
       openBtn.addEventListener('click', openDQPanel);
     }
+    const repairBtn = document.getElementById('btnRepairFromBanner');
+    if (repairBtn && !repairBtn.dataset.bound) {
+      repairBtn.dataset.bound = '1';
+      repairBtn.addEventListener('click', () => bukaRepairPanel());
+    }
   }
 }
 
@@ -5699,9 +5705,12 @@ function openDQPanel() {
               <i data-lucide="download" class="h-3.5 w-3.5 text-slate-500"></i>
               <span>CSV</span>
             </button>
-            <button id="dqRepairBtn" type="button" title="Tinjau dan perbaiki rumus kosong di spreadsheet" class="inline-flex h-8 items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 text-[11px] font-semibold text-amber-800 shadow-xs transition hover:bg-amber-100 active:scale-95">
+            <button id="dqRepairBtn" type="button" title="Pindai spreadsheet lalu perbaiki sel data error secara otomatis" class="inline-flex h-8 items-center gap-1.5 rounded-full bg-amber-600 px-3 text-[11px] font-bold text-white shadow-xs transition hover:bg-amber-700 active:scale-95">
               <i data-lucide="wrench" class="h-3.5 w-3.5"></i>
-              <span>Repair all</span>
+              <span>Repair</span>
+            </button>
+            <button id="dqRepairConsoleBtn" type="button" title="Buka konsol perbaikan penuh di tab baru" class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:bg-slate-50 active:scale-95">
+              <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
             </button>
           </div>
         </div>
@@ -5726,9 +5735,9 @@ function openDQPanel() {
 
     document.getElementById('dqCopyBtn').addEventListener('click', copyDQIssues);
     document.getElementById('dqDownloadBtn').addEventListener('click', downloadDQCsv);
-    document.getElementById('dqRepairBtn').addEventListener('click', () => {
-      window.open('https://script.google.com/macros/s/AKfycbx7D34TzAqn8wWfs8BspVwtGQjRyPzEkNny5I5d-MXxUq7LQor5orGR_D-DAQf1dfj0lA/exec', '_blank', 'noopener,noreferrer');
-    });
+    document.getElementById('dqRepairBtn').addEventListener('click', () => bukaRepairPanel());
+    const rcBtn = document.getElementById('dqRepairConsoleBtn');
+    if (rcBtn) rcBtn.addEventListener('click', bukaKonsolRepair);
     document.getElementById('dqSearchInput').addEventListener('input', debounce((e) => {
       _dqSearchQuery = e.target.value.trim();
       const cont = document.getElementById('dqCardsContainer');
@@ -5845,12 +5854,18 @@ function _dqSetelahParse(fromCache, awal) {
     for (const s of Object.keys(dqRingkasan.sheet || {})) totTitik += dqRingkasan.sheet[s].total || 0;
     if (totTitik > 0) parts.push(`${formatInt(totTitik)} nilai titik`);
     if (dqRingkasan.luar && dqRingkasan.luar.total) parts.push(`${formatInt(dqRingkasan.luar.total)} di luar batas`);
-    showToast(`Pusat Audit Data: Ditemukan ${formatInt(dqRingkasan.total)} data error / janggal (${parts.join(', ')}). Seluruh data telah di-autoheal oleh dashboard. Klik badge header untuk detail perbaikan sheet.`, 'warn', 10000);
+    showToast(`Pusat Audit Data: Ditemukan ${formatInt(dqRingkasan.total)} data error / janggal (${parts.join(', ')}). Seluruh data telah di-autoheal oleh dashboard. Klik badge header untuk detail perbaikan sheet.`, 'warn', 10000, {
+      aksi: [
+        { label: 'Repair spreadsheet', ikon: 'wrench', run: () => bukaRepairPanel() },
+        { label: 'Lihat rincian', ikon: 'clipboard-list', run: () => openDQPanel() }
+      ]
+    });
   }
 }
 
 // Notifikasi ringan (tidak menutupi dashboard seperti overlay error)
-function showToast(message, type = 'info', ms = 6000) {
+// opts.aksi = [{ label, ikon, run }] -> tombol tindakan cepat di dalam toast
+function showToast(message, type = 'info', ms = 6000, opts) {
   let host = $('#toastHost');
   if (!host) {
     host = document.createElement('div');
@@ -5858,6 +5873,13 @@ function showToast(message, type = 'info', ms = 6000) {
     host.className = 'fixed bottom-4 right-4 z-[60] flex w-[min(92vw,380px)] flex-col gap-2';
     document.body.appendChild(host);
   }
+  // Saat panel (audit/repair) terbuka, geser notifikasi ke bawah agar tombol
+  // panel tidak tertutup. Panel memakai max-height 88vh dan rata tengah.
+  const panelTerbuka = ['repairOverlay', 'dqOverlay'].some((id) => {
+    const el = document.getElementById(id);
+    return el && !el.classList.contains('hidden') && el.style.display !== 'none';
+  });
+  host.style.bottom = panelTerbuka ? '8px' : '';
   const styles = {
     info:    { bg:'bg-slate-900',  icon:'info' },
     success: { bg:'bg-emerald-600',icon:'check-circle-2' },
@@ -5870,7 +5892,41 @@ function showToast(message, type = 'info', ms = 6000) {
   host.appendChild(el);
   refreshIcons();
   requestAnimationFrame(()=>{ el.style.opacity = '1'; });
-  setTimeout(()=>{ el.style.opacity = '0'; setTimeout(()=> el.remove(), 350); }, ms);
+
+  // Tombol tindakan (mis. Repair) di dalam notifikasi
+  const aksi = (opts && opts.aksi) || null;
+  let sisaMs = ms;
+  if (aksi && aksi.length) {
+    const bar = document.createElement('div');
+    bar.className = 'mt-2.5 flex flex-wrap items-center gap-1.5';
+    aksi.forEach((a) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[11px] font-bold text-slate-900 shadow-xs transition hover:bg-slate-100 active:scale-95';
+      b.innerHTML = `<i data-lucide="${a.ikon || 'wrench'}" class="h-3.5 w-3.5"></i><span></span>`;
+      b.querySelector('span').textContent = a.label;
+      b.addEventListener('click', () => {
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 300);
+        try { a.run(); } catch (e) { console.error('[toast] aksi gagal', e); }
+      });
+      bar.appendChild(b);
+    });
+    const tutup = document.createElement('button');
+    tutup.type = 'button';
+    tutup.className = 'ml-auto rounded-full px-2 py-1 text-[11px] font-semibold text-white/70 transition hover:text-white';
+    tutup.textContent = 'Nanti';
+    tutup.addEventListener('click', () => { el.style.opacity = '0'; setTimeout(() => el.remove(), 350); });
+    bar.appendChild(tutup);
+    el.appendChild(bar);
+    el.style.pointerEvents = 'auto';
+    sisaMs = Math.max(ms, 15000);   // beri waktu membaca & menekan
+    el.addEventListener('mouseenter', () => { el.dataset.hover = '1'; });
+    el.addEventListener('mouseleave', () => { delete el.dataset.hover; });
+    refreshIcons();
+  }
+
+  setTimeout(()=>{ if (el.dataset.hover === '1') return; el.style.opacity = '0'; setTimeout(()=> el.remove(), 350); }, sisaMs);
 }
 
 function setSyncLabel(ts, fromCache) {
@@ -6064,8 +6120,583 @@ function scheduleSync(isRetry = false) {
   syncTimer = setTimeout(() => { if (document.visibilityState === 'visible' || isRetry) loadData({ silent: true }); else scheduleSync(); }, delay);
 }
 
+// ============================================================
+// REPAIR SPREADSHEET (v1.23.0)
+// Tombol Repair pada notifikasi data error menjalankan alur:
+//   1. kumpulkan sel yang AMAN diperbaiki dari hasil audit dashboard
+//   2. minta konfirmasi (tinjau daftar sel + nilai/rumus barunya)
+//   3. kirim ke Apps Script Web App (RepairAll.gs) -> menulis ke spreadsheet
+//   4. verifikasi hasil, lalu Sync Now otomatis agar dashboard ikut berubah
+// Penulisan ke spreadsheet TIDAK pernah dilakukan dari JavaScript publik;
+// kode tulis hanya ada di Apps Script yang berjalan sebagai pemilik sheet.
+// ============================================================
+
+// URL deployment Web App (Deploy -> Manage deployments -> Web app /exec)
+const REPAIR_ENDPOINT = 'https://script.google.com/macros/s/AKfycbx7D34TzAqn8wWfs8BspVwtGQjRyPzEkNny5I5d-MXxUq7LQor5orGR_D-DAQf1dfj0lA/exec';
+const REPAIR_PAGE_URL = REPAIR_ENDPOINT;                 // konsol penuh di tab baru
+// Harus sama dengan CFG.TOKEN pada RepairAll.gs
+const REPAIR_TOKEN = 'pg2-repair-2026';
+const REPAIR_TIMEOUT_MS = 90000;
+
+const REPAIR_TIPE = {
+  rumus:   { label: 'Rumus Kosong',   ikon: 'sigma',        cls: 'bg-rose-100 text-rose-800' },
+  error:   { label: 'Sel Error',      ikon: 'alert-octagon', cls: 'bg-rose-100 text-rose-800' },
+  nilai:   { label: 'Nilai Kosong',   ikon: 'calculator',   cls: 'bg-amber-100 text-amber-800' },
+  wilayah: { label: 'Wilayah Kosong', ikon: 'map-pin',      cls: 'bg-amber-100 text-amber-800' },
+  format:  { label: 'Format Angka',   ikon: 'type',         cls: 'bg-orange-100 text-orange-800' }
+};
+
+let _repairBusy = false;
+let _repairHasil = null;   // hasil apply terakhir (untuk panel audit)
+
+/* ---------------------------------------------------------- */
+/* 1. Kumpulkan rencana perbaikan dari hasil audit dashboard    */
+/* ---------------------------------------------------------- */
+
+/**
+ * Mengubah daftar isu audit (dqRingkasan.issues) menjadi rencana perbaikan yang
+ * bisa dikirim ke Apps Script. Setiap item wajib punya "nilaiBaru" yang pasti —
+ * isu tanpa nilai pasti tidak ikut, sesuai prinsip tidak menebak data.
+ */
+function kumpulkanRencanaRepair() {
+  const issues = (dqRingkasan && dqRingkasan.issues) || [];
+  const peta = new Map();   // kunci sel -> item rencana
+
+  for (const iss of issues) {
+    const kunci = `${iss.sheet}!${iss.huruf}${iss.baris}`;
+    if (!iss.huruf || iss.huruf === '?' || !iss.baris) continue;
+    if (peta.has(kunci)) continue;
+
+    let item = null;
+
+    if (iss.tipe === 'format' && iss.autoHealed && /^\d+[,.]\d+$/.test(String(iss.nilai).trim())) {
+      // label otomatis berisi nilai baru setelah "=": "... = 21,08 L/jam"
+      const m = String(iss.autoHealed).match(/=\s*(-?\d+(?:[.,]\d+)?)\s*([A-Za-z%]*)\s*$/);
+      if (m) {
+        const baru = Number(String(m[1]).replace('.', '').replace(',', '.'));
+        if (isFinite(baru) && baru !== Number(iss.nilai)) {
+          item = {
+            kunci, sheet: iss.sheet, baris: iss.baris, huruf: iss.huruf, kolom: iss.kolom,
+            tipe: 'format', mode: 'value', nilaiSekarang: iss.nilai,
+            nilaiBaru: String(baru), alasan: 'Teks angka dijadikan angka murni (dashboard sudah membaca ' + formatAngkaRepair(baru) + ').'
+          };
+        }
+      }
+    }
+
+    if (!item && iss.tipe === 'kosong' && iss.kolom === 'Wilayah' && iss.autoHealed && /"([^"]+)"/.test(String(iss.autoHealed))) {
+      const m = String(iss.autoHealed).match(/"([^"]+)"/);
+      item = {
+        kunci, sheet: iss.sheet, baris: iss.baris, huruf: iss.huruf, kolom: iss.kolom,
+        tipe: 'wilayah', mode: 'value', nilaiSekarang: '',
+        nilaiBaru: m[1], alasan: 'Wilayah diturunkan dari riwayat lokasi petak (sama dengan auto-heal dashboard).'
+      };
+    }
+
+    if (item) peta.set(kunci, item);
+  }
+  return Array.from(peta.values());
+}
+
+function formatAngkaRepair(n) {
+  return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(n);
+}
+
+/* ---------------------------------------------------------- */
+/* 2. Panggilan ke Apps Script                                  */
+/* ---------------------------------------------------------- */
+
+function repairUrl(aksi) {
+  return REPAIR_ENDPOINT + (REPAIR_ENDPOINT.indexOf('?') === -1 ? '?' : '&') + 'action=' + aksi;
+}
+
+/** POST JSON; bila Apps Script menolak (CORS/redirect), jatuh ke GET. */
+async function panggilRepair(aksi, keys) {
+  const body = { action: aksi, token: REPAIR_TOKEN };
+  if (keys && keys.length) body.keys = keys;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REPAIR_TIMEOUT_MS);
+  try {
+    const res = await fetch(repairUrl(aksi), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // hindari preflight CORS
+      body: JSON.stringify(body),
+      redirect: 'follow',
+      signal: ctrl.signal
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await bacaJsonRepair(res);
+  } catch (err) {
+    // Fallback GET: parameter di query string, tanpa preflight.
+    const q = new URLSearchParams({ action: aksi, token: REPAIR_TOKEN });
+    if (keys && keys.length) q.set('keys', keys.join('|'));
+    const res2 = await fetch(REPAIR_ENDPOINT + '?' + q.toString(), {
+      method: 'GET', redirect: 'follow', cache: 'no-store', signal: ctrl.signal
+    });
+    if (!res2.ok) throw new Error('HTTP ' + res2.status);
+    return await bacaJsonRepair(res2);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function bacaJsonRepair(res) {
+  const teks = await res.text();
+  const mulai = teks.indexOf('{');
+  const akhir = teks.lastIndexOf('}');
+  if (mulai === -1 || akhir === -1) {
+    throw new Error('Respons Apps Script bukan JSON. Pastikan Web App sudah di-deploy ulang dengan Versi baru.');
+  }
+  const data = JSON.parse(teks.slice(mulai, akhir + 1));
+  if (data && data.ok === false) throw new Error(data.error || 'Apps Script menolak permintaan.');
+  return data;
+}
+
+/* ---------------------------------------------------------- */
+/* 3. Panel perbaikan (buka -> tinjau -> terapkan -> sync)       */
+/* ---------------------------------------------------------- */
+
+function bukaRepairPanel() {
+  let ov = document.getElementById('repairOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'repairOverlay';
+    ov.className = 'fixed inset-0 flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm sm:p-4';
+    ov.style.zIndex = '80';
+    ov.innerHTML = `
+      <div class="flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-900/10" style="max-height:88vh" role="dialog" aria-modal="true" aria-label="Repair data spreadsheet">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/70 px-5 py-4">
+          <div class="flex items-start gap-3">
+            <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20">
+              <i data-lucide="wrench" class="h-5 w-5"></i>
+            </div>
+            <div>
+              <h2 class="text-[15px] font-bold text-slate-900">Repair data spreadsheet</h2>
+              <p class="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+                Perbaikan ditulis langsung ke Google Sheets oleh Apps Script, lalu dashboard
+                menyinkronkan ulang datanya secara otomatis.
+              </p>
+            </div>
+          </div>
+          <button id="repairClose" type="button" aria-label="Tutup" class="rounded-full p-2 text-slate-400 transition hover:bg-slate-200/60 hover:text-slate-700">
+            <i data-lucide="x" class="h-4 w-4"></i>
+          </button>
+        </div>
+
+        <div id="repairStatus" class="border-b border-slate-100 bg-white px-5 py-3 text-[12px]"></div>
+        <div id="repairBody" class="flex-1 overflow-y-auto px-5 py-4 text-[12px]" style="max-height:52vh"></div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-2.5">
+          <div class="flex items-center gap-2 text-[11px] text-slate-500">
+            <i data-lucide="shield-check" class="h-3.5 w-3.5 text-emerald-600"></i>
+            <span>Sel yang sudah berubah sejak pemindaian tidak akan ditimpa.</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="repairRetry" type="button" class="hidden rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50">
+              Periksa ulang
+            </button>
+            <button id="repairApply" type="button" disabled class="inline-flex items-center gap-1.5 rounded-full bg-amber-600 px-4 py-1.5 text-[11px] font-bold text-white shadow-xs transition hover:bg-amber-700 disabled:opacity-50">
+              <i data-lucide="wand-2" class="h-3.5 w-3.5"></i><span id="repairApplyText">Terapkan perbaikan</span>
+            </button>
+            <button id="repairFooterClose" type="button" class="rounded-full bg-slate-900 px-4 py-1.5 text-[11px] font-medium text-white transition hover:bg-slate-800">Tutup</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener('click', (e) => { if (e.target === ov) tutupRepairPanel(); });
+    document.getElementById('repairClose').addEventListener('click', tutupRepairPanel);
+    document.getElementById('repairFooterClose').addEventListener('click', tutupRepairPanel);
+    document.getElementById('repairApply').addEventListener('click', terapkanRepair);
+    document.getElementById('repairRetry').addEventListener('click', () => mulaiRepair({ ulang: true }));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') tutupRepairPanel(); });
+  }
+
+  // Tutup panel audit supaya tidak bertumpuk.
+  const dq = document.getElementById('dqOverlay');
+  if (dq) dq.classList.add('hidden');
+
+  ov.classList.remove('hidden');
+  ov.style.display = 'flex';
+  mulaiRepair({});
+}
+
+function tutupRepairPanel() {
+  if (_repairBusy) return;
+  const ov = document.getElementById('repairOverlay');
+  if (ov) { ov.classList.add('hidden'); ov.style.display = 'none'; }
+}
+
+function repairStatus(html, tipe) {
+  const el = document.getElementById('repairStatus');
+  if (!el) return;
+  const warna = tipe === 'error' ? 'bg-rose-50 text-rose-800'
+    : tipe === 'ok' ? 'bg-emerald-50 text-emerald-800'
+    : tipe === 'warn' ? 'bg-amber-50 text-amber-900'
+    : 'bg-slate-50 text-slate-700';
+  el.className = 'border-b border-slate-100 px-5 py-3 text-[12px] ' + warna;
+  el.innerHTML = html;
+  refreshIcons();
+}
+
+function repairBusy(v) {
+  _repairBusy = v;
+  ['repairApply', 'repairRetry', 'repairClose', 'repairFooterClose'].forEach((id) => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = v;
+  });
+}
+
+/** Langkah 1: minta pratinjau ke Apps Script lalu tampilkan. */
+async function mulaiRepair(opts) {
+  if (_repairBusy) return;
+  const body = document.getElementById('repairBody');
+  repairBusy(true);
+  document.getElementById('repairApply').disabled = true;
+  document.getElementById('repairRetry').classList.add('hidden');
+
+  const adaIsuLokal = !!kumpulkanRencanaRepair().length;
+  repairStatus(`
+    <div class="flex items-center gap-2 font-semibold text-slate-800">
+      <i data-lucide="loader-2" class="h-4 w-4 animate-spin text-amber-600"></i>
+      Memeriksa spreadsheet — mencari sel yang bisa diperbaiki dengan pasti…
+    </div>
+    <div class="mt-1 text-[11px] text-slate-500">
+      ${adaIsuLokal
+        ? 'Dashboard juga menemukan ' + formatInt(kumpulkanRencanaRepair().length) + ' sel yang bisa diperbaiki dari hasil audit lokal.'
+        : 'Daftar diambil langsung dari spreadsheet agar selalu sama dengan kondisi terkini.'}
+    </div>`);
+  if (body) body.innerHTML = '<div class="py-8 text-center text-[12px] text-slate-400">Mohon tunggu…</div>';
+
+  try {
+    const data = await panggilRepair('preview');
+    tampilkanPratinjauRepair(data);
+  } catch (err) {
+    tampilkanRepairGagal(err);
+  } finally {
+    repairBusy(false);
+  }
+}
+
+function tampilkanPratinjauRepair(data) {
+  const items = (data.items || []).slice();
+  const skipped = data.skipped || [];
+  const body = document.getElementById('repairBody');
+  const btn = document.getElementById('repairApply');
+  const txt = document.getElementById('repairApplyText');
+  const retry = document.getElementById('repairRetry');
+  if (retry) retry.classList.remove('hidden');
+
+  if (!items.length) {
+    repairStatus(`
+      <div class="flex items-center gap-2 font-semibold text-emerald-800">
+        <i data-lucide="check-circle-2" class="h-4 w-4 text-emerald-600"></i>
+        Tidak ada sel yang perlu diperbaiki di spreadsheet.
+      </div>
+      <div class="mt-1 text-[11px] text-emerald-900/80">
+        ${skipped.length
+          ? formatInt(skipped.length) + ' temuan sengaja tidak diperbaiki otomatis (lihat daftar di bawah).'
+          : 'Semua sel yang terdeteksi dashboard sudah sesuai.'}
+      </div>`, 'ok');
+    if (body) body.innerHTML = daftarDilewatiHtml(skipped);
+    btn.disabled = true;
+    if (txt) txt.textContent = 'Tidak ada yang bisa diperbaiki';
+    refreshIcons();
+    return;
+  }
+
+  const perTipe = {};
+  items.forEach((it) => { perTipe[it.tipe] = (perTipe[it.tipe] || 0) + 1; });
+  const ringkasTipe = Object.keys(perTipe)
+    .map((t) => `${formatInt(perTipe[t])} ${(REPAIR_TIPE[t] || {}).label || t}`).join(' • ');
+
+  repairStatus(`
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2 font-semibold text-slate-900">
+        <i data-lucide="search-check" class="h-4 w-4 text-amber-600"></i>
+        ${formatInt(items.length)} sel siap diperbaiki
+      </div>
+      <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">Nilai sudah pasti</span>
+    </div>
+    <div class="mt-1 text-[11px] text-slate-600">${esc(ringkasTipe)}${skipped.length ? ' • ' + formatInt(skipped.length) + ' dilewati' : ''}. Tinjau daftarnya di bawah sebelum menekan <b>Terapkan</b>.</div>`, 'warn');
+
+  if (body) body.innerHTML = daftarRepairHtml(items, skipped);
+  btn.disabled = false;
+  if (txt) txt.textContent = `Terapkan ${formatInt(items.length)} perbaikan`;
+  refreshIcons();
+}
+
+function tampilkanRepairGagal(err) {
+  const pesan = (err && err.message) ? err.message : String(err);
+  repairStatus(`
+    <div class="flex items-center gap-2 font-semibold text-rose-800">
+      <i data-lucide="plug-zap" class="h-4 w-4 text-rose-600"></i>
+      Tidak bisa menghubungi layanan perbaikan
+    </div>
+    <div class="mt-1 text-[11px] text-rose-900/90">${esc(pesan)}</div>`, 'error');
+
+  const body = document.getElementById('repairBody');
+  if (body) {
+    body.innerHTML = `
+      <div class="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-[11px] leading-relaxed text-rose-950">
+        <div class="font-bold">Cara mengaktifkan tombol Repair:</div>
+        <ol class="mt-1 list-decimal space-y-1 pl-4">
+          <li>Buka spreadsheet → <b>Extensions → Apps Script</b>.</li>
+          <li>Pastikan file <code class="rounded bg-white px-1">RepairAll.gs</code> dan <code class="rounded bg-white px-1">Repair.html</code> sudah dipasang (lihat <code>apps-script/README.md</code>).</li>
+          <li><b>Deploy → Manage deployments → Edit → New version → Deploy</b>, dan izinkan akses Google saat diminta.</li>
+          <li>Pastikan <code>REPAIR_TOKEN</code> di <code>app.js</code> sama dengan <code>CFG.TOKEN</code> di Apps Script.</li>
+        </ol>
+      </div>
+      <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-700">
+        <div class="font-semibold text-slate-900">Sementara itu</div>
+        <div class="mt-1">Anda tetap bisa memperbaiki manual: buka konsol perbaikan, salin daftar sel dari panel audit, atau unduh CSV audit lalu kirim ke PIC spreadsheet.</div>
+      </div>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="button" id="repairOpenPage" class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50">
+          <i data-lucide="external-link" class="h-3.5 w-3.5"></i>Buka konsol Apps Script
+        </button>
+        <button type="button" id="repairOpenAudit" class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50">
+          <i data-lucide="clipboard-list" class="h-3.5 w-3.5"></i>Kembali ke audit
+        </button>
+      </div>`;
+    const b1 = document.getElementById('repairOpenPage');
+    if (b1) b1.addEventListener('click', () => window.open(REPAIR_PAGE_URL, '_blank', 'noopener,noreferrer'));
+    const b2 = document.getElementById('repairOpenAudit');
+    if (b2) b2.addEventListener('click', () => { tutupRepairPanel(); openDQPanel(); });
+  }
+  const retry = document.getElementById('repairRetry');
+  if (retry) retry.classList.remove('hidden');
+  const btn = document.getElementById('repairApply');
+  if (btn) btn.disabled = true;
+  refreshIcons();
+}
+
+function daftarRepairHtml(items, skipped) {
+  const baris = items.map((it) => {
+    const meta = REPAIR_TIPE[it.tipe] || { label: it.tipe, cls: 'bg-slate-100 text-slate-700', ikon: 'wrench' };
+    const baru = it.mode === 'formula'
+      ? `<code class="rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] text-emerald-300">${esc(it.rumus)}</code>`
+      : `<span class="font-mono font-bold text-emerald-700">${esc(it.nilaiBaru)}</span>`;
+    const lama = it.nilaiSekarang && it.nilaiSekarang !== '0'
+      ? `<span class="font-mono text-rose-600">${esc(it.nilaiSekarang)}</span> → `
+      : '';
+    return `<div class="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white">${esc(it.sheet)}</span>
+          <span class="font-mono text-[11px] font-bold text-slate-900">${esc(it.huruf)}${it.baris}</span>
+          <span class="text-[11px] text-slate-500">${esc(it.kolom)}</span>
+        </div>
+        <div class="mt-1 text-[11px] leading-relaxed text-slate-600">${lama}${baru}</div>
+        <div class="mt-0.5 text-[10px] leading-relaxed text-slate-500">${esc(it.alasan || '')}${it.catatan ? ' ' + esc(it.catatan) : ''}</div>
+      </div>
+      <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.cls}">${esc(meta.label)}</span>
+    </div>`;
+  }).join('');
+
+  return `<div class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Akan diperbaiki</div>
+    <div class="space-y-1.5">${baris}</div>
+    ${daftarDilewatiHtml(skipped)}`;
+}
+
+function daftarDilewatiHtml(skipped) {
+  if (!skipped || !skipped.length) return '';
+  const li = skipped.slice(0, 40).map((s) => `
+    <li class="flex flex-wrap items-baseline gap-1.5">
+      <span class="font-mono text-[10px] font-bold text-slate-700">${esc(s.kunci || s.sheet)}</span>
+      <span class="text-[10px] text-slate-500">${esc(s.alasan)}</span>
+    </li>`).join('');
+  return `<div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+    <div class="text-[11px] font-semibold text-slate-700">Sengaja tidak diperbaiki otomatis (${formatInt(skipped.length)})</div>
+    <ul class="mt-1.5 space-y-1">${li}</ul>
+    ${skipped.length > 40 ? `<div class="mt-1 text-[10px] text-slate-500">…dan ${formatInt(skipped.length - 40)} lainnya.</div>` : ''}
+  </div>`;
+}
+
+/** Langkah 2: terapkan perbaikan, verifikasi, lalu sinkronkan dashboard. */
+async function terapkanRepair() {
+  if (_repairBusy) return;
+  const body = document.getElementById('repairBody');
+  const btn = document.getElementById('repairApply');
+  const txt = document.getElementById('repairApplyText');
+
+  repairBusy(true);
+  if (btn) btn.disabled = true;
+  if (txt) txt.textContent = 'Menulis…';
+  repairStatus(`
+    <div class="flex items-center gap-2 font-semibold text-slate-800">
+      <i data-lucide="loader-2" class="h-4 w-4 animate-spin text-amber-600"></i>
+      Menulis perbaikan ke spreadsheet…
+    </div>
+    <div class="mt-1 text-[11px] text-slate-500">Apps Script memeriksa ulang setiap sel sebelum menulis agar tidak menimpa perubahan terbaru.</div>`);
+  if (body) body.innerHTML = '<div class="py-8 text-center text-[12px] text-slate-400">Mohon tunggu, jangan tutup halaman ini…</div>';
+
+  let hasil;
+  try {
+    hasil = await panggilRepair('apply');
+  } catch (err) {
+    tampilkanRepairGagal(err);
+    repairBusy(false);
+    if (txt) txt.textContent = 'Terapkan perbaikan';
+    return;
+  }
+
+  _repairHasil = hasil;
+  const ditulis = hasil.applied || 0;
+  const terverifikasi = hasil.verified || 0;
+  const gagal = hasil.gagal || [];
+
+  if (ditulis) {
+    repairStatus(`
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2 font-semibold text-emerald-800">
+          <i data-lucide="check-circle-2" class="h-4 w-4 text-emerald-600"></i>
+          ${formatInt(ditulis)} sel berhasil diperbaiki (${formatInt(terverifikasi)} terverifikasi)
+        </div>
+        <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">Sheet diperbarui</span>
+      </div>
+      <div class="mt-1 flex items-center gap-1.5 text-[11px] text-emerald-900/90">
+        <i data-lucide="refresh-cw" class="h-3.5 w-3.5 animate-spin"></i>
+        Menyinkronkan dashboard dengan spreadsheet…
+      </div>`, 'ok');
+  } else {
+    repairStatus(`
+      <div class="flex items-center gap-2 font-semibold text-amber-800">
+        <i data-lucide="info" class="h-4 w-4 text-amber-600"></i>
+        Tidak ada sel yang ditulis — kondisi sheet sudah berubah sejak pemindaian.
+      </div>`, 'warn');
+  }
+
+  if (body) {
+    body.innerHTML = `
+      ${daftarHasilHtml(hasil.items || [], ditulis)}
+      ${gagal.length ? `<div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+        <div class="text-[11px] font-semibold text-amber-900">Dilewati saat penulisan (${formatInt(gagal.length)})</div>
+        <ul class="mt-1.5 space-y-1">${gagal.slice(0, 30).map((g) => `<li class="text-[10px] text-amber-900/90"><span class="font-mono font-bold">${esc(g.kunci)}</span> — ${esc(g.alasan)}</li>`).join('')}</ul>
+      </div>` : ''}`;
+    refreshIcons();
+  }
+
+  // Sinkronkan dashboard tanpa menunggu interaksi pengguna.
+  if (ditulis) {
+    try {
+      await muatUlangSetelahRepair();
+      const sisa = dqRingkasan ? dqRingkasan.total : 0;
+
+      // Pisahkan temuan yang benar-benar tersisa dari sel yang baru diperbaiki
+      // tetapi belum terbaca berubah (Google Sheets belum selesai menghitung ulang).
+      const kunciDiperbaiki = new Set((hasil.items || []).map((it) => `${it.sheet}!${it.huruf}${it.baris}`));
+      const masihTerbaca = ((dqRingkasan && dqRingkasan.issues) || [])
+        .filter((i) => kunciDiperbaiki.has(`${i.sheet}!${i.huruf}${i.baris}`));
+      const lain = sisa - masihTerbaca.length;
+
+      let keterangan;
+      if (masihTerbaca.length) {
+        keterangan = `${formatInt(ditulis)} sel sudah ditulis ke spreadsheet, tetapi ${formatInt(masihTerbaca.length)} sel masih terbaca bermasalah saat dashboard menyegarkan data. Google Sheets kadang butuh beberapa detik untuk menghitung ulang — tekan <b>Sync Now</b> sekali lagi.`;
+      } else if (lain > 0) {
+        keterangan = `Spreadsheet sudah diperbarui dan dashboard memuat data terbaru. Masih ada ${formatInt(lain)} temuan lain yang sengaja tidak diubah otomatis karena nilainya tidak bisa dipastikan (lihat panel audit).`;
+      } else {
+        keterangan = 'Tidak ada lagi data error yang terdeteksi di spreadsheet.';
+      }
+
+      repairStatus(`
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2 font-semibold ${masihTerbaca.length ? 'text-amber-800' : 'text-emerald-800'}">
+            <i data-lucide="${masihTerbaca.length ? 'refresh-cw' : 'check-circle-2'}" class="h-4 w-4 ${masihTerbaca.length ? 'text-amber-600' : 'text-emerald-600'}"></i>
+            Selesai — ${formatInt(ditulis)} sel diperbaiki dan dashboard sudah disinkronkan
+          </div>
+          <span class="rounded-full px-2 py-0.5 text-[10px] font-bold ${masihTerbaca.length ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${formatInt(sisa)} isu tersisa</span>
+        </div>
+        <div class="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] ${masihTerbaca.length ? 'text-amber-900/90' : 'text-emerald-900/90'}">
+          <span class="min-w-0 flex-1">${keterangan}</span>
+          ${masihTerbaca.length ? '<button type="button" id="repairSyncNow" class="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-slate-800">Sync Now</button>' : ''}
+        </div>`, masihTerbaca.length ? 'warn' : 'ok');
+
+      const sn = document.getElementById('repairSyncNow');
+      if (sn) sn.addEventListener('click', () => { loadData({ manual: true }); });
+
+      showToast(`Repair selesai: ${formatInt(ditulis)} sel spreadsheet diperbaiki.`, 'success', 6000);
+    } catch (err) {
+      repairStatus(`
+        <div class="flex items-center gap-2 font-semibold text-amber-800">
+          <i data-lucide="alert-triangle" class="h-4 w-4 text-amber-600"></i>
+          ${formatInt(ditulis)} sel sudah diperbaiki, tetapi sinkronisasi otomatis gagal
+        </div>
+        <div class="mt-1 text-[11px] text-amber-900/90">${esc((err && err.message) || err)}. Tekan <b>Sync Now</b> untuk memuat ulang data.</div>`, 'warn');
+    }
+  }
+
+  const b = document.getElementById('repairApply');
+  if (b) { b.disabled = true; }
+  if (txt) txt.textContent = 'Selesai';
+  const retry = document.getElementById('repairRetry');
+  if (retry) retry.classList.remove('hidden');
+  repairBusy(false);
+  renderDQBADGE();
+}
+
+function daftarHasilHtml(items, jumlah) {
+  if (!items.length) return '';
+  return `<div class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Sudah diperbaiki</div>
+    <div class="space-y-1.5">${items.slice(0, 60).map((it) => {
+      const isi = it.mode === 'formula'
+        ? `<code class="rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] text-emerald-300">${esc(it.hasil || it.rumus)}</code>`
+        : `<span class="font-mono font-bold text-emerald-700">${esc(it.nilaiBaru)}</span>`;
+      return `<div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200/70 bg-emerald-50/50 px-3 py-1.5">
+        <div class="flex items-center gap-1.5 text-[11px]">
+          <i data-lucide="check" class="h-3 w-3 text-emerald-600"></i>
+          <span class="font-mono font-bold text-slate-900">${esc(it.sheet)}!${esc(it.huruf)}${it.baris}</span>
+          <span class="text-slate-500">${esc(it.kolom)}</span>
+        </div>
+        <div class="text-[11px]">${isi}</div>
+      </div>`;
+    }).join('')}</div>
+    ${items.length > 60 ? `<div class="mt-1 text-[10px] text-slate-500">…dan ${formatInt(items.length - 60)} sel lainnya (semua sudah ditulis).</div>` : ''}`;
+}
+
+/** Paksa unduhan ulang dari jaringan lalu render ulang seluruh dashboard. */
+async function muatUlangSetelahRepair() {
+  // Buang cache payload agar data benar-benar diambil ulang dari spreadsheet.
+  try {
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k.indexOf('pg2-data') === 0).map((k) => caches.delete(k)));
+    }
+  } catch (e) { /* cache opsional */ }
+  try { appliedSig = null; } catch (e) {}
+
+  // Tunggu sampai tidak ada sinkronisasi lain yang berjalan (maks ~30 detik).
+  const mulai = Date.now();
+  while (isSyncing && Date.now() - mulai < 30000) {
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
+  await loadData({ manual: true, silent: true });
+
+  // Kalau payload ternyata identik (mis. Google belum menghitung ulang rumus),
+  // paksa render ulang supaya angka terbaru tetap tampil.
+  renderDQBADGE();
+  safeRender('insights', renderInsights);
+  renderTab(currentTab);
+}
+
+/* ---------------------------------------------------------- */
+/* 4. Pintasan dari luar panel                                   */
+/* ---------------------------------------------------------- */
+
+/** Buka konsol perbaikan penuh di tab baru (semua sheet & aturan). */
+function bukaKonsolRepair() {
+  window.open(REPAIR_PAGE_URL, '_blank', 'noopener,noreferrer');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   syncHeaderOffset();
+  // Tombol "lihat detail" berbasis atribut (pengganti onclick inline, karena skrip
+  // berjalan sebagai ES module sehingga fungsinya tidak ada di window).
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-tab-jump]');
+    if (t) { e.preventDefault(); activateTab(t.getAttribute('data-tab-jump')); }
+  });
   // Tinggi header bisa berubah (ticker terisi, tombol Install muncul, font selesai dimuat)
   // -> ukur ulang supaya offset panel filter & tab bar selalu pas.
   const headerEl = document.querySelector('header');
