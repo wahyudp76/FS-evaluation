@@ -6132,7 +6132,7 @@ function scheduleSync(isRetry = false) {
 // ============================================================
 
 // URL deployment Web App (Deploy -> Manage deployments -> Web app /exec)
-const REPAIR_ENDPOINT = 'https://script.google.com/macros/s/AKfycbx7D34TzAqn8wWfs8BspVwtGQjRyPzEkNny5I5d-MXxUq7LQor5orGR_D-DAQf1dfj0lA/exec';
+const REPAIR_ENDPOINT = 'https://script.google.com/macros/s/AKfycbzdavH09D4tkKgpv6pBVHbx2BhmXILOqBb_wgYsNzZBLnEZvqEloDhd2eJNzIWQKaU3/exec';
 const REPAIR_PAGE_URL = REPAIR_ENDPOINT;                 // konsol penuh di tab baru
 // Harus sama dengan CFG.TOKEN pada RepairAll.gs
 const REPAIR_TOKEN = 'pg2-repair-2026';
