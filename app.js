@@ -7,14 +7,18 @@ const SHEET_NAME = 'ZPAS637';
 const GVIZ_BASE = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq`;
 // CSV = sumber data utama (payload ~46% lebih kecil dari JSON gviz)
 const CSV_URL = `${GVIZ_BASE}?tqx=out:csv&sheet=${SHEET_NAME}`;
-// Query khusus kolom tanggal: memberi tanggal + tahun yang akurat (terukur ~560 KB untuk 12,7 rb baris,
-// jauh lebih kecil dari JSON penuh ~10 MB). Kolom tanggal sheet ZPAS637 = kolom B ("Date");
-// kolom A kini berisi bantu "R Bulan". Huruf kolom dihitung ulang otomatis dari header CSV
-// bila susunan kolom sheet berubah lagi.
+// Tahun akurat untuk kolom "Date" sheet ZPAS637 (kolom B) tanpa mengunduh satu baris per
+// aktivitas. v1.23.1: dulu `select B` mengirim SEMUA baris (17.660 x ~44 B = 784 KB, ~2,7 s).
+// Yang benar-benar dibutuhkan hanya peta (tahun, bulan) -> tahun, karena CSV sudah memuat
+// tanggal tanpa tahun ("31-Okt"). `group by year(B), month(B)` menghasilkan < 1 KB (583 B,
+// terbukti identik: 17.660 baris, 6 bulan cocok 1:1 dengan CSV).
 const DATE_COL = 'B';
 // Huruf kolom Date terakhir yang terdeteksi (tersimpan agar probe sync tidak salah kolom)
 function dateLetter() { try { return localStorage.getItem('pg2-datecol') || DATE_COL; } catch (e) { return DATE_COL; } }
-const datesUrlFor = (letter) => `${GVIZ_BASE}?tq=${encodeURIComponent('select ' + letter)}&tqx=out:json&sheet=${SHEET_NAME}`;
+// gviz menolak `group by` tanpa fungsi agregat (INVALID_QUERY), jadi count() disertakan.
+const dateGroupQuery = (letter) =>
+  `select year(${letter}), month(${letter}), count(${letter}) group by year(${letter}), month(${letter})`;
+const datesUrlFor = (letter) => `${GVIZ_BASE}?tq=${encodeURIComponent(dateGroupQuery(letter))}&tqx=out:json&sheet=${SHEET_NAME}`;
 const DATES_URL = datesUrlFor(DATE_COL);
 // JSON penuh dipakai hanya sebagai fallback bila CSV bermasalah
 const GVIZ_URL = `${GVIZ_BASE}?tqx=out:json&sheet=${SHEET_NAME}`;
@@ -22,7 +26,7 @@ const INDEX_SHEET = 'Index Solar';
 const INDEX_URL = `${GVIZ_BASE}?tqx=out:csv&sheet=${encodeURIComponent(INDEX_SHEET)}`;
 const SAMPLE_URL = './assets/sample-data.csv';
 const SAMPLE_INDEX_URL = './assets/sample-index.csv';
-const DATA_CACHE = 'pg2-data-v1';
+const DATA_CACHE = 'pg2-data-v2';   // v1.23.1: format payload tanggal berubah (peta bulan->tahun)
 const META_KEY = 'pg2-meta-v1';
 const AUTO_SYNC_MS = 5 * 60 * 1000;
 const FULL_REFRESH_MS = 30 * 60 * 1000;   // unduhan penuh dipaksa maks. tiap 30 mnt (tangkap edit baris lama)
@@ -168,12 +172,18 @@ function esc(v) {
 // ===== Offset header & panel filter =====
 // Tinggi header diukur runtime (bisa berubah: ticker, tombol install, zoom, font) lalu
 // dibagikan ke CSS lewat --header-h supaya panel filter & tab bar tidak pernah tertutup header.
+// v1.23.1: hasil ukur di-cache. getBoundingClientRect() memicu forced reflow, dan
+// sebelumnya dipanggil pada setiap ResizeObserver, resize, & fonts.ready — cukup
+// sekali diukur lalu dipakai ulang sampai benar-benar berubah.
+let _headerH = 0;
 function headerHeight() {
+  if (_headerH) return _headerH;
   const h = document.querySelector('header');
-  const v = h ? h.getBoundingClientRect().height : 112;
-  return Math.max(64, Math.round(v));
+  _headerH = Math.max(64, Math.round(h ? h.getBoundingClientRect().height : 112));
+  return _headerH;
 }
-function syncHeaderOffset() {
+function syncHeaderOffset(force) {
+  if (force) _headerH = 0;
   const h = headerHeight();
   document.documentElement.style.setProperty('--header-h', h + 'px');
   return h;
@@ -690,18 +700,25 @@ function toNumFast(v) {
   return sign * (int + frac);
 }
 
-// Tanggal dari query kolom "Date" (kolom B): "Date(2026,4,29)"
+// Peta (bulan -> tahun) dari query `group by year(B), month(B)`.
+// gviz memakai bulan 0-based: Date(2026,9,31) = 31 Okt 2026.
+// Hasil: [Tahun, Tahun, ...] berindeks bulan 0..11; null bila tidak ada data.
 function parseDatesJSON(text) {
   const m = text.match(/setResponse\(([\s\S]+)\)/);
   if (!m) return null;
-  const j = JSON.parse(m[1]);
-  const out = new Array(j.table.rows.length);
-  const rows = j.table.rows;
+  let j;
+  try { j = JSON.parse(m[1]); } catch (e) { return null; }
+  const rows = (j.table && j.table.rows) || [];
+  const peta = new Array(12).fill(null);
   for (let i = 0; i < rows.length; i++) {
-    const c = rows[i].c && rows[i].c[0];
-    out[i] = c && c.v ? parseGvizDate(c.v) : null;
+    const c = rows[i].c || [];
+    const th = c[0] && typeof c[0].v === 'number' ? c[0].v : null;
+    const bl = c[1] && typeof c[1].v === 'number' ? c[1].v : null;   // 0-based
+    if (th === null || bl === null || bl < 0 || bl > 11) continue;
+    // bila satu bulan punya >1 tahun, ambil tahun terbesar (data terbaru)
+    if (peta[bl] === null || th > peta[bl]) peta[bl] = th;
   }
-  return out;
+  return peta.some(v => v !== null) ? peta : null;
 }
 
 // Tanggal cadangan bila overlay kolom "Date" tidak tersedia: "29-Mei" (tanpa tahun)
@@ -734,11 +751,14 @@ function buildRows(csvText, datesText) {
   let fallbackYear = 2026;
   try { const y = localStorage.getItem('pg2-year'); if (y) fallbackYear = parseInt(y, 10) || 2026; } catch (e) {}
 
-  let dates = null;
-  if (datesText) { try { dates = parseDatesJSON(datesText); } catch (e) { console.warn('parse tanggal gagal', e); } }
-  if (dates && dates.length !== rows.length - 1) {
-    console.warn('Jumlah baris tanggal (' + dates.length + ') tidak sama dengan CSV (' + (rows.length - 1) + ') -> pakai tanggal CSV');
-    dates = null;
+  // Peta (bulan -> tahun) untuk memberi tahun pada tanggal CSV ("31-Okt").
+  // v1.23.1: query `group by` hanya < 1 KB dan tidak lagi bergantung pada jumlah baris.
+  let yearOfMonth = null;
+  if (datesText) { try { yearOfMonth = parseDatesJSON(datesText); } catch (e) { console.warn('parse tanggal gagal', e); } }
+  if (yearOfMonth) {
+    let adaTahun = false;
+    for (let i = 0; i < 12; i++) if (yearOfMonth[i]) { adaTahun = true; break; }
+    if (!adaTahun) yearOfMonth = null;
   }
 
   const I = (label) => idx[label];
@@ -775,9 +795,17 @@ function buildRows(csvText, datesText) {
     const rawDate = cDate !== undefined ? row[cDate] : '';
     // Overlay tanggal (kolom B) dipakai hanya bila valid; kalau tidak (mis. susunan kolom sheet
     // berubah) baris ini jatuh ke tanggal dari CSV supaya tidak ada baris yang hilang.
-    const ov = dates ? dates[r - 1] : null;
-    if (ov && isNaN(ov)) badOverlay++;
-    const date = (ov && !isNaN(ov)) ? ov : parseShortDate(rawDate, fallbackYear);
+    // Tanggal dari CSV ("31-Okt") + tahun dari peta bulan->tahun.
+    const baseDate = parseShortDate(rawDate, fallbackYear);
+    let date = baseDate;
+    if (baseDate && yearOfMonth) {
+      const th = yearOfMonth[baseDate.getMonth()];
+      if (th && th !== baseDate.getFullYear()) {
+        const d2 = new Date(th, baseDate.getMonth(), baseDate.getDate());
+        if (!isNaN(d2)) date = d2;
+      }
+    }
+    if (date && !yearOfMonth) badOverlay++;
     if (!date || isNaN(date)) {
       _dqCatatKosong({
         sheet: 'ZPAS637',
@@ -897,19 +925,15 @@ function buildRows(csvText, datesText) {
     const rawTotOperStr = g(cTotOper).trim();
     const rowPrep = num(cPrep), rowOper = num(cOper);
     const rowTotOperRaw = num(cTotOper);
+    // "Tot. Oper. Time" TIDAK dilaporkan sebagai rumus kosong lagi (v1.23.2).
+    // Audit data 17.660 baris: kolom ini bukan rumus melainkan angka waktu terpakai yang
+    // diisi manual dan memang boleh lebih kecil dari Prepare+Operating (mis. Oper 17 +
+    // Prep 1,5 = 18,5, sheet mencatat 18 karena alat berhenti lebih awal). Dashboard hanya
+    // memakai nilai yang ada; bila kosong, dipakai Prepare+Operating sebagai perkiraan
+    // tanpa diklaim sebagai "koreksi pasti".
     let rowTotOper = rowTotOperRaw;
     if (!rawTotOperStr && (rowPrep > 0 || rowOper > 0) && cTotOper !== undefined) {
       rowTotOper = rowPrep + rowOper;
-      _dqCatatRumus({
-        sheet: 'ZPAS637',
-        baris: sheetRow,
-        kolom: 'Tot, Oper, Time',
-        huruf: colLetter(cTotOper),
-        nilai: '(rumus kosong)',
-        konteks: `Lokasi: ${lokasi}, Engine: ${engine}, Tanggal: ${rawDate}`,
-        autoHealed: `Dihitung otomatis: Prepare (${formatNumber(rowPrep, 1)}) + Operating (${formatNumber(rowOper, 1)}) = ${formatNumber(rowTotOper, 1)} jam`,
-        rekomendasi: `Tarik rumus pada sel ${colLetter(cTotOper)}${sheetRow}: =${colLetter(cPrep)}${sheetRow}+${colLetter(cOper)}${sheetRow}`
-      });
     }
 
     const d = {
@@ -940,7 +964,7 @@ function buildRows(csvText, datesText) {
     out.push(d);
   }
 
-  if (badOverlay) console.warn('[data] overlay tanggal kolom ' + DATE_COL + ' tidak valid pada ' + badOverlay + ' baris -> memakai tanggal dari CSV');
+  if (badOverlay) console.warn('[data] peta tahun-bulan tidak tersedia untuk ' + badOverlay + ' baris -> memakai tahun cadangan ' + fallbackYear);
   if (out.length) {
     try {
       let maxY = out[0]._y;
@@ -6729,7 +6753,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // -> ukur ulang supaya offset panel filter & tab bar selalu pas.
   const headerEl = document.querySelector('header');
   if (headerEl && window.ResizeObserver) {
-    try { new ResizeObserver(() => syncHeaderOffset()).observe(headerEl); } catch (e) {}
+    try {
+      let raf = 0;
+      new ResizeObserver((entries) => {
+        const t = entries[0] && entries[0].target;
+        if (!t) return;
+        const tinggi = Math.round(t.getBoundingClientRect().height);
+        if (Math.abs(tinggi - _headerH) < 1) return;   // tidak berubah: jangan sentuh layout
+        if (raf) return;
+        raf = requestAnimationFrame(() => { raf = 0; syncHeaderOffset(true); });
+      }).observe(headerEl);
+    } catch (e) {}
   }
   window.addEventListener('resize', debounce(syncHeaderOffset, 200));
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncHeaderOffset).catch(() => {});

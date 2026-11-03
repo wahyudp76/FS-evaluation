@@ -424,6 +424,8 @@ function scanSheet_(sh, sheetName, only) {
     isNum[c] = cf > 0 ? true : (terisi > 0 && (numTotal / terisi) >= 0.6);
     firstF[c] = ff;
     isFormulaCol[c] = cf >= CFG.FORMULA_MIN && cf >= Math.min(ambangRumus, barisBerdata);
+    // Kolom yang mayoritas berisi angka dan hanya punya 1-2 rumus TIDAK dianggap kolom
+    // rumus: itu kolom nilai (mis. Total Time = I) yang sesekali ditimpa rumus.
   }
 
   var rules = aturanTurunan_(headers);
@@ -494,7 +496,10 @@ function scanSheet_(sh, sheetName, only) {
 
       /* [4] Wilayah kosong dari riwayat lokasi */
       if (kosong) {
-        if (col === cWil && cLok >= 0) {
+        // v1.23.2: syarat cWil >= 0 wajib. Tanpa ini cWil = -1 (kolom Wilayah tidak ada)
+        // bisa "cocok" dengan indeks kolom -1 dan sel kosong di kolom lain dilaporkan
+        // sebagai isu wilayah.
+        if (cWil >= 0 && col === cWil && cLok >= 0) {
           var lok = teks_(values[row][cLok]);
           if (lok && lokasiToWil[lok] && !lokasiBentrok[lok]) {
             out.items.push(item_(sheetName, row, col, header, huruf, 'wilayah', '', lokasiToWil[lok],
@@ -541,6 +546,7 @@ function aturanTurunan_(headers) {
   var prep = cari(/^prepare/i);
   var oper = cari(/^operating/i);
   var rpHa = cari(/^rp\s*\/?\s*ha$/i);
+  var totOper = cari(/^tot[.,\s]*oper/i);
 
   if (bTotal >= 0 && bSolar >= 0 && bUpah >= 0 && bAlat >= 0) {
     rules.push({ target: bTotal, kind: 'sum', deps: [bSolar, bUpah, bAlat], label: 'Biaya Solar + Biaya Upah + Biaya Alat' });
@@ -548,13 +554,11 @@ function aturanTurunan_(headers) {
   if (rpHa >= 0 && bTotal >= 0 && luas >= 0) {
     rules.push({ target: rpHa, kind: 'div', deps: [bTotal, luas], label: 'Biaya Total / Luas Siram' });
   }
-  // "Tot, Oper, Time" / "Tot. Oper. Time"
-  for (var i = 0; i < headers.length; i++) {
-    if (/^tot[.,\s]*oper/i.test(headers[i]) && prep >= 0 && oper >= 0) {
-      rules.push({ target: i, kind: 'sum', deps: [prep, oper], label: 'Prepare Time + Operating Time' });
-      break;
-    }
-  }
+  // "Tot, Oper, Time" / "Tot. Oper. Time" SENGAJA tidak masuk aturan turunan.
+  // Audit 17.660 baris (v1.23.2): kolom ini bukan rumus, diisi manual, dan pada 675 baris
+  // nilainya memang lebih kecil dari Prepare+Operating (waktu terpakai vs waktu terjadwal).
+  // Menimpanya akan merusak data, jadi hanya dilaporkan sebagai temuan untuk PIC.
+  void prep; void oper;
   // Index Solar: Deviasi L/jam = (Pemakaian Solar / Jam Operasi) - Kalibrasi
   var solar = cari(/^pemakaian\s*solar/i);
   var jam = cari(/^jam\s*oper/i);
@@ -563,6 +567,7 @@ function aturanTurunan_(headers) {
   if (dev >= 0 && solar >= 0 && jam >= 0 && kal >= 0) {
     rules.push({ target: dev, kind: 'deviasi', deps: [solar, jam, kal], label: '(Solar / Jam Operasi) - Kalibrasi' });
   }
+  void totOper;
   return rules;
 }
 

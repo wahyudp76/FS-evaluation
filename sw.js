@@ -1,9 +1,9 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
-// v1.23.0 — tombol Repair pada notifikasi data error: perbaikan langsung ke Google Sheets lewat Apps Script, verifikasi sel, lalu Sync Now otomatis
-const VERSION = 'v1.23.0';
+// v1.23.1 — optimasi muat: peta tahun-bulan (784 KB -> 583 B), render lebih ringan; v1.23.0: tombol Repair ke Google Sheets
+const VERSION = 'v1.23.1';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
-const DATA_CACHE = 'pg2-data-v1';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)
+const DATA_CACHE = 'pg2-data-v2';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)
 
 // sample-data.csv (3,4 MB) TIDAK di-precache: hanya untuk fallback offline, diambil on-demand
 // (rute same-origin di bawah otomatis menyimpannya ke cache saat pertama dipakai).
