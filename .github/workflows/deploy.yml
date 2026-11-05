@@ -31,6 +31,11 @@ jobs:
           node-version: 20
       # v1.9.0: bangun ulang CSS Tailwind statis + minify app.js
       # (hapus ~100 KB Play CDN render-blocking; hemat ~35% ukuran JS)
+      #
+      # URUTAN PENTING: CSS harus dibangun SEBELUM staging. Versi lama menjalankan
+      # `cp assets/*.css` (staging) lebih dulu, lalu menimpa assets/tailwind.css
+      # hasil build -- jadi CSS yang ter-deploy adalah CSS lama dari repo, dan
+      # setiap kelas baru di index.html/app.js TIDAK pernah ikut terkirim.
       - name: Build CSS statis + minify JS
         run: |
           npm install --no-save tailwindcss@3.4.13 terser@5.39.0 --no-audit --no-fund
@@ -38,6 +43,8 @@ jobs:
           ./node_modules/.bin/terser ./app.js -c -m -o ./app.min.js
           node --check ./app.min.js
           ls -la ./assets/tailwind.css ./app.min.js ./app.js
+      - name: Ukur ukuran ter-deploy
+        run: echo "CSS $(stat -c%s assets/tailwind.css) B | JS $(stat -c%s app.min.js) B"
       # Hanya file yang dibutuhkan browser — tools/, *.md, .github tidak ikut ter-deploy
       - name: Stage deploy files
         run: |

@@ -3,3 +3,8 @@
 .npm/
 .pki/
 Downloads/
+
+# jangan pernah commit dependensi & hasil build
+node_modules/
+app.min.js
+.pages-stage/
