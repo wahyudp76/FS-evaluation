@@ -205,6 +205,31 @@ function cekStatusPasang() {
     out.saran.push('Kemungkinan scope script.external_request belum aktif.');
   }
 
+  // 2b) Bila 403: cari tahu APA yang ditolak Google (bukan menebak)
+  if (out.kodeHTTP_content === 403 && isi) {
+    out.isiError403 = isi.slice(0, 1200);
+    try {
+      var e403 = JSON.parse(isi);
+      out.alasanGoogle = (e403.error && e403.error.message) || '(tidak ada message)';
+      out.statusGoogle = e403.error && e403.error.status;
+      (e403.error && e403.error.details || []).forEach(function (dt) {
+        if (dt.reason && !out.reasonGoogle) out.reasonGoogle = dt.reason;
+        if (dt.metadata && dt.metadata.service) out.layananGoogle = dt.metadata.service;
+      });
+    } catch (e2) { out.alasanGoogle = '(body bukan JSON) ' + isi.slice(0, 200); }
+    // petunjuk tambahan: scriptId yang dipakai vs yang mungkin dimaksud
+    out.petunjuk = '403 di sini berarti Google MENOLAK memakai Apps Script API untuk skrip ini. ' +
+      'Bukan soal token (token ada), bukan soal jaringan. Kemungkinan: (a) sakelar API masih mati pada AKUN Google ini, ' +
+      '(b) scope script.projects belum disetujui untuk skrip ini, (c) skrip ini tidak boleh memanggil API dirinya sendiri.';
+  }
+
+  // 2c) Token mana yang dipakai? (bantu pastikan akun yang benar)
+  try {
+    out.loginEmail = Session.getActiveUser().getEmail() || '(kosong — anonim)';
+    out.effectiveEmail = Session.getEffectiveUser().getEmail() || '(kosong)';
+    out.executionMode = 'tokenLen=' + String(ScriptApp.getOAuthToken() || '').length;
+  } catch (e3) {}
+
   // 3) deployment
   try {
     var d = UrlFetchApp.fetch('https://script.googleapis.com/v1/projects/' + scriptId + '/deployments',
