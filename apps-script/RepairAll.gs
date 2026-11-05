@@ -45,8 +45,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.8',
-  BUILD: 'b9',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.9',
+  BUILD: 'b10',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -144,6 +144,7 @@ function api(req) {
  */
 function lengkap_(build) {
   var perlu = {
+    b10: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA'],
     b9: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG'],
     b8: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS'],
     b7: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU'],
@@ -180,6 +181,8 @@ function sidikFitur_() {
     if (String(scanSheet_).indexOf('out.waktu.loop') >= 0) f.push('RINCIAN_WAKTU');
     if (String(scanSheet_).indexOf('periksaPrasyarat_') >= 0) f.push('PRASYARAT_RUMUS');
     if (String(scanSheet_).indexOf('periksaPrasyarat_(rumusTpl, row, col, sh,') >= 0) f.push('PRASYARAT_BACA_LANGSUNG');
+    // b10: penanda diperiksa di fungsi pemeriksanya sendiri, bukan di scanSheet_.
+    if (String(periksaPrasyarat_).indexOf('bilanganKetat_') >= 0 && String(periksaPrasyarat_).indexOf('bukanAngka') >= 0) f.push('PRASYARAT_ANGKA');
     if (String(buildPlan_).indexOf('waktu') >= 0) f.push('WAKTU');
   } catch (e) { f.push('GAGAL_' + (e && e.message ? e.message.slice(0, 40) : 'unknown')); }
   return f;
@@ -807,16 +810,28 @@ function scanSheet_(sh, sheetName, only) {
         if (!prasyarat.ok) {
           // JANGAN tawarkan perbaikan. Rumus akan menghasilkan angka yang terlihat sah
           // padahal acuannya kosong -> masalah jadi tersembunyi.
-          var daftar = [];
+          var daftar = [], ringkas = [];
           for (var pk = 0; pk < prasyarat.kosong.length; pk++) {
-            daftar.push(prasyarat.kosong[pk].kolom + prasyarat.kosong[pk].baris);
+            ringkas.push(prasyarat.kosong[pk].kolom + prasyarat.kosong[pk].baris);
+            daftar.push(prasyarat.kosong[pk].kolom + prasyarat.kosong[pk].baris + ' masih kosong');
           }
-          if (prasyarat.takTerbaca.length) daftar.push(prasyarat.takTerbaca.join(', ') + ' (gagal dibaca)');
+          if (prasyarat.takTerbaca.length) {
+            ringkas.push(prasyarat.takTerbaca.join(', '));
+            daftar.push(prasyarat.takTerbaca.join(', ') + ' gagal dibaca');
+          }
+          if (prasyarat.bukanAngka.length) {
+            for (var pn = 0; pn < prasyarat.bukanAngka.length; pn++) {
+              var ba = prasyarat.bukanAngka[pn];
+              ringkas.push(ba.kolom + ba.baris);
+              daftar.push(ba.kolom + ba.baris + ' berisi teks "' + ba.nilai + '" padahal harus angka');
+            }
+          }
           out.skipped.push(lewat_(sheetName, row, col, header, huruf, teks,
-            'PRASYARAT BELUM TERISI: sel ' + daftar.join(', ') + ' kosong, padahal rumus pola baris ' +
-            (tpl + 1) + ' membutuhkannya. Bila rumus dipasang sekarang, hasilnya angka yang terlihat sah ' +
-            'tetapi tidak berdasar (sel kosong dianggap 0 oleh Google Sheets) dan masalahnya justru tersembunyi. ' +
-            'Lengkapi dulu ' + daftar.join(', ') + '.'));
+            'PRASYARAT TIDAK SIAP: ' + daftar.join('; ') + '. Rumus pola baris ' +
+            (tpl + 1) + ' membutuhkannya, jadi rumus tidak bisa dipasang sekarang. Bila tetap dipasang, hasilnya angka yang terlihat sah ' +
+            'tetapi tidak berdasar dan masalahnya justru tersembunyi: sel kosong dianggap 0, dan bila isinya teks ' +
+            'rumusnya error lalu ditelan iferror menjadi sel kosong lagi. ' +
+            'Lengkapi dulu ' + ringkas.join(', ') + ' dengan angka yang benar.'));
           continue;
         }
         out.items.push(item_(sheetName, row, col, header, huruf,
@@ -965,7 +980,11 @@ function jejakTeks_(prasyarat) {
   var j = prasyarat.jejak || [];
   var potong = [];
   for (var i = 0; i < j.length; i++) {
-    potong.push(j[i].sel + '=' + (j[i].nilai === '' ? '(kosong)' : j[i].nilai));
+    var v = j[i].nilai === '' ? '(kosong)' : j[i].nilai;
+    if (j[i].jenis === 'teks-salah') v = v + ' [TEKS, bukan angka]';
+    else if (j[i].jenis === 'angka') v = v + ' [angka]';
+    else if (j[i].jenis === 'kosong') v = '(kosong)';
+    potong.push(j[i].sel + '=' + v);
   }
   return '(' + prasyarat.jumlah + ' sel) ' + potong.join(' | ');
 }
@@ -997,28 +1016,89 @@ function periksaPrasyarat_(rumusA1, barisRumus, kolomRumus, sh, geserBaris) {
     target.push({ r: r, c: c, a1: hurufKolom_(c + 1) + (r + 1) });
   }
 
-  var kosong = [], takTerbaca = [], jejak = [];
+  // b10: sel yang terisi TEKS tidak selalu siap dipakai. Bila rumus memakai sel itu
+  // sebagai angka (J152-K152), teks membuat Sheets menghasilkan error; iferror lalu
+  // menelannya menjadi "" sehingga sel tetap kosong dan masalahnya TERSEMBUNYI.
+  // Terjadi nyata: K152 berisi "Tidak Ada Kalibrasi." -> M152/N152 tampak "berhasil".
+  var wajibAngka = rumusButuhAngka_(rumusA1);
+
+  var kosong = [], takTerbaca = [], bukanAngka = [], jejak = [];
   for (var j = 0; j < target.length; j++) {
     var t = target[j], v = undefined, terbaca = false;
     try {
       var satu = sh.getRange(t.a1).getValues();
       if (satu && satu[0]) { v = satu[0][0]; terbaca = true; }
     } catch (e) { terbaca = false; }
-    var tampil = terbaca ? (v === null || v === undefined ? '' : String(v)) : 'GAGAL DIBACA';
-    jejak.push({ sel: t.a1, nilai: tampil });
-    if (!terbaca) { takTerbaca.push(t.a1); continue; }
-    if (v === '' || v === null || v === undefined) {
+    if (!terbaca) {
+      jejak.push({ sel: t.a1, nilai: 'GAGAL DIBACA', jenis: 'gagal' });
+      takTerbaca.push(t.a1);
+      continue;
+    }
+    var hampa = (v === '' || v === null || v === undefined);
+    var angkaOk = !hampa && bilanganKetat_(v);
+    var perluAngka = wajibAngka && !teksBoleh_(rumusA1, t.a1);
+    var jenis = hampa ? 'kosong' : (angkaOk ? 'angka' : 'teks');
+    jejak.push({
+      sel: t.a1,
+      nilai: hampa ? '' : String(v),
+      jenis: (perluAngka && !hampa && !angkaOk) ? 'teks-salah' : jenis
+    });
+    if (hampa) {
       kosong.push({ baris: t.r + 1, kolom: hurufKolom_(t.c + 1) });
+    } else if (perluAngka && !angkaOk) {
+      bukanAngka.push({ baris: t.r + 1, kolom: hurufKolom_(t.c + 1), nilai: String(v) });
     }
   }
 
   return {
-    ok: kosong.length === 0 && takTerbaca.length === 0,
+    ok: kosong.length === 0 && takTerbaca.length === 0 && bukanAngka.length === 0,
     kosong: kosong,
     takTerbaca: takTerbaca,
+    bukanAngka: bukanAngka,
     jumlah: target.length,
     jejak: jejak
   };
+}
+
+/** Apakah rumus ini memakai sel sebagai ANGKA (aritmetika / fungsi numerik)? */
+function rumusButuhAngka_(rumusA1) {
+  var t = String(rumusA1 || '').replace(/"[^"]*"/g, '""');   // buang teks literal
+  if (/[+\-*\/^]/.test(t)) return true;
+  return /\b(SUM|ROUND|ABS|MIN|MAX|AVERAGE|INT|FLOOR|CEILING|MOD|SQRT|POWER|PRODUCT)\s*\(/i.test(t);
+}
+
+/**
+ * Apakah isi sel benar-benar sebuah BILANGAN?
+ * angka_() memakai parseFloat yang memaafkan sampah di belakang ("11*" -> 11),
+ * padahal Google Sheets memperlakukan "11*" sebagai TEKS dan rumusnya error.
+ * Di sini seluruh isi harus berupa angka.
+ */
+function bilanganKetat_(v) {
+  if (typeof v === 'number') return isFinite(v);
+  if (v === null || v === undefined) return false;
+  var s = String(v).trim();
+  if (!s) return false;
+  s = s.replace(/Rp/ig, '').replace(/\s/g, '').replace(/%$/, '');
+  if (!/^-?[\d.,]+$/.test(s)) return false;      // hanya digit, titik, koma
+  if (!/\d/.test(s)) return false;
+  return isFinite(angka_(s));
+}
+
+/**
+ * Apakah sel ini khusus dipakai sebagai TEKS (dirangkai dengan & atau masuk fungsi teks)?
+ * Kalau ya, isinya boleh teks dan tidak perlu angka.
+ */
+function teksBoleh_(rumusA1, a1) {
+  var t = String(rumusA1 || '').replace(/"[^"]*"/g, '""');
+  var re = /\$?([A-Z]{1,3})\$?(\d{1,7})/g, m;
+  var cari = String(a1).replace(/\$/g, '').toUpperCase();
+  while ((m = re.exec(t)) !== null) {
+    if (String(m[0]).replace(/\$/g, '').toUpperCase() !== cari) continue;
+    var sblm = t.slice(0, m.index).replace(/\s+$/, '');
+    var sdhd = t.slice(m.index + m[0].length).replace(/^\s+/, '');
+    if (sblm.slice(-1) === '&' || sdhd.slice(0, 1) === '&') return true;   // dirangkai, bukan dihitung
+  }
+  return false;
 }
 
 function hitungTurunan_(rule, values, row, cJenis, computed) {
