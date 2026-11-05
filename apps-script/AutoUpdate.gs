@@ -139,3 +139,82 @@ function pasangRepairTerbaru() {
     ' dan deployment sudah diarahkan ke versi itu. Muat ulang /exec?action=ping untuk memastikan build terbaru.';
   return hasil;
 }
+
+/**
+ * PEMERIKSA MANDIRI — jalankan ini DULU sebelum pasangRepairTerbaru.
+ * Menjawab 4 pertanyaan tanpa mengubah apa pun:
+ *   1. Apakah Apps Script API aktif?   (prasyarat paling sering terlewat)
+ *   2. Apakah manifest sudah memuat oauthScopes?
+ *   3. Apakah scriptId & deployment Web App terbaca?
+ *   4. Apakah RepairAll.gs di proyek ini sudah versi terbaru?
+ */
+function cekStatusPasang() {
+  var out = { langkah: [], masalah: [], saran: [] };
+  var scriptId = UPD.SCRIPT_ID_OVERRIDE || ScriptApp.getScriptId();
+  out.scriptId = scriptId;
+
+  // 1) izin dasar
+  try {
+    var token = ScriptApp.getOAuthToken();
+    out.langkah.push('token OAuth: ' + (token ? 'OK (' + token.length + ' karakter)' : 'KOSONG'));
+    if (!token) out.masalah.push('Token OAuth kosong.');
+  } catch (e) { out.masalah.push('getOAuthToken gagal: ' + e.message); }
+
+  // 2) Apps Script API aktif?
+  var isi = '';
+  try {
+    var r = UrlFetchApp.fetch('https://script.googleapis.com/v1/projects/' + scriptId + '/content',
+      { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    out.kodeHTTP_content = r.getResponseCode();
+    isi = r.getContentText();
+    if (r.getResponseCode() === 200) {
+      var j = JSON.parse(isi);
+      out.jumlahFile = (j.files || []).length;
+      out.langkah.push('baca isi proyek: OK, ' + out.jumlahFile + ' file');
+      var ra = null;
+      (j.files || []).forEach(function (f) { if (f.name === 'RepairAll') ra = f; });
+      if (ra && ra.source) {
+        out.repairAllBytes = ra.source.length;
+        out.repairAllPunyaDiagnosa = ra.source.indexOf('function diagnosa_') >= 0;
+        out.repairAllBuild = (ra.source.match(/BUILD:\s*'(b[0-9]+)'/) || [])[1] || '(tidak terbaca)';
+        out.langkah.push('RepairAll.gs di proyek: ' + out.repairAllBytes + ' byte, build ' + out.repairAllBuild +
+          ', diagnosa: ' + (out.repairAllPunyaDiagnosa ? 'ADA' : 'TIDAK ADA'));
+      } else {
+        out.masalah.push('File RepairAll.gs tidak ditemukan di proyek.');
+      }
+    } else if (r.getResponseCode() === 403) {
+      out.masalah.push('HTTP 403 — Apps Script API belum aktif ATAU scope script.projects belum disetujui.');
+      out.saran.push('Buka https://script.google.com/home/usersettings lalu AKTIFKAN "Google Apps Script API".');
+      out.saran.push('Pastikan appsscript.json memuat oauthScopes script.projects + script.deployments, simpan, lalu jalankan ulang.');
+      out.cuplikanError = isi.slice(0, 300);
+    } else {
+      out.masalah.push('HTTP ' + r.getResponseCode() + ': ' + isi.slice(0, 200));
+    }
+  } catch (e) {
+    out.masalah.push('Panggilan API gagal total: ' + e.message);
+    out.saran.push('Kemungkinan scope script.external_request belum aktif.');
+  }
+
+  // 3) deployment
+  try {
+    var d = UrlFetchApp.fetch('https://script.googleapis.com/v1/projects/' + scriptId + '/deployments',
+      { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    out.kodeHTTP_deployments = d.getResponseCode();
+    if (d.getResponseCode() === 200) {
+      var dj = JSON.parse(d.getContentText());
+      out.deployments = (dj.deployments || []).map(function (x) {
+        var url = '';
+        (x.entryPoints || []).forEach(function (ep) {
+          if (ep.entryPointType === 'WEB_APP' && ep.webApp) url = ep.webApp.url || '';
+        });
+        return { id: x.deploymentId, versi: x.deploymentConfig && x.deploymentConfig.versionNumber, url: url };
+      });
+      out.langkah.push('deployment terbaca: ' + out.deployments.length);
+    }
+  } catch (e) { out.masalah.push('baca deployment gagal: ' + e.message); }
+
+  out.kesimpulan = out.masalah.length === 0
+    ? 'Semua prasyarat siap. Jalankan pasangRepairTerbaru().'
+    : 'Ada ' + out.masalah.length + ' masalah — lihat daftar masalah & saran.';
+  return out;
+}
