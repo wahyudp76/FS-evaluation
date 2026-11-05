@@ -45,8 +45,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.5',
-  BUILD: 'b6',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.6',
+  BUILD: 'b7',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -144,6 +144,7 @@ function api(req) {
  */
 function lengkap_(build) {
   var perlu = {
+    b7: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU'],
     b6: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU'],
     b5: ['DIAGNOSA', 'SATU_BUKA', 'PREVIEW_WAKTU', 'WAKTU']
   }[String(build || '')] || null;
@@ -174,6 +175,7 @@ function sidikFitur_() {
     if (String(scanSheet_).indexOf('galatLuarIdx') >= 0) f.push('GALAT_LUAR_SAMPEL');
     if (String(scanSheet_).indexOf('numTotal / terisi') >= 0) f.push('ISNUM_DARI_NILAI');
     if (String(preview_).indexOf('plan.waktu') >= 0) f.push('PREVIEW_WAKTU');
+    if (String(scanSheet_).indexOf('out.waktu.loop') >= 0) f.push('RINCIAN_WAKTU');
     if (String(buildPlan_).indexOf('waktu') >= 0) f.push('WAKTU');
   } catch (e) { f.push('GAGAL_' + (e && e.message ? e.message.slice(0, 40) : 'unknown')); }
   return f;
@@ -482,7 +484,7 @@ function buildPlan_(keys) {
   var t0 = Date.now();
   var ss = SpreadsheetApp.openById(CFG.SPREADSHEET_ID);   // dibuka SEKALI (dulu 2x untuk preview)
   var tBuka = Date.now() - t0;
-  var items = [], skipped = [], tScan = 0;
+  var items = [], skipped = [], tScan = 0, hasilWaktu = {};
 
   CFG.SHEETS.forEach(function (name) {
     var sh = ss.getSheetByName(name);
@@ -493,6 +495,7 @@ function buildPlan_(keys) {
     var ts = Date.now();
     var res = scanSheet_(sh, name, only);
     tScan += Date.now() - ts;
+    (hasilWaktu[name] = res.waktu || {});
     items = items.concat(res.items);
     skipped = skipped.concat(res.skipped);
   });
@@ -507,7 +510,7 @@ function buildPlan_(keys) {
   // Waktu ini membantu mendiagnosis lambatnya Apps Script (batas platform, bukan bug).
   return {
     items: items, skipped: skipped, spreadsheet: nama,
-    waktu: { buka: tBuka, scan: tScan, total: Date.now() - t0 }
+    waktu: { buka: tBuka, scan: tScan, total: Date.now() - t0, perSheet: hasilWaktu }
   };
 }
 
@@ -539,7 +542,8 @@ function pindaiGalat(sh, nRow, nCol, kolomTarget) {
 }
 
 function scanSheet_(sh, sheetName, only) {
-  var out = { items: [], skipped: [] };
+  var out = { items: [], skipped: [], waktu: {} };
+  var T0 = Date.now();
   var lastRow = sh.getLastRow();
   var lastCol = sh.getLastColumn();
   if (lastRow < 2 || lastCol < 1) return out;
@@ -559,15 +563,19 @@ function scanSheet_(sh, sheetName, only) {
   var blokAkhir = Math.min(SAMPEL, lastRow - SAMPEL);
 
   // Header dibaca bersama sampel (1 panggilan). nRow = lastRow: nomor baris sheet tetap akurat.
+  var _t = Date.now();
   var sampelAwal = sh.getRange(1, 1, SAMPEL, lastCol).getValues();
+  out.waktu.sampelAwal = Date.now() - _t; _t = Date.now();
   var headers = sampelAwal[0].map(function (v) { return String(v == null ? '' : v).trim(); });
   var nCol = headers.length, nRow = lastRow;
 
   // Blok terakhir: menangkap data yang baru diisi di bawah (baris baru = tempat error paling sering)
   var sampelAkhir = blokAkhir > 0 ? sh.getRange(lastRow - blokAkhir + 1, 1, blokAkhir, nCol).getValues() : [];
+  out.waktu.sampelAkhir = Date.now() - _t; _t = Date.now();
 
   // Pola rumus: hanya sampel (165 ms vs 5.481 ms untuk seluruh sheet)
   var rumusSampel = sh.getRange(1, 1, SAMPEL, nCol).getFormulas();
+  out.waktu.rumusSampel = Date.now() - _t; _t = Date.now();
 
   // Nilai & rumus per indeks baris (0 = header). Baris di luar sampel tidak dimasukkan ->
   // loop akan melewatinya lewat adaData[] = false.
@@ -594,6 +602,7 @@ function scanSheet_(sh, sheetName, only) {
     // membaca 39 kolom penuh. Nilainya disimpan ke values[] agar aturan [4] tetap bekerja.
     var dasar2 = Math.min(cWil, cLok);
     var duaKol = sh.getRange(2, dasar2 + 1, lastRow - 1, Math.abs(cWil - cLok) + 1).getValues();
+    out.waktu.duaKolom = Date.now() - _t; _t = Date.now();
     for (var rw2 = 1; rw2 < nRow; rw2++) {
       var barisDua = duaKol[rw2 - 1];
       if (!barisDua) continue;
@@ -629,6 +638,12 @@ function scanSheet_(sh, sheetName, only) {
 
   var rules = aturanTurunan_(headers);
 
+  // ===== b6a: lewati kolom yang tidak punya urusan sama sekali =====
+  // Pengukuran b6 (Index Solar 151 baris x 39 kolom) menunjukkan loop memindai 5.889 sel
+  // kosong tanpa hasil. Kolom yang di sampel tidak punya rumus DAN tidak punya nilai DAN
+  // bukan kolom di luar sampel (Wilayah/Lokasi) tidak mungkin menghasilkan item.
+  var kolomPenting = {};
+
   // ===== b6: sel error DI LUAR blok sampel =====
   // Tanpa ini, sel error pada baris 301..17.557 akan terlewat. Dipindai per kolom berblok
   // 2.000 sel: hanya kolom yang mungkin bermasalah (kolom rumus + kolom yang punya aturan
@@ -640,7 +655,23 @@ function scanSheet_(sh, sheetName, only) {
     if (cWil >= 0) tandai[cWil] = true;
     for (var cc = 0; cc < nCol; cc++) if (isFormulaCol[cc] || tandai[cc]) kolomPindai.push(cc);
   })();
+  // Kolom penting = punya rumus di sampel, atau punya nilai di sampel, atau target aturan,
+  // atau kolom Wilayah/Lokasi (yang datanya dibaca di luar sampel).
+  for (var kp2 = 0; kp2 < nCol; kp2++) {
+    var punyaRumus = false, punyaNilai = false;
+    for (var rr = 1; rr < Math.min(sampelAwal.length, nRow); rr++) {
+      var fr = formulas[rr], vr = values[rr];
+      if (fr && fr[kp2] !== '' && fr[kp2] != null) { punyaRumus = true; break; }
+      if (vr && vr[kp2] !== '' && vr[kp2] != null) { punyaNilai = true; }
+    }
+    var targetAturan = false;
+    for (var ka = 0; ka < rules.length; ka++) if (rules[ka].target === kp2) { targetAturan = true; break; }
+    var luarSampel = (kp2 === cWil || kp2 === cLok);
+    kolomPenting[kp2] = punyaRumus || punyaNilai || targetAturan || luarSampel;
+  }
+
   var galatLuar = pindaiGalat(sh, nRow, nCol, kolomPindai);
+  out.waktu.pindaiGalat = Date.now() - _t; _t = Date.now();
   // Sisipkan sebagai baris semu: nilai error ditaruh di values[] agar loop memperlakukannya
   // sama seperti error yang ditemukan di sampel, tetapi TIDAK dihitung sebagai "baris berdata"
   // (adaData tetap dari sampel) -- item tetap dibuat karena nilainya error.
@@ -710,8 +741,14 @@ function scanSheet_(sh, sheetName, only) {
     adaGalatLuar = true;
   }
 
+  out.waktu.persiapan = Date.now() - T0 - (out.waktu.sampelAwal || 0) - (out.waktu.sampelAkhir || 0)
+    - (out.waktu.rumusSampel || 0) - (out.waktu.duaKolom || 0) - (out.waktu.pindaiGalat || 0);
+  var Tloop = Date.now();
+
   /* --- 3. Pemindaian sel --- */
+  var kolomDilewati = 0;
   for (var col = 0; col < nCol; col++) {
+    if (!kolomPenting[col]) { kolomDilewati++; continue; }
     var header = headers[col] || colLetter_(col + 1);
     var huruf = colLetter_(col + 1);
     var acuanTerakhir = -1;
@@ -807,6 +844,10 @@ function scanSheet_(sh, sheetName, only) {
     }
   }
 
+  out.waktu.loop = Date.now() - Tloop;
+  out.waktu.total = Date.now() - T0;
+  out.waktu.kolomDilewati = kolomDilewati;
+  out.waktu.kolomDipindai = nCol - kolomDilewati;
   return out;
 }
 
