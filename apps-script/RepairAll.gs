@@ -130,12 +130,31 @@ function api(req) {
   return handle_(req || {});
 }
 
+/**
+ * Sidik fitur: membuktikan kode yang BERJALAN (bukan hanya tersimpan) sudah versi terbaru.
+ * Cara pakai: buka .../exec?action=ping lalu bandingkan "fitur" dengan yang diharapkan.
+ * v1.23.3 menambahkan: WAKTU (field waktu pada preview) + SATU_BUKA (1x openById).
+ */
+function sidikFitur_() {
+  var f = [];
+  try {
+    if (typeof buildPlan_ === 'function' &&
+        String(buildPlan_).indexOf('waktu') >= 0) f.push('WAKTU');
+    if (String(scanSheet_).indexOf('adaData[row]') >= 0) f.push('HITUNG_SEKALI');
+    if (String(preview_).indexOf('plan.waktu') >= 0) f.push('PREVIEW_WAKTU');
+    if (String(buildPlan_).indexOf('dibuka SEKALI') >= 0) f.push('SATU_BUKA');
+  } catch (e) {}
+  return f;
+}
+
 function handle_(req) {
   var action = String(req.action || '').toLowerCase();
   try {
     if (action === 'ping') {
       return {
         ok: true, pong: true, version: CFG.VERSION, build: CFG.BUILD,
+        fitur: sidikFitur_(),
+        barisKode: (function () { try { return String(buildPlan_).length; } catch (e) { return 0; } })(),
         time: new Date().toISOString(),
         user: userEmail_(),
         sheets: CFG.SHEETS
