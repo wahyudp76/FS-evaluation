@@ -1,5 +1,5 @@
 /**
- * PG2 Irrigation Dashboard — Layanan Perbaikan Spreadsheet  (v1.23.0)
+ * PG2 Irrigation Dashboard — Layanan Perbaikan Spreadsheet  (v1.23.3)
  * ---------------------------------------------------------------------------
  * Google Apps Script yang terikat pada spreadsheet
  * 1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o, dijalankan sebagai PEMILIK
@@ -44,8 +44,8 @@ var CFG = {
   SPREADSHEET_ID: '1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o',
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
-  VERSION: '1.23.2',
-  BUILD: 'b3',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.3',
+  BUILD: 'b4',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -171,16 +171,16 @@ function userEmail_() {
 
 function preview_(keys) {
   var plan = buildPlan_(keys);
-  var name = '';
-  try { name = SpreadsheetApp.openById(CFG.SPREADSHEET_ID).getName(); } catch (e) {}
   return {
     ok: true,
     action: 'preview',
     version: CFG.VERSION,
-    spreadsheet: name || CFG.SPREADSHEET_ID,
+    build: CFG.BUILD,
+    spreadsheet: plan.spreadsheet || CFG.SPREADSHEET_ID,
     items: plan.items,
     skipped: plan.skipped,
     ringkasan: ringkas_(plan.items, plan.skipped),
+    waktu: plan.waktu || null,
     at: new Date().toISOString()
   };
 }
@@ -347,8 +347,10 @@ function cekThrottle_() {
 
 function buildPlan_(keys) {
   var only = keysToSet_(keys);
-  var ss = SpreadsheetApp.openById(CFG.SPREADSHEET_ID);
-  var items = [], skipped = [];
+  var t0 = Date.now();
+  var ss = SpreadsheetApp.openById(CFG.SPREADSHEET_ID);   // dibuka SEKALI (dulu 2x untuk preview)
+  var tBuka = Date.now() - t0;
+  var items = [], skipped = [], tScan = 0;
 
   CFG.SHEETS.forEach(function (name) {
     var sh = ss.getSheetByName(name);
@@ -356,7 +358,9 @@ function buildPlan_(keys) {
       skipped.push({ kunci: '', sheet: name, alasan: 'Sheet "' + name + '" tidak ditemukan di spreadsheet.' });
       return;
     }
+    var ts = Date.now();
     var res = scanSheet_(sh, name, only);
+    tScan += Date.now() - ts;
     items = items.concat(res.items);
     skipped = skipped.concat(res.skipped);
   });
@@ -366,7 +370,13 @@ function buildPlan_(keys) {
     if (a.baris !== b.baris) return a.baris - b.baris;
     return a.huruf < b.huruf ? -1 : 1;
   });
-  return { items: items, skipped: skipped };
+  var nama = '';
+  try { nama = ss.getName(); } catch (e) {}
+  // Waktu ini membantu mendiagnosis lambatnya Apps Script (batas platform, bukan bug).
+  return {
+    items: items, skipped: skipped, spreadsheet: nama,
+    waktu: { buka: tBuka, scan: tScan, total: Date.now() - t0 }
+  };
 }
 
 function scanSheet_(sh, sheetName, only) {
