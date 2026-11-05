@@ -44,8 +44,8 @@ var CFG = {
   SPREADSHEET_ID: '1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o',
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
-  VERSION: '1.23.3',
-  BUILD: 'b4',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.4',
+  BUILD: 'b5',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -63,7 +63,7 @@ var CFG = {
 function doGet(e) {
   var p = (e && e.parameter) || {};
   var action = String(p.action || '').toLowerCase();
-  if (action === 'ping' || action === 'preview' || action === 'apply') {
+  if (action === 'ping' || action === 'preview' || action === 'apply' || action === 'diagnosa') {
     return jsonOut_(handle_({
       action: action,
       token: p.token,
@@ -147,6 +147,75 @@ function sidikFitur_() {
   return f;
 }
 
+/**
+ * DIAGNOSA PERFORMA (hanya baca, tidak pernah menulis).
+ * Memanggil .../exec?action=diagnosa&token=... akan mengukur biaya tiap operasi
+ * Google Sheets secara terpisah, supaya jelas bagian mana yang makan 20+ detik.
+ */
+function diagnosa_() {
+  var hasil = { ok: true, action: 'diagnosa', build: CFG.BUILD, langkah: [] };
+  function ukur(nama, fn) {
+    var t = Date.now();
+    var val = null, err = null;
+    try { val = fn(); } catch (e) { err = (e && e.message) ? e.message : String(e); }
+    hasil.langkah.push({ nama: nama, ms: Date.now() - t, err: err });
+    return val;
+  }
+
+  var ss = ukur('openById', function () { return SpreadsheetApp.openById(CFG.SPREADSHEET_ID); });
+  var sh = ukur('getSheetByName(ZPAS637)', function () { return ss.getSheetByName('ZPAS637'); });
+  if (!sh) { hasil.ok = false; hasil.error = 'Sheet ZPAS637 tidak ditemukan'; return hasil; }
+
+  var lastRow = ukur('getLastRow', function () { return sh.getLastRow(); }) || 0;
+  var lastCol = ukur('getLastColumn', function () { return sh.getLastColumn(); }) || 0;
+  hasil.dimensi = { baris: lastRow, kolom: lastCol, sel: lastRow * lastCol };
+
+  // 1) getValues() seluruh rentang
+  var values = ukur('getValues (seluruh ' + (lastRow * lastCol) + ' sel)', function () {
+    return sh.getRange(1, 1, lastRow, lastCol).getValues();
+  });
+
+  // 2) getFormulas() seluruh rentang
+  var formulas = ukur('getFormulas (seluruh rentang)', function () {
+    return sh.getRange(1, 1, lastRow, lastCol).getFormulas();
+  });
+
+  // 3) berapa kolom yang benar-benar berisi rumus (informasi >0 berarti range berumus)
+  var kolomRumus = 0, selRumus = 0;
+  if (formulas) {
+    for (var c = 0; c < lastCol; c++) {
+      var ada = false;
+      for (var r = 1; r < formulas.length; r++) { if (formulas[r][c] !== '') { ada = true; selRumus++; } }
+      if (ada) kolomRumus++;
+    }
+  }
+  hasil.kolomRumus = kolomRumus;
+  hasil.selRumus = selRumus;
+
+  // 4) getFormulas() hanya pada sampel kecil (200 baris) -> untuk deteksi pola murah
+  ukur('getFormulas (sampel 200 baris)', function () {
+    return sh.getRange(1, 1, Math.min(200, lastRow), lastCol).getFormulas();
+  });
+
+  // 5) getValues() per kolom (39 panggilan) -> pembanding biaya round-trip
+  ukur('getValues per kolom (' + lastCol + ' panggilan)', function () {
+    var total = 0;
+    for (var i = 1; i <= lastCol; i++) total += sh.getRange(2, i, lastRow - 1, 1).getValues().length;
+    return total;
+  });
+
+  // 6) biaya logika aturan saja (tanpa baca Sheets) memakai data yang sudah ada
+  if (values && formulas) {
+    var dummy = { name: 'ZPAS637', getLastRow: function () { return lastRow; }, getLastColumn: function () { return lastCol; },
+      getRange: function () { return { getValues: function () { return values; }, getFormulas: function () { return formulas; } }; } };
+    ukur('LOGIKA scanSheet_ (data sudah di memori)', function () { return scanSheet_(dummy, 'ZPAS637', null); });
+  }
+
+  hasil.totalMs = 0;
+  for (var k = 0; k < hasil.langkah.length; k++) hasil.totalMs += hasil.langkah[k].ms;
+  return hasil;
+}
+
 function handle_(req) {
   var action = String(req.action || '').toLowerCase();
   try {
@@ -160,6 +229,7 @@ function handle_(req) {
         sheets: CFG.SHEETS
       };
     }
+    if (action === 'diagnosa') return diagnosa_();   // hanya baca, tidak pernah menulis -> tidak perlu token
     if (String(req.token || '') !== CFG.TOKEN) {
       return {
         ok: false,
