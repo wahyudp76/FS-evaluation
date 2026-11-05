@@ -45,8 +45,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.6',
-  BUILD: 'b7',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.7',
+  BUILD: 'b8',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -144,6 +144,7 @@ function api(req) {
  */
 function lengkap_(build) {
   var perlu = {
+    b8: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS'],
     b7: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU'],
     b6: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU'],
     b5: ['DIAGNOSA', 'SATU_BUKA', 'PREVIEW_WAKTU', 'WAKTU']
@@ -176,6 +177,7 @@ function sidikFitur_() {
     if (String(scanSheet_).indexOf('numTotal / terisi') >= 0) f.push('ISNUM_DARI_NILAI');
     if (String(preview_).indexOf('plan.waktu') >= 0) f.push('PREVIEW_WAKTU');
     if (String(scanSheet_).indexOf('out.waktu.loop') >= 0) f.push('RINCIAN_WAKTU');
+    if (String(scanSheet_).indexOf('periksaPrasyarat_') >= 0) f.push('PRASYARAT_RUMUS');
     if (String(buildPlan_).indexOf('waktu') >= 0) f.push('WAKTU');
   } catch (e) { f.push('GAGAL_' + (e && e.message ? e.message.slice(0, 40) : 'unknown')); }
   return f;
@@ -780,12 +782,57 @@ function scanSheet_(sh, sheetName, only) {
         if (tpl === row) tpl = firstF[col] === row ? -1 : firstF[col];
       }
 
-      /* [1] & [2] kolom rumus -> tulis ulang rumus */
+      /* [1] & [2] kolom rumus -> tulis ulang rumus, SETELAH prasyarat diperiksa (b8) */
       if ((kosong || error) && tpl >= 0) {
+        var rumusTpl = formulas[tpl][col];
+        var prasyarat;
+        if (values[row] && values[tpl]) {
+          prasyarat = periksaPrasyarat_(rumusTpl, row, col, values, formulas, row - tpl);
+        } else {
+          // Baris di luar blok sampel: nilainya belum ada di memori. Jangan menebak --
+          // baca dulu satu blok kecil (baris ini s.d. baris template) agar prasyarat
+          // benar-benar diperiksa. Ini yang mencegah 'lolos tanpa diperiksa'.
+          var dari = Math.min(row, tpl), sampai = Math.max(row, tpl);
+          var blokKecil = sh.getRange(dari + 1, 1, sampai - dari + 1, nCol).getValues();
+          var blokRumus = sh.getRange(dari + 1, 1, sampai - dari + 1, nCol).getFormulas();
+          var vTmp = [], fTmp = [];
+          for (var bi = 0; bi < blokKecil.length; bi++) { vTmp[dari + bi] = blokKecil[bi]; fTmp[dari + bi] = blokRumus[bi]; }
+          var adaDiMemori = !!(values[row] && values[tpl]);
+          if (!adaDiMemori) {
+            // pakai nilai asli untuk baris & template, sisanya (prasyarat) dari blok kecil
+            vTmp[row] = blokKecil[row - dari];
+            fTmp[row] = blokRumus[row - dari];
+          }
+          // periksaPrasyarat_ mengakses values[r]; siapkan penggabungan sederhana
+          var gabung = function (a, b) {
+            return {
+              cek: function (r) { return (b[r] !== undefined) ? b[r] : a[r]; }
+            };
+          };
+          var vG = gabung(values, vTmp), fG = gabung(formulas, fTmp);
+          var vProxy = [], fProxy = [];
+          for (var px = 0; px < nRow; px++) { vProxy[px] = vG.cek(px); fProxy[px] = fG.cek(px); }
+          prasyarat = periksaPrasyarat_(rumusTpl, row, col, vProxy, fProxy, row - tpl);
+          prasyarat.dibacaLangsung = true;
+        }
+        if (!prasyarat.ok) {
+          // JANGAN tawarkan perbaikan. Rumus akan menghasilkan angka yang terlihat sah
+          // padahal acuannya kosong -> masalah jadi tersembunyi.
+          var daftar = [];
+          for (var pk = 0; pk < prasyarat.kosong.length; pk++) {
+            daftar.push(prasyarat.kosong[pk].kolom + prasyarat.kosong[pk].baris);
+          }
+          out.skipped.push(lewat_(sheetName, row, col, header, huruf, teks,
+            'PRASYARAT BELUM TERISI: sel ' + daftar.join(', ') + ' kosong, padahal rumus pola baris ' +
+            (tpl + 1) + ' membutuhkannya. Bila rumus dipasang sekarang, hasilnya angka yang terlihat sah ' +
+            'tetapi tidak berdasar (sel kosong dianggap 0 oleh Google Sheets) dan masalahnya justru tersembunyi. ' +
+            'Lengkapi dulu ' + daftar.join(', ') + '.'));
+          continue;
+        }
         out.items.push(item_(sheetName, row, col, header, huruf,
           error ? 'error' : 'rumus', teks, '', 'formula',
-          rumusPratinjau_(formulas[tpl][col], row - tpl),
-          'Acuan: rumus baris ' + (tpl + 1) + '.',
+          rumusPratinjau_(rumusTpl, row - tpl),
+          'Acuan: rumus baris ' + (tpl + 1) + '. Prasyarat terisi (' + prasyarat.jumlahRujukan + ' sel).',
           (error ? 'Sel error' : 'Sel kosong pada kolom rumus') +
           '. Ditulis ulang memakai pola rumus baris ' + (tpl + 1) + '.',
           tpl + 1));
@@ -889,6 +936,69 @@ function aturanTurunan_(headers) {
   }
   void totOper;
   return rules;
+}
+
+
+/**
+ * b8: PRASYARAT RUMUS.
+ * Rumus tidak otomatis aman. Contoh nyata di sheet Index Solar baris 152:
+ *   M152 = iferror(J152-K152)     dengan K152 (Kalibrasi) KOSONG
+ * Google Sheets menganggap sel kosong = 0, sehingga M152 = 11 (bukan error).
+ * Lalu L152 = if(M152>0;"Boros";"Hemat") -> "Boros", dan N152 -> "11 Liter".
+ * Tiga nilai palsu yang terlihat sah, dan masalahnya jadi TERSEMBUNYIKAN.
+ * Karena itu setiap rumus diperiksa dulu: kalau ada sel acuan yang kosong,
+ * perbaikan TIDAK ditawarkan, melainkan dilaporkan sebagai "perlu dilengkapi".
+ */
+
+/** Ambil rujukan A1 ("J152", "$K$152") dari sebuah rumus, sebagai indeks 0-based. */
+function rujukanRumus_(rumusA1) {
+  var out = [];
+  if (!rumusA1) return out;
+  // Buang isi string literal dulu, supaya teks seperti "Boros"/"Liter" tidak dianggap sel.
+  var t = String(rumusA1).replace(/"[^"]*"/g, '""');
+  var re = /\$?([A-Z]{1,3})\$?(\d{1,7})/g, m;
+  while ((m = re.exec(t)) !== null) {
+    out.push({ baris: parseInt(m[2], 10) - 1, kolom: colToNum_(m[1]) - 1 });
+  }
+  return out;
+}
+
+/** Nomor kolom (1-based) -> huruf. */
+function hurufKolom_(n) {
+  var s = '';
+  while (n > 0) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+
+/**
+ * Periksa apakah semua sel acuan rumus terisi. Kembalikan { ok, kosong: [...], jumlah }.
+ * 'kosong' berisi sel yang belum siap: kosong, atau rumus yang menghasilkan string kosong.
+ */
+function periksaPrasyarat_(rumusA1, barisRumus, kolomRumus, values, formulas, geserBaris) {
+  var delta = geserBaris || 0;   // rumus template digeser sebesar ini saat ditulis ke baris tujuan
+  var ruj = rujukanRumus_(rumusA1);
+  var kosong = [];
+  var dilihat = {};
+  for (var i = 0; i < ruj.length; i++) {
+    var r = ruj[i].baris + delta, c = ruj[i].kolom;      // 0-based, sudah digeser
+    if (!(r >= 0) || !(c >= 0)) continue;
+    if (r === barisRumus && c === kolomRumus) continue;   // rujukan ke diri sendiri
+    var kunci = r + '|' + c;
+    if (dilihat[kunci]) continue;
+    dilihat[kunci] = true;
+    var vRow = values[r], fRow = formulas[r];
+    var v = vRow ? vRow[c] : undefined;
+    var f = fRow ? fRow[c] : undefined;
+    var belumSiap = (v === '' || v === null || v === undefined);
+    if (belumSiap) {
+      kosong.push({
+        baris: r + 1,
+        kolom: hurufKolom_(c + 1),
+        rumus: !!(f !== undefined && f !== '' && f !== null)
+      });
+    }
+  }
+  return { ok: kosong.length === 0, kosong: kosong, jumlah: ruj.length };
 }
 
 function hitungTurunan_(rule, values, row, cJenis, computed) {
