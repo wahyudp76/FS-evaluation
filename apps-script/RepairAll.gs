@@ -136,16 +136,57 @@ function api(req) {
  * Cara pakai: buka .../exec?action=ping lalu bandingkan "fitur" dengan yang diharapkan.
  * v1.23.3 menambahkan: WAKTU (field waktu pada preview) + SATU_BUKA (1x openById).
  */
+
+/**
+ * Pemeriksa keutuhan tempelan. Membandingkan fitur yang SEHARUSNYA ada pada build ini
+ * dengan yang benar-benar ditemukan. Kalau tempelan terpotong, daftar 'hilang' akan
+ * menunjukkan bagian mana yang tidak masuk.
+ */
+function lengkap_(build) {
+  var perlu = {
+    b6: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU'],
+    b5: ['DIAGNOSA', 'SATU_BUKA', 'PREVIEW_WAKTU', 'WAKTU']
+  }[String(build || '')] || null;
+  if (!perlu) return { ok: true, catatan: 'build tidak dikenal, pemeriksaan dilewati' };
+  var ada = sidikFitur_();
+  var hilang = [];
+  for (var i = 0; i < perlu.length; i++) if (ada.indexOf(perlu[i]) < 0) hilang.push(perlu[i]);
+  return {
+    ok: hilang.length === 0,
+    fiturAda: ada,
+    hilang: hilang,
+    pesan: hilang.length === 0
+      ? 'Kode lengkap untuk ' + build + '.'
+      : 'TEMPELAN TERPOTONG — ' + hilang.length + ' bagian tidak ada: ' + hilang.join(', ') +
+        '. Tempel ulang SELURUH isi RepairAll.gs.'
+  };
+}
+
 function sidikFitur_() {
   var f = [];
   try {
-    if (typeof buildPlan_ === 'function' &&
-        String(buildPlan_).indexOf('waktu') >= 0) f.push('WAKTU');
-    if (String(scanSheet_).indexOf('adaData[row]') >= 0) f.push('HITUNG_SEKALI');
-    if (String(preview_).indexOf('plan.waktu') >= 0) f.push('PREVIEW_WAKTU');
+    // Fitur diperiksa dari ISI FUNGSI yang benar-benar berjalan, bukan dari variabel versi.
+    // Tempelan yang terpotong tidak akan lolos pemeriksaan ini.
+    if (typeof diagnosa_ === 'function') f.push('DIAGNOSA');
     if (String(buildPlan_).indexOf('dibuka SEKALI') >= 0) f.push('SATU_BUKA');
-  } catch (e) {}
+    if (String(scanSheet_).indexOf('CFG.SAMPEL_BARIS') >= 0) f.push('SAMPEL');
+    if (typeof pindaiGalat === 'function') f.push('PINDAI_GALAT');
+    if (String(scanSheet_).indexOf('galatLuarIdx') >= 0) f.push('GALAT_LUAR_SAMPEL');
+    if (String(scanSheet_).indexOf('numTotal / terisi') >= 0) f.push('ISNUM_DARI_NILAI');
+    if (String(preview_).indexOf('plan.waktu') >= 0) f.push('PREVIEW_WAKTU');
+    if (String(buildPlan_).indexOf('waktu') >= 0) f.push('WAKTU');
+  } catch (e) { f.push('GAGAL_' + (e && e.message ? e.message.slice(0, 40) : 'unknown')); }
   return f;
+}
+
+/** Jumlah baris & penanda penutup: mendeteksi tempelan yang terpotong. */
+function ukuranKode_() {
+  var out = { baris: 0, tulis: false };
+  try {
+    var src = String(scanSheet_) + String(buildPlan_) + String(preview_) + String(apply_) + String(diagnosa_);
+    out.baris = src.split('\n').length;
+  } catch (e) {}
+  return out;
 }
 
 /**
@@ -224,6 +265,7 @@ function handle_(req) {
       return {
         ok: true, pong: true, version: CFG.VERSION, build: CFG.BUILD,
         fitur: sidikFitur_(),
+        lengkap: lengkap_(CFG.BUILD),
         barisKode: (function () { try { return String(buildPlan_).length; } catch (e) { return 0; } })(),
         time: new Date().toISOString(),
         user: userEmail_(),
