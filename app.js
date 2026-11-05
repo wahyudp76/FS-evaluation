@@ -6235,32 +6235,54 @@ function repairUrl(aksi) {
   return REPAIR_ENDPOINT + (REPAIR_ENDPOINT.indexOf('?') === -1 ? '?' : '&') + 'action=' + aksi;
 }
 
-/** POST JSON; bila Apps Script menolak (CORS/redirect), jatuh ke GET. */
-async function panggilRepair(aksi, keys) {
-  const body = { action: aksi, token: REPAIR_TOKEN };
-  if (keys && keys.length) body.keys = keys;
+/**
+ * Alamat GET dengan token di QUERY STRING.
+ * b10: POST ke Apps Script dibalas 302 ke script.googleusercontent.com. Body POST tidak
+ * selalu ikut melewati redirect -> token dan action HILANG, dan server menjawab
+ * "Permintaan tidak membawa token". Parameter di URL tidak mengalami masalah ini.
+ */
+function repairUrlGet(aksi, keys) {
+  const q = new URLSearchParams({ action: aksi, token: REPAIR_TOKEN });
+  if (keys && keys.length) q.set('keys', keys.join('|'));
+  return REPAIR_ENDPOINT + '?' + q.toString();
+}
 
+/** Panggil Apps Script. Baca-saja memakai GET dulu; tulis (apply) memakai POST dulu. */
+async function panggilRepair(aksi, keys) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REPAIR_TIMEOUT_MS);
-  try {
-    const res = await fetch(repairUrl(aksi), {
+
+  const viaGet = () => fetch(repairUrlGet(aksi, keys), {
+    method: 'GET', redirect: 'follow', cache: 'no-store', signal: ctrl.signal
+  }).then(bacaJsonRepair);
+
+  const viaPost = () => {
+    const body = { action: aksi, token: REPAIR_TOKEN };
+    if (keys && keys.length) body.keys = keys;
+    return fetch(repairUrl(aksi), {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // hindari preflight CORS
       body: JSON.stringify(body),
       redirect: 'follow',
       signal: ctrl.signal
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return await bacaJsonRepair(res);
-  } catch (err) {
-    // Fallback GET: parameter di query string, tanpa preflight.
-    const q = new URLSearchParams({ action: aksi, token: REPAIR_TOKEN });
-    if (keys && keys.length) q.set('keys', keys.join('|'));
-    const res2 = await fetch(REPAIR_ENDPOINT + '?' + q.toString(), {
-      method: 'GET', redirect: 'follow', cache: 'no-store', signal: ctrl.signal
-    });
-    if (!res2.ok) throw new Error('HTTP ' + res2.status);
-    return await bacaJsonRepair(res2);
+    }).then(bacaJsonRepair);
+  };
+
+  const tokenHilang = (d) => !!(d && d.ok === false && /tidak membawa token|Token tidak cocok/i.test(String(d.error || '')));
+
+  try {
+    if (aksi === 'apply') {
+      // Menulis: POST dulu (GET bisa di-prefetch proxy). Bila token hilang -> ulangi GET.
+      try {
+        const d = await viaPost();
+        return tokenHilang(d) ? await viaGet() : d;
+      } catch (e) { return await viaGet(); }
+    }
+    // Baca saja: GET dulu -- paling andal, tidak bergantung pada body melewati redirect.
+    try {
+      const d = await viaGet();
+      return tokenHilang(d) ? await viaPost() : d;
+    } catch (e) { return await viaPost(); }
   } finally {
     clearTimeout(timer);
   }
