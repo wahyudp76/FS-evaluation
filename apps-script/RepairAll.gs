@@ -44,8 +44,8 @@ var CFG = {
   SPREADSHEET_ID: '1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o',
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
-  VERSION: '1.23.0',
-  BUILD: 'b2',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.2',
+  BUILD: 'b3',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -403,8 +403,15 @@ function scanSheet_(sh, sheetName, only) {
   var isNum = new Array(nCol), isFormulaCol = new Array(nCol);
   var firstF = new Array(nCol);
   var barisBerdata = 0;
-  var r0;
-  for (r0 = 1; r0 < nRow; r0++) if (barisAdaData_(values[r0])) barisBerdata++;
+  // v1.23.2 (performa): status "baris ada data" dihitung SEKALI.
+  // Dulu barisAdaData_() dipanggil di dalam loop kolom x baris = 39 x 17.856 = 696.384
+  // panggilan, masing-masing memindai 39 sel -> ~27 juta operasi per preview/apply.
+  var adaData = new Array(nRow);
+  for (var r0 = 1; r0 < nRow; r0++) {
+    var ad = barisAdaData_(values[r0]);
+    adaData[r0] = ad;
+    if (ad) barisBerdata++;
+  }
 
   var ambangRumus = Math.max(CFG.FORMULA_MIN, Math.floor(barisBerdata * CFG.FORMULA_RATIO));
 
@@ -443,7 +450,7 @@ function scanSheet_(sh, sheetName, only) {
 
     for (var row = 1; row < nRow; row++) {
       if (formulas[row][col] !== '') { acuanTerakhir = row; continue; }
-      if (!barisAdaData_(values[row])) continue;
+      if (!adaData[row]) continue;
 
       var nilai = values[row][col];
       var kosong = (nilai === '' || nilai === null || nilai === undefined);
