@@ -45,8 +45,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.7',
-  BUILD: 'b8',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.8',
+  BUILD: 'b9',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -144,6 +144,7 @@ function api(req) {
  */
 function lengkap_(build) {
   var perlu = {
+    b9: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG'],
     b8: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS'],
     b7: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU'],
     b6: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU'],
@@ -178,6 +179,7 @@ function sidikFitur_() {
     if (String(preview_).indexOf('plan.waktu') >= 0) f.push('PREVIEW_WAKTU');
     if (String(scanSheet_).indexOf('out.waktu.loop') >= 0) f.push('RINCIAN_WAKTU');
     if (String(scanSheet_).indexOf('periksaPrasyarat_') >= 0) f.push('PRASYARAT_RUMUS');
+    if (String(scanSheet_).indexOf('periksaPrasyarat_(rumusTpl, row, col, sh,') >= 0) f.push('PRASYARAT_BACA_LANGSUNG');
     if (String(buildPlan_).indexOf('waktu') >= 0) f.push('WAKTU');
   } catch (e) { f.push('GAGAL_' + (e && e.message ? e.message.slice(0, 40) : 'unknown')); }
   return f;
@@ -277,10 +279,23 @@ function handle_(req) {
       };
     }
     if (action === 'diagnosa') return diagnosa_();   // hanya baca, tidak pernah menulis -> tidak perlu token
-    if (String(req.token || '') !== CFG.TOKEN) {
+    var tokenKirim = String(req.token || '');
+    if (!tokenKirim) {
+      // b9: pesan dibedakan. Penyebab tersering BUKAN token salah, melainkan token tidak
+      // terkirim sama sekali (mis. membuka /exec tanpa ?token=, atau body POST kosong
+      // setelah redirect Apps Script). Dulu keduanya dilaporkan sebagai "token tidak cocok"
+      // sehingga menyesatkan ke arah mengubah konstanta.
       return {
         ok: false,
-        error: 'Token repair tidak cocok. Samakan REPAIR_TOKEN di app.js dengan CFG.TOKEN di Apps Script, lalu deploy ulang.'
+        error: 'Permintaan tidak membawa token. Bila membuka URL langsung, sertakan ?action=' + action +
+               '&token=<TOKEN>. Bila dari dashboard, muat ulang halaman dengan Ctrl+Shift+R.'
+      };
+    }
+    if (tokenKirim !== CFG.TOKEN) {
+      return {
+        ok: false,
+        error: 'Token tidak cocok (dikirim ' + tokenKirim.length + ' karakter, seharusnya ' +
+               CFG.TOKEN.length + '). Periksa REPAIR_TOKEN di app.js terhadap CFG.TOKEN di Apps Script.'
       };
     }
     if (action === 'preview') return preview_(req.keys);
@@ -785,36 +800,10 @@ function scanSheet_(sh, sheetName, only) {
       /* [1] & [2] kolom rumus -> tulis ulang rumus, SETELAH prasyarat diperiksa (b8) */
       if ((kosong || error) && tpl >= 0) {
         var rumusTpl = formulas[tpl][col];
-        var prasyarat;
-        if (values[row] && values[tpl]) {
-          prasyarat = periksaPrasyarat_(rumusTpl, row, col, values, formulas, row - tpl);
-        } else {
-          // Baris di luar blok sampel: nilainya belum ada di memori. Jangan menebak --
-          // baca dulu satu blok kecil (baris ini s.d. baris template) agar prasyarat
-          // benar-benar diperiksa. Ini yang mencegah 'lolos tanpa diperiksa'.
-          var dari = Math.min(row, tpl), sampai = Math.max(row, tpl);
-          var blokKecil = sh.getRange(dari + 1, 1, sampai - dari + 1, nCol).getValues();
-          var blokRumus = sh.getRange(dari + 1, 1, sampai - dari + 1, nCol).getFormulas();
-          var vTmp = [], fTmp = [];
-          for (var bi = 0; bi < blokKecil.length; bi++) { vTmp[dari + bi] = blokKecil[bi]; fTmp[dari + bi] = blokRumus[bi]; }
-          var adaDiMemori = !!(values[row] && values[tpl]);
-          if (!adaDiMemori) {
-            // pakai nilai asli untuk baris & template, sisanya (prasyarat) dari blok kecil
-            vTmp[row] = blokKecil[row - dari];
-            fTmp[row] = blokRumus[row - dari];
-          }
-          // periksaPrasyarat_ mengakses values[r]; siapkan penggabungan sederhana
-          var gabung = function (a, b) {
-            return {
-              cek: function (r) { return (b[r] !== undefined) ? b[r] : a[r]; }
-            };
-          };
-          var vG = gabung(values, vTmp), fG = gabung(formulas, fTmp);
-          var vProxy = [], fProxy = [];
-          for (var px = 0; px < nRow; px++) { vProxy[px] = vG.cek(px); fProxy[px] = fG.cek(px); }
-          prasyarat = periksaPrasyarat_(rumusTpl, row, col, vProxy, fProxy, row - tpl);
-          prasyarat.dibacaLangsung = true;
-        }
+        // b9: prasyarat dibaca LANGSUNG dari sel acuan di sheet, bukan dari sampel di memori.
+        // b8 membaca dari salinan sampel; di mock sampelnya lengkap sehingga lolos uji,
+        // tetapi di produksi salinan itu tidak memuat baris tujuan -> K152 kosong DILOLOSKAN.
+        var prasyarat = periksaPrasyarat_(rumusTpl, row, col, sh, row - tpl);
         if (!prasyarat.ok) {
           // JANGAN tawarkan perbaikan. Rumus akan menghasilkan angka yang terlihat sah
           // padahal acuannya kosong -> masalah jadi tersembunyi.
@@ -822,6 +811,7 @@ function scanSheet_(sh, sheetName, only) {
           for (var pk = 0; pk < prasyarat.kosong.length; pk++) {
             daftar.push(prasyarat.kosong[pk].kolom + prasyarat.kosong[pk].baris);
           }
+          if (prasyarat.takTerbaca.length) daftar.push(prasyarat.takTerbaca.join(', ') + ' (gagal dibaca)');
           out.skipped.push(lewat_(sheetName, row, col, header, huruf, teks,
             'PRASYARAT BELUM TERISI: sel ' + daftar.join(', ') + ' kosong, padahal rumus pola baris ' +
             (tpl + 1) + ' membutuhkannya. Bila rumus dipasang sekarang, hasilnya angka yang terlihat sah ' +
@@ -832,7 +822,7 @@ function scanSheet_(sh, sheetName, only) {
         out.items.push(item_(sheetName, row, col, header, huruf,
           error ? 'error' : 'rumus', teks, '', 'formula',
           rumusPratinjau_(rumusTpl, row - tpl),
-          'Acuan: rumus baris ' + (tpl + 1) + '. Prasyarat terisi (' + prasyarat.jumlahRujukan + ' sel).',
+          'Acuan: rumus baris ' + (tpl + 1) + '. Prasyarat terisi: ' + jejakTeks_(prasyarat) + '.',
           (error ? 'Sel error' : 'Sel kosong pada kolom rumus') +
           '. Ditulis ulang memakai pola rumus baris ' + (tpl + 1) + '.',
           tpl + 1));
@@ -970,35 +960,65 @@ function hurufKolom_(n) {
   return s;
 }
 
+/** Ringkas jejak pembacaan untuk ditampilkan di catatan item. */
+function jejakTeks_(prasyarat) {
+  var j = prasyarat.jejak || [];
+  var potong = [];
+  for (var i = 0; i < j.length; i++) {
+    potong.push(j[i].sel + '=' + (j[i].nilai === '' ? '(kosong)' : j[i].nilai));
+  }
+  return '(' + prasyarat.jumlah + ' sel) ' + potong.join(' | ');
+}
+
 /**
- * Periksa apakah semua sel acuan rumus terisi. Kembalikan { ok, kosong: [...], jumlah }.
- * 'kosong' berisi sel yang belum siap: kosong, atau rumus yang menghasilkan string kosong.
+ * Periksa apakah semua sel acuan rumus terisi -- dengan MEMBACA SELNYA LANGSUNG.
+ *
+ * b8 membaca dari salinan sampel di memori (values[]/formulas[]). Itu salah: salinan itu
+ * tidak selalu memuat baris tujuan (blok sampel awal/akhir, penggabungan blok kecil),
+ * sehingga sel kosong bisa tampak terisi dan perbaikan berbahaya tetap ditawarkan.
+ * b9 tidak memakai salinan apa pun: setiap alamat dibaca dari sheet.
+ *
+ * geserBaris WAJIB: rumus disalin dari baris template lalu digeser ke baris tujuan.
+ *
+ * Gagal membaca sel = TIDAK ditawarkan (fail-closed).
  */
-function periksaPrasyarat_(rumusA1, barisRumus, kolomRumus, values, formulas, geserBaris) {
-  var delta = geserBaris || 0;   // rumus template digeser sebesar ini saat ditulis ke baris tujuan
+function periksaPrasyarat_(rumusA1, barisRumus, kolomRumus, sh, geserBaris) {
+  var delta = geserBaris || 0;
   var ruj = rujukanRumus_(rumusA1);
-  var kosong = [];
-  var dilihat = {};
+  var target = [], dilihat = {};
   for (var i = 0; i < ruj.length; i++) {
-    var r = ruj[i].baris + delta, c = ruj[i].kolom;      // 0-based, sudah digeser
+    var r = ruj[i].baris + delta, c = ruj[i].kolom;
     if (!(r >= 0) || !(c >= 0)) continue;
-    if (r === barisRumus && c === kolomRumus) continue;   // rujukan ke diri sendiri
+    if (r === barisRumus && c === kolomRumus) continue;      // rujukan ke diri sendiri
+    if (r + 1 < 1 || c + 1 < 1) continue;
     var kunci = r + '|' + c;
     if (dilihat[kunci]) continue;
     dilihat[kunci] = true;
-    var vRow = values[r], fRow = formulas[r];
-    var v = vRow ? vRow[c] : undefined;
-    var f = fRow ? fRow[c] : undefined;
-    var belumSiap = (v === '' || v === null || v === undefined);
-    if (belumSiap) {
-      kosong.push({
-        baris: r + 1,
-        kolom: hurufKolom_(c + 1),
-        rumus: !!(f !== undefined && f !== '' && f !== null)
-      });
+    target.push({ r: r, c: c, a1: hurufKolom_(c + 1) + (r + 1) });
+  }
+
+  var kosong = [], takTerbaca = [], jejak = [];
+  for (var j = 0; j < target.length; j++) {
+    var t = target[j], v = undefined, terbaca = false;
+    try {
+      var satu = sh.getRange(t.a1).getValues();
+      if (satu && satu[0]) { v = satu[0][0]; terbaca = true; }
+    } catch (e) { terbaca = false; }
+    var tampil = terbaca ? (v === null || v === undefined ? '' : String(v)) : 'GAGAL DIBACA';
+    jejak.push({ sel: t.a1, nilai: tampil });
+    if (!terbaca) { takTerbaca.push(t.a1); continue; }
+    if (v === '' || v === null || v === undefined) {
+      kosong.push({ baris: t.r + 1, kolom: hurufKolom_(t.c + 1) });
     }
   }
-  return { ok: kosong.length === 0, kosong: kosong, jumlah: ruj.length };
+
+  return {
+    ok: kosong.length === 0 && takTerbaca.length === 0,
+    kosong: kosong,
+    takTerbaca: takTerbaca,
+    jumlah: target.length,
+    jejak: jejak
+  };
 }
 
 function hitungTurunan_(rule, values, row, cJenis, computed) {

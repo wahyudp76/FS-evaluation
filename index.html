@@ -1300,7 +1300,7 @@
         </div>
     </div>
 
-    <script type="module" src="./app.js?v=1.23.1"></script>
+    <script type="module" src="./app.js?v=1.23.8"></script>
     <script>
         // Ikon digambar setelah library (defer) selesai dimuat
         (function renderIcons() {
@@ -1317,7 +1317,7 @@
                         window.location.reload();
                     }
                 });
-                navigator.serviceWorker.register('./sw.js?v=1.23.1')
+                navigator.serviceWorker.register('./sw.js?v=1.23.8')
                     .then(reg => {
                         console.log('SW registered:', reg.scope);
                         reg.update().catch(() => {});
