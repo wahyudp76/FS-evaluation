@@ -109,34 +109,44 @@ function pasangRepairTerbaru() {
     hasil.error = 'Gagal membaca daftar deployment: ' + e.message;
     return hasil;
   }
-  var webApp = null;
+  // Kumpulkan SEMUA deployment Web App. Sebelumnya kode hanya mem-patch yang PERTAMA,
+  // sehingga bila ada lebih dari satu deployment, URL yang dipakai dashboard tetap
+  // menjalankan versi lama. Sekarang semuanya diarahkan ke versi baru.
+  var daftar = [], dilewati = [];
   (deps.deployments || []).forEach(function (d) {
-    if (d.entryPoints) d.entryPoints.forEach(function (ep) {
-      if (ep.entryPointType === 'WEB_APP' && !webApp) webApp = d;
+    var url = '';
+    (d.entryPoints || []).forEach(function (ep) {
+      if (ep.entryPointType === 'WEB_APP' && ep.webApp) url = ep.webApp.url || '';
     });
+    if (url) daftar.push({ id: d.deploymentId, url: url, versiLama: d.deploymentConfig && d.deploymentConfig.versionNumber });
+    else dilewati.push(d.deploymentId);
   });
-  if (!webApp) { hasil.error = 'Tidak ada deployment Web App. Buat dulu sekali lewat menu Deploy.'; return hasil; }
+  if (!daftar.length) { hasil.error = 'Tidak ada deployment Web App. Buat dulu sekali lewat menu Deploy → New deployment → Web app.'; return hasil; }
+  log('deployment web app ditemukan', daftar.length);
 
-  var patch = UrlFetchApp.fetch('https://script.googleapis.com/v1/projects/' + scriptId + '/deployments/' + webApp.deploymentId,
-    {
-      method: 'put', contentType: 'application/json',
-      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
-      payload: JSON.stringify({
-        deploymentConfig: { scriptId: scriptId, versionNumber: vers.versionNumber, manifestFileName: 'appsscript' }
-      }),
-      muteHttpExceptions: true
-    });
-  log('perbarui deployment', patch.getResponseCode());
-  if (patch.getResponseCode() !== 200) {
-    hasil.error = 'Gagal memperbarui deployment: HTTP ' + patch.getResponseCode() + ' ' + patch.getContentText().slice(0, 300);
-    return hasil;
-  }
+  hasil.webAppUrl = [];
+  var gagalPatch = 0;
+  daftar.forEach(function (d) {
+    var patch = UrlFetchApp.fetch('https://script.googleapis.com/v1/projects/' + scriptId + '/deployments/' + d.id,
+      {
+        method: 'put', contentType: 'application/json',
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+        payload: JSON.stringify({
+          deploymentConfig: { scriptId: scriptId, versionNumber: vers.versionNumber, manifestFileName: 'appsscript' }
+        }),
+        muteHttpExceptions: true
+      });
+    var kode = patch.getResponseCode();
+    log('patch ' + d.url.slice(-14), kode + ' (versi ' + d.versiLama + ' -> ' + vers.versionNumber + ')');
+    if (kode === 200) hasil.webAppUrl.push(d.url);
+    else { gagalPatch++; hasil.langkah.push('GAGAL patch ' + d.url + ': HTTP ' + kode + ' ' + patch.getContentText().slice(0, 200)); }
+  });
+  if (gagalPatch === daftar.length) { hasil.error = 'Semua deployment gagal diperbarui.'; return hasil; }
 
   hasil.ok = true;
-  hasil.deploymentId = webApp.deploymentId;
-  hasil.webAppUrl = (webApp.entryPoints && webApp.entryPoints[0] && webApp.entryPoints[0].webApp && webApp.entryPoints[0].webApp.url) || '';
-  hasil.pesan = 'Selesai. Kode RepairAll.gs diperbarui ke versi ' + vers.versionNumber +
-    ' dan deployment sudah diarahkan ke versi itu. Muat ulang /exec?action=ping untuk memastikan build terbaru.';
+  hasil.versiBaru = vers.versionNumber;
+  hasil.pesan = 'Selesai. RepairAll.gs -> versi ' + vers.versionNumber + '. ' + hasil.webAppUrl.length + '/' + daftar.length +
+    ' deployment Web App sudah diarahkan ke versi itu. Uji TIAP URL di bawah dengan ?action=ping sampai muncul build b5.';
   return hasil;
 }
 
@@ -217,4 +227,21 @@ function cekStatusPasang() {
     ? 'Semua prasyarat siap. Jalankan pasangRepairTerbaru().'
     : 'Ada ' + out.masalah.length + ' masalah — lihat daftar masalah & saran.';
   return out;
+}
+
+/**
+ * Pintu HTTP untuk cekStatusPasang: buka
+ *   .../exec?action=cek
+ * Berguna bila Anda tidak ingin membuka editor untuk melihat log.
+ */
+function doGet(e) {
+  var p = (e && e.parameter) || {};
+  if (String(p.action || '').toLowerCase() === 'cek') {
+    return ContentService.createTextOutput(JSON.stringify(cekStatusPasang()))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  return ContentService.createTextOutput(JSON.stringify({
+    ok: true,
+    pesan: 'AutoUpdate siap. Aksi tersedia: ?action=cek (memeriksa prasyarat). Jalankan pasangRepairTerbaru dari editor untuk memasang kode terbaru.'
+  })).setMimeType(ContentService.MimeType.JSON);
 }
