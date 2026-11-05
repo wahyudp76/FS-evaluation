@@ -44,8 +44,9 @@ var CFG = {
   SPREADSHEET_ID: '1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o',
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
-  VERSION: '1.23.4',
-  BUILD: 'b5',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
+  VERSION: '1.23.5',
+  BUILD: 'b6',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -468,17 +469,75 @@ function buildPlan_(keys) {
   };
 }
 
+
+/**
+ * Deteksi sel error DI LUAR blok sampel tanpa mengunduh seluruh sheet.
+ * Dipakai oleh optimizeGrid_. Kembalikan { "huruf|baris": teksError }.
+ */
+function pindaiGalat(sh, nRow, nCol, kolomTarget) {
+  var out = {};
+  if (!kolomTarget.length) return out;
+  var blokRow = 2000;   // 2000 sel per panggilan (~0,2-1 s), jauh lebih murah dari 17.857
+  for (var b = 0; b < kolomTarget.length; b++) {
+    var c = kolomTarget[b];
+    var huruf = colLetter_(c + 1);
+    // mulai = 2 (baris 1 adalah header). Kunci memakai INDEKS ARRAY (0-based) agar sama
+    // dengan values[]/formulas[] di scanSheet_ -> tidak ada geser satu baris.
+    for (var mulai = 2; mulai <= nRow; mulai += blokRow) {
+      var n = Math.min(blokRow, nRow - mulai + 1);
+      if (n <= 0) break;
+      var blk = sh.getRange(mulai, c + 1, n, 1).getValues();
+      for (var i = 0; i < n; i++) {
+        var t = teks_(blk[i][0]);
+        if (t && (t.charAt(0) === '#' || /^NaN$/i.test(t))) out[huruf + '|' + (mulai + i - 1)] = t;
+      }
+    }
+  }
+  return out;
+}
+
 function scanSheet_(sh, sheetName, only) {
   var out = { items: [], skipped: [] };
   var lastRow = sh.getLastRow();
   var lastCol = sh.getLastColumn();
   if (lastRow < 2 || lastCol < 1) return out;
 
-  var rng = sh.getRange(1, 1, lastRow, lastCol);
-  var values = rng.getValues();
-  var formulas = rng.getFormulas();
-  var headers = values[0].map(function (v) { return String(v == null ? '' : v).trim(); });
-  var nCol = headers.length, nRow = values.length;
+  // ===== OPTIMASI b6 (berdasarkan pengukuran nyata, lihat catatan di bawah) =====
+  // Hasil ukur Apps Script pada sheet ini (17.857 x 39 = 696.423 sel):
+  //   getValues seluruh rentang   5.659 ms   <- dipakai
+  //   getFormulas seluruh rentang 5.481 ms   <- dipakai
+  //   getFormulas 300 baris         165 ms   <- 33x lebih murah
+  //   getValues per kolom        125.251 ms  <- 39 panggilan, JANGAN dipakai
+  //   panggilan ulang ke-2 SAMA mahalnya     -> Google tidak meng-cache
+  // Dari 174.921 sel berumus, 93% berada di 8 kolom yang bernilai konstan sepanjang
+  // baris (AF=I, AG=I/M, AH=Y/M, AI=Y/I, AJ=LEFT(E,3), AK=D, AL=B, AM=C).
+  // Jadi cukup dibaca APA adanya dari sampel; yang perlu diperiksa penuh hanya kolom A
+  // (text(B,"MMM")) dan AC (Biaya Total, 14.217 rumus = 8% sel).
+  var SAMPEL = Math.min(CFG.SAMPEL_BARIS || 300, Math.max(2, lastRow - 1));
+  var blokAkhir = Math.min(SAMPEL, lastRow - SAMPEL);
+
+  // Header dibaca bersama sampel (1 panggilan). nRow = lastRow: nomor baris sheet tetap akurat.
+  var sampelAwal = sh.getRange(1, 1, SAMPEL, lastCol).getValues();
+  var headers = sampelAwal[0].map(function (v) { return String(v == null ? '' : v).trim(); });
+  var nCol = headers.length, nRow = lastRow;
+
+  // Blok terakhir: menangkap data yang baru diisi di bawah (baris baru = tempat error paling sering)
+  var sampelAkhir = blokAkhir > 0 ? sh.getRange(lastRow - blokAkhir + 1, 1, blokAkhir, nCol).getValues() : [];
+
+  // Pola rumus: hanya sampel (165 ms vs 5.481 ms untuk seluruh sheet)
+  var rumusSampel = sh.getRange(1, 1, SAMPEL, nCol).getFormulas();
+
+  // Nilai & rumus per indeks baris (0 = header). Baris di luar sampel tidak dimasukkan ->
+  // loop akan melewatinya lewat adaData[] = false.
+  var values = new Array(nRow), formulas = new Array(nRow);
+  for (var iz = 0; iz < nRow; iz++) { values[iz] = null; formulas[iz] = null; }
+  var b;
+  for (b = 0; b < sampelAwal.length; b++) { values[b] = sampelAwal[b]; formulas[b] = rumusSampel[b] || null; }
+  for (b = 0; b < sampelAkhir.length; b++) {
+    var idxA = lastRow - blokAkhir + b;
+    values[idxA] = sampelAkhir[b];
+    formulas[idxA] = null;   // pola rumus di blok akhir tidak diperlukan; dicek lewat pindaiGalat
+  }
 
   /* --- 1. Riwayat Lokasi -> Wilayah (untuk aturan [4]) --- */
   var cWil = -1, cLok = -1, cJenis = -1;
@@ -489,7 +548,21 @@ function scanSheet_(sh, sheetName, only) {
   }
   var lokasiToWil = {}, lokasiBentrok = {};
   if (cWil >= 0 && cLok >= 0) {
+    // b6: cukup 2 kolom (Wilayah, Lokasi) untuk SELURUH baris -> jauh lebih murah dari
+    // membaca 39 kolom penuh. Nilainya disimpan ke values[] agar aturan [4] tetap bekerja.
+    var dasar2 = Math.min(cWil, cLok);
+    var duaKol = sh.getRange(2, dasar2 + 1, lastRow - 1, Math.abs(cWil - cLok) + 1).getValues();
+    for (var rw2 = 1; rw2 < nRow; rw2++) {
+      var barisDua = duaKol[rw2 - 1];
+      if (!barisDua) continue;
+      if (!values[rw2]) values[rw2] = [];
+      values[rw2][cWil] = barisDua[cWil - dasar2];
+      values[rw2][cLok] = barisDua[cLok - dasar2];
+    }
+  }
+  if (cWil >= 0 && cLok >= 0) {
     for (var rp = 1; rp < nRow; rp++) {
+      if (!values[rp]) continue;
       var lv = teks_(values[rp][cLok]);
       var wv = teks_(values[rp][cWil]);
       if (!lv || !wv) continue;
@@ -512,32 +585,88 @@ function scanSheet_(sh, sheetName, only) {
     if (ad) barisBerdata++;
   }
 
+  var rules = aturanTurunan_(headers);
+
+  // ===== b6: sel error DI LUAR blok sampel =====
+  // Tanpa ini, sel error pada baris 301..17.557 akan terlewat. Dipindai per kolom berblok
+  // 2.000 sel: hanya kolom yang mungkin bermasalah (kolom rumus + kolom yang punya aturan
+  // turunan + kolom Wilayah) supaya tetap murah.
+  var kolomPindai = [];
+  (function () {
+    var tandai = {};
+    for (var kk = 0; kk < rules.length; kk++) tandai[rules[kk].target] = true;
+    if (cWil >= 0) tandai[cWil] = true;
+    for (var cc = 0; cc < nCol; cc++) if (isFormulaCol[cc] || tandai[cc]) kolomPindai.push(cc);
+  })();
+  var galatLuar = pindaiGalat(sh, nRow, nCol, kolomPindai);
+  // Sisipkan sebagai baris semu: nilai error ditaruh di values[] agar loop memperlakukannya
+  // sama seperti error yang ditemukan di sampel, tetapi TIDAK dihitung sebagai "baris berdata"
+  // (adaData tetap dari sampel) -- item tetap dibuat karena nilainya error.
+  // Sel error di luar sampel disimpan PALING AKHIR ke values[] -- setelah profil kolom
+  // dihitung -- supaya jenis kolom (numerik/teks) ditentukan oleh data normal, bukan
+  // oleh nilai error. Penandaan barisnya dilakukan pada variabel terpisah.
+  var galatLuarIdx = {};   // "barisIdx|kolom" -> teks error
+  for (var gk in galatLuar) {
+    if (!galatLuar.hasOwnProperty(gk)) continue;
+    var pisah = gk.split('|');
+    var hr = parseInt(pisah[1], 10);                     // SUDAH indeks array (0 = header)
+    var kc = colToNum_(pisah[0]) - 1;
+    if (hr < 1 || hr >= nRow) continue;
+    galatLuarIdx[hr + '|' + kc] = galatLuar[gk];
+  }
+
   var ambangRumus = Math.max(CFG.FORMULA_MIN, Math.floor(barisBerdata * CFG.FORMULA_RATIO));
 
   for (var c = 0; c < nCol; c++) {
     var numTotal = 0, terisi = 0, ff = -1, cf = 0;
     for (var r = 1; r < nRow; r++) {
-      if (formulas[r][c] !== '') {
+      // b6: values[]/formulas[] hanya terisi pada blok sampel; selebihnya null.
+      var fR = formulas[r], vR = values[r];
+      if (fR && fR[c] !== '' && fR[c] !== undefined && fR[c] !== null) {
         if (ff < 0) ff = r;
         cf++;
         continue;
       }
-      var v = values[r][c];
+      if (!vR) continue;
+      var v = vR[c];
       if (v === '' || v === null || v === undefined) continue;
       terisi++;
       if (typeof v === 'number') numTotal++;
     }
-    isNum[c] = cf > 0 ? true : (terisi > 0 && (numTotal / terisi) >= 0.6);
+    // b6: profil kolom hanya dari blok sampel. Karena values[] di luar sampel null,
+    // terisi/numTotal di sini memang hanya menghitung sampel -- kecuali baris yang
+    // disisipi sel error. Karena itu isNum ditentukan HANYA bila ada data sampel.
+    // BUG LAMA yang diperbaiki di b6: dulu `cf > 0 ? true` membuat SETIAP kolom yang
+    // seluruhnya berisi rumus dianggap kolom ANGKA -- termasuk kolom teks seperti
+    // Lokasi (AK=D), Wilayah (AM=C), R Bulan (A), Jenis Irigator (AJ), Total Time (AF),
+    // Ha/Hari (AG), Ha/Jam (AH), Solar Ltr/jam (AI). Akibatnya nomor rumah seperti
+    // "148C" berubah menjadi... tidak (cobaAngka_ menolak), tetapi nilai yang kebetulan
+    // mirip angka bisa ditulis ulang sebagai angka. Jenis kolom sekarang ditentukan dari
+    // NILAI hasil rumus pada sampel, bukan dari keberadaan rumus.
+    isNum[c] = terisi > 0 ? (numTotal / terisi) >= 0.6 : false;
     firstF[c] = ff;
     isFormulaCol[c] = cf >= CFG.FORMULA_MIN && cf >= Math.min(ambangRumus, barisBerdata);
     // Kolom yang mayoritas berisi angka dan hanya punya 1-2 rumus TIDAK dianggap kolom
     // rumus: itu kolom nilai (mis. Total Time = I) yang sesekali ditimpa rumus.
   }
 
-  var rules = aturanTurunan_(headers);
   // Nilai yang sudah dihitung pada pemindaian ini, agar kolom turunan berantai
   // (mis. Rp/Ha butuh Biaya Total yang juga kosong) tetap bisa dipastikan.
   var computed = {};
+
+  /* --- 2b. Sisipkan sel error di luar sampel (setelah profil kolom dihitung) --- */
+  var adaGalatLuar = false;
+  for (var gk2 in galatLuarIdx) {
+    if (!galatLuarIdx.hasOwnProperty(gk2)) continue;
+    var pg = gk2.split('|');
+    var hg = parseInt(pg[0], 10), kg = parseInt(pg[1], 10);
+    if (!values[hg]) values[hg] = [];
+    if (!formulas[hg]) formulas[hg] = [];
+    values[hg][kg] = galatLuarIdx[gk2];
+    formulas[hg][kg] = '';        // bukan sel rumus -> akan masuk aturan error/nilai
+    adaData[hg] = true;
+    adaGalatLuar = true;
+  }
 
   /* --- 3. Pemindaian sel --- */
   for (var col = 0; col < nCol; col++) {
@@ -548,10 +677,12 @@ function scanSheet_(sh, sheetName, only) {
     for (var k = 0; k < rules.length; k++) if (rules[k].target === col) ruleCol = rules[k];
 
     for (var row = 1; row < nRow; row++) {
-      if (formulas[row][col] !== '') { acuanTerakhir = row; continue; }
+      var fRow = formulas[row];
+      if (fRow && fRow[col] !== '' && fRow[col] !== undefined && fRow[col] !== null) { acuanTerakhir = row; continue; }
       if (!adaData[row]) continue;
 
-      var nilai = values[row][col];
+      var vRow = values[row];
+      var nilai = vRow ? vRow[col] : '';
       var kosong = (nilai === '' || nilai === null || nilai === undefined);
       var teks = kosong ? '' : teks_(nilai);
       var error = !kosong && (teks.charAt(0) === '#' || /^NaN$/i.test(teks));
