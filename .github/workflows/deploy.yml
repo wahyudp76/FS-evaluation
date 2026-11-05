@@ -38,11 +38,33 @@ jobs:
       # setiap kelas baru di index.html/app.js TIDAK pernah ikut terkirim.
       - name: Build CSS statis + minify JS
         run: |
+          set -euo pipefail
           npm install --no-save tailwindcss@3.4.13 terser@5.39.0 --no-audit --no-fund
           ./node_modules/.bin/tailwindcss -i ./assets/tailwind.input.css -o ./assets/tailwind.css --minify
           ./node_modules/.bin/terser ./app.js -c -m -o ./app.min.js
           node --check ./app.min.js
           ls -la ./assets/tailwind.css ./app.min.js ./app.js
+      # Penjaga: CSS yang kehilangan utility akan membuat SELURUH halaman tanpa gaya,
+      # dan itu tidak terlihat dari status build yang "hijau". Pernah terjadi
+      # (2026-11-05): build Tailwind gagal karena tailwind.config.js hilang, langkah
+      # tetap lolos, yang ter-deploy tinggal 4,7 KB dekorasi variabel.
+      - name: Periksa CSS benar-benar berisi utility
+        run: |
+          set -euo pipefail
+          CSS=assets/tailwind.css
+          SZ=$(stat -c%s "$CSS")
+          echo "ukuran CSS: $SZ byte"
+          if [ "$SZ" -lt 20000 ]; then
+            echo "::error::CSS hanya $SZ byte — hampir pasti build Tailwind gagal. Halaman akan tanpa gaya."
+            exit 1
+          fi
+          for k in '.flex{' '.grid{' '.bg-emerald-600' '.text-slate-900' '.rounded-2xl'; do
+            if ! grep -q -- "$k" "$CSS"; then
+              echo "::error::Utility $k tidak ada di CSS hasil build — Tailwind tidak memindai index.html/app.js."
+              exit 1
+            fi
+          done
+          echo "CSS lolos pemeriksaan: utility inti lengkap."
       - name: Ukur ukuran ter-deploy
         run: echo "CSS $(stat -c%s assets/tailwind.css) B | JS $(stat -c%s app.min.js) B"
       # Hanya file yang dibutuhkan browser — tools/, *.md, .github tidak ikut ter-deploy
