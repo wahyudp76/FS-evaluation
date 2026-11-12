@@ -45,8 +45,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.11',
-  BUILD: 'b12',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.12',
+  BUILD: 'b13',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -1118,23 +1118,32 @@ function scanSheet_(sh, sheetName, only) {
   // tampak "ada data" lalu seluruh kolom dinilai kosong (17.749 item palsu). Jadi sel
   // kosong diproses di sini secara terpisah, memakai pola rumus dari pindaiDalam_.
   var diusulkan = {};
-  var cacheBaris = {};   // barisIdx -> nilai SATU BARIS PENUH dibaca dari sheet
+  var cacheBaris = {};
+  // b13: jejak supaya kegagalan tidak lagi ditebak. Dihitung per sebab.
+  var jejak = { kosongTotal: 0, tidakPenting: 0, bukanKolomRumus: 0, tanpaPola: 0,
+                barisDilewati: 0, ditolakPrasyarat: 0, diterima: 0, contohKosong: [] };
+  var nKosong = 0;
+  for (var jk in kosongLuar) if (kosongLuar.hasOwnProperty(jk)) {
+    nKosong++;
+    if (jejak.contohKosong.length < 12) jejak.contohKosong.push(jk);
+  }
+  jejak.kosongTotal = nKosong;   // barisIdx -> nilai SATU BARIS PENUH dibaca dari sheet
   for (var ki in kosongLuar) {
     if (!kosongLuar.hasOwnProperty(ki)) continue;
     var pp = ki.split('|');
     var barisSheetK = parseInt(pp[1], 10);
     var kolK = colToNum_(pp[0]) - 1;
     if (!(kolK >= 0) || kolK >= nCol) continue;
-    if (barisSheetK < 2 || barisSheetK > nRow) continue;
-    if (!kolomPenting[kolK]) continue;                  // kolom yang sengaja dilewati
+    if (barisSheetK < 2 || barisSheetK > nRow) { jejak.barisDilewati++; continue; }
+    if (!kolomPenting[kolK]) { jejak.tidakPenting++; continue; }  // kolom yang sengaja dilewati
     var kunciK = sheetName + '!' + pp[0] + barisSheetK;
     if (only && !only[kunciK]) continue;
     if (diusulkan[kunciK]) continue;
 
     // Kolom harus benar-benar berumus (ada rumus di mana pun).
-    if (!posisiRumus_[kolK] && !isFormulaCol[kolK]) continue;
+    if (!posisiRumus_[kolK] && !isFormulaCol[kolK]) { jejak.bukanKolomRumus++; continue; }
     var polaK = (daftarRumus[kolK] && daftarRumus[kolK].length) ? polaTerdekat_(daftarRumus[kolK], barisSheetK) : null;
-    if (!polaK) continue;
+    if (!polaK) { jejak.tanpaPola++; continue; }
 
     // Aturan: hanya usulkan bila pembandingnya sudah terisi. Tanpa ini, rumus hanya akan
     // menghasilkan kosong lagi (mis. Operating = 0 -> #DIV/0! -> ditelan iferror).
@@ -1151,11 +1160,13 @@ function scanSheet_(sh, sheetName, only) {
     if (!vBaris || !vBaris.length) continue;
     var bukti = pembandingRumus_(polaK.f, barisSheetK, vBaris, { engine: cEngine, oper: cOper, solar: cSolarL, luas: cLuas, date: cDate });
     if (!bukti.ok) {
+      jejak.ditolakPrasyarat++;
       out.skipped.push(lewat_(sheetName, rowIdx, kolK, headers[kolK] || pp[0], pp[0], '',
         bukti.alasan));
       continue;
     }
 
+    jejak.diterima++;
     var rumusK = rumusPratinjau_(polaK.f, barisSheetK - polaK.r);
     diusulkan[kunciK] = true;
     out.items.push(item_(sheetName, rowIdx, kolK, headers[kolK] || pp[0], pp[0],
@@ -1165,6 +1176,19 @@ function scanSheet_(sh, sheetName, only) {
       polaK.r));
   }
 
+  out.waktu.jejak = jejak;
+  var cekKol = ['AG', 'AH'];
+  var cekol = ['AG', 'AH'];
+  out.waktu.kolomCek = [];
+  for (var q = 0; q < cekKol.length; q++) {
+    var kq = colToNum_(cekol[q]) - 1;
+    out.waktu.kolomCek.push({
+      huruf: cekKol[q], idx: kq, header: String(headers[kq] || ''),
+      penting: !!kolomPenting[kq], rumusDiSampel: posisiRumus_[kq] || 0,
+      polaTersimpan: (daftarRumus[kq] || []).length, isPenting: !!kolomPenting[kq]
+    });
+  }
+  out.waktu.pindaiKolom = kolomPindai.length;
   out.waktu.loop = Date.now() - Tloop;
   out.waktu.total = Date.now() - T0;
   out.waktu.kolomDilewati = kolomDilewati;
