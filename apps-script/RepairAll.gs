@@ -45,8 +45,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.13',
-  BUILD: 'b14',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.14',
+  BUILD: 'b15',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -637,7 +637,7 @@ function buildPlan_(keys) {
  * tidak menawarkan apa pun. Sekarang keberadaan rumus di mana pun sudah cukup.
  */
 function pindaiDalam_(sh, nRow, nCol, kolomTarget, posisiRumus, daftarRumus) {
-  var hasil = { err: {}, kosong: {} };
+  var hasil = { err: {}, kosong: {}, frm: {} };
   if (!nCol) return hasil;
   // b12: SATU pembacaan untuk SEMUA kolom per blok. Versi b11 membaca per kolom
   // (2-3 panggilan x 10 kolom x 13 blok = ~390 panggilan) sehingga butuh 201 detik.
@@ -669,6 +669,10 @@ function pindaiDalam_(sh, nRow, nCol, kolomTarget, posisiRumus, daftarRumus) {
         var t = teks_(v);
         if (t && (t.charAt(0) === '#' || /^NaN$/i.test(t))) {
           hasil.err[colLetter_(c + 1) + '|' + barisSheet] = t;
+          // b15: simpan rumus ASLI sel error. Tanpa ini, penawaran "tulis ulang rumus"
+          // bisa menulis rumus yang persis sama dengan yang sudah ada -> tidak mengubah
+          // apa pun, dan masalah sebenarnya (acuan bernilai 0) tetap tersembunyi.
+          hasil.frm[colLetter_(c + 1) + '|' + barisSheet] = String(f);
         } else if (v === '' || v === null || v === undefined) {
           // sel kosong baru dicatat bila kolomnya memang berumus (diputuskan sesudah loop)
           hasil.kosong[colLetter_(c + 1) + '|' + barisSheet] = true;
@@ -928,6 +932,7 @@ function scanSheet_(sh, sheetName, only) {
   // dihitung -- supaya jenis kolom (numerik/teks) ditentukan oleh data normal, bukan
   // oleh nilai error. Penandaan barisnya dilakukan pada variabel terpisah.
   var galatLuarIdx = {};   // "barisIdx|kolom" -> teks error (diisi setelah pemindaian)
+  var rumusLuarIdx = {};   // b15: "barisIdx|kolom" -> rumus asli sel error (dari pemindaian)
   var galatLuar = {}, kosongLuar = {};
   for (var gk in galatLuar) {
     if (!galatLuar.hasOwnProperty(gk)) continue;
@@ -1010,6 +1015,7 @@ function scanSheet_(sh, sheetName, only) {
   var hasilPindai = pindaiDalam_(sh, nRow, nCol, kolomPindai, posisiRumus_, daftarRumus);
   galatLuar = hasilPindai.err;
   kosongLuar = hasilPindai.kosong;
+  var frmPindai = hasilPindai.frm || {};
   out.waktu.pindaiGalat = Date.now() - _tp; _t = Date.now();
   for (var gk9 in galatLuar) {
     if (!galatLuar.hasOwnProperty(gk9)) continue;
@@ -1018,6 +1024,7 @@ function scanSheet_(sh, sheetName, only) {
     var hi9 = bs9 - 1;                       // nomor baris sheet -> indeks array
     if (hi9 < 1 || hi9 >= nRow) continue;
     galatLuarIdx[hi9 + '|' + kk9] = galatLuar[gk9];
+    if (frmPindai[gk9]) rumusLuarIdx[hi9 + '|' + kk9] = frmPindai[gk9];
   }
 
 
@@ -1067,7 +1074,14 @@ function scanSheet_(sh, sheetName, only) {
       if (bsint && !bsint[col]) continue;
       // b11: baris parsial hanya memuat Wilayah & Lokasi di memori. Kolom lain nilainya
       // TIDAK DIKETAHUI (bukan kosong) -> jangan dinilai sama sekali.
-      if (barisParsial[row] && col !== cWil && col !== cLok) continue;
+      //
+      // b15: KECUALI bila sel itu sudah DISISIPKAN dari pemindaian nyata (galatLuarIdx).
+      // Nilainya bukan tebakan melainkan hasil getValues langsung dari sheet. Sebelum
+      // perbaikan ini, error seperti #DIV/0! di baris di luar sampel ikut terbuang oleh
+      // pagar di atas -- penyebab 4 sel ZPAS637 tidak pernah muncul meski pemindaian
+      // menemukannya (jejak: kosongTotal 0, karena sel itu berisi #DIV/0!, bukan kosong).
+      var disisipkan = galatLuarIdx.hasOwnProperty(row + '|' + col);
+      if (barisParsial[row] && col !== cWil && col !== cLok && !disisipkan) continue;
       var nilai = vRow ? vRow[col] : '';
       var kosong = (nilai === '' || nilai === null || nilai === undefined);
       var teks = kosong ? '' : teks_(nilai);
@@ -1112,6 +1126,13 @@ function scanSheet_(sh, sheetName, only) {
             ringkas.push(prasyarat.takTerbaca.join(', '));
             daftar.push(prasyarat.takTerbaca.join(', ') + ' gagal dibaca');
           }
+          if (prasyarat.nol && prasyarat.nol.length) {
+            for (var pz = 0; pz < prasyarat.nol.length; pz++) {
+              var nz = prasyarat.nol[pz];
+              ringkas.push(nz.kolom + nz.baris);
+              daftar.push(nz.kolom + nz.baris + ' bernilai 0 (pembagi kosong)');
+            }
+          }
           if (prasyarat.bukanAngka.length) {
             for (var pn = 0; pn < prasyarat.bukanAngka.length; pn++) {
               var ba = prasyarat.bukanAngka[pn];
@@ -1125,6 +1146,18 @@ function scanSheet_(sh, sheetName, only) {
             'tetapi tidak berdasar dan masalahnya justru tersembunyi: sel kosong dianggap 0, dan bila isinya teks ' +
             'rumusnya error lalu ditelan iferror menjadi sel kosong lagi. ' +
             'Lengkapi dulu ' + ringkas.join(', ') + ' dengan angka yang benar.'));
+          continue;
+        }
+        // b15: bila sel sudah berisi rumus yang SAMA, menulisnya ulang tidak menyelesaikan
+        // apa pun. Masalahnya ada di acuan, bukan di rumus. Laporkan, jangan tawarkan.
+        var rumusUsul = rumusPratinjau_(rumusTpl, row - tpl);
+        var rumusKini = rumusLuarIdx[row + '|' + col] || (formulas[row] ? formulas[row][col] : '') || '';
+        if (error && normRumus_(rumusKini) === normRumus_(rumusUsul)) {
+          out.skipped.push(lewat_(sheetName, row, col, header, huruf, teks,
+            'Rumus sel ini sudah benar (' + String(rumusKini).replace(/^=/, '') + ') dan menghasilkan ' +
+            teks + ' hanya karena acuannya belum siap. Ditulis ulang akan menghasilkan ' + teks +
+            ' lagi, jadi tidak ditawarkan sebagai perbaikan. Periksa acuan rumus tersebut ' +
+            '(kemungkinan bernilai 0 atau kosong).'));
           continue;
         }
         out.items.push(item_(sheetName, row, col, header, huruf,
@@ -1392,7 +1425,7 @@ function periksaPrasyarat_(rumusA1, barisRumus, kolomRumus, sh, geserBaris) {
   // Terjadi nyata: K152 berisi "Tidak Ada Kalibrasi." -> M152/N152 tampak "berhasil".
   var wajibAngka = rumusButuhAngka_(rumusA1);
 
-  var kosong = [], takTerbaca = [], bukanAngka = [], jejak = [];
+  var kosong = [], takTerbaca = [], bukanAngka = [], nol = [], jejak = [];
   for (var j = 0; j < target.length; j++) {
     var t = target[j], v = undefined, terbaca = false;
     try {
@@ -1417,14 +1450,18 @@ function periksaPrasyarat_(rumusA1, barisRumus, kolomRumus, sh, geserBaris) {
       kosong.push({ baris: t.r + 1, kolom: hurufKolom_(t.c + 1) });
     } else if (perluAngka && !angkaOk) {
       bukanAngka.push({ baris: t.r + 1, kolom: hurufKolom_(t.c + 1), nilai: String(v) });
+    } else if (perluAngka && angkaOk && angka_(v) === 0) {
+      // b15: acuan bernilai 0 pada pembagi -> #DIV/0!. Menulis ulang rumus tidak menolong.
+      nol.push({ baris: t.r + 1, kolom: hurufKolom_(t.c + 1) });
     }
   }
 
   return {
-    ok: kosong.length === 0 && takTerbaca.length === 0 && bukanAngka.length === 0,
+    ok: kosong.length === 0 && takTerbaca.length === 0 && bukanAngka.length === 0 && nol.length === 0,
     kosong: kosong,
     takTerbaca: takTerbaca,
     bukanAngka: bukanAngka,
+    nol: nol,
     jumlah: target.length,
     jejak: jejak
   };
@@ -1621,6 +1658,10 @@ function colToNum_(letter) {
   var n = 0;
   for (var i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
   return n;
+}
+
+function normRumus_(f) {
+  return String(f || '').replace(/^=/, '').replace(/\s+/g, '').replace(/^IFERROR\((.*),""\)$/i, '$1').toLowerCase();
 }
 
 function ringkas_(items, skipped) {
