@@ -45,8 +45,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.10',
-  BUILD: 'b11',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.11',
+  BUILD: 'b12',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -144,6 +144,7 @@ function api(req) {
  */
 function lengkap_(build) {
   var perlu = {
+    b12: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA', 'PINDAI_PENUH', 'PINDAI_SATU_LINTAS'],
     b11: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA', 'PINDAI_PENUH'],
     b10: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA'],
     b9: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG'],
@@ -185,6 +186,7 @@ function sidikFitur_() {
     // b10: penanda diperiksa di fungsi pemeriksanya sendiri, bukan di scanSheet_.
     if (String(periksaPrasyarat_).indexOf('bilanganKetat_') >= 0 && String(periksaPrasyarat_).indexOf('bukanAngka') >= 0) f.push('PRASYARAT_ANGKA');
     if (String(pindaiDalam_).indexOf('posisiRumus') >= 0 && String(scanSheet_).indexOf('polaTerdekat_') >= 0) f.push('PINDAI_PENUH');
+    if (String(pindaiDalam_).indexOf('SEMPUA') < 0 && String(pindaiDalam_).indexOf('SATU pembacaan') >= 0) f.push('PINDAI_SATU_LINTAS');
     if (String(buildPlan_).indexOf('waktu') >= 0) f.push('WAKTU');
   } catch (e) { f.push('GAGAL_' + (e && e.message ? e.message.slice(0, 40) : 'unknown')); }
   return f;
@@ -559,67 +561,68 @@ function buildPlan_(keys) {
  */
 function pindaiDalam_(sh, nRow, nCol, kolomTarget, posisiRumus, daftarRumus) {
   var hasil = { err: {}, kosong: {} };
-  if (!kolomTarget.length) return hasil;
-  var out = hasil.err, kosongPeta = hasil.kosong;
-  var BLOK = 1500;          // 1500 baris per panggilan; getValues+getFormulas sekaligus
-  var SIMPAN_RUMUS = 60;    // 60 pola terakhir sudah lebih dari cukup
-  for (var b = 0; b < kolomTarget.length; b++) {
-    var c = kolomTarget[b];
-    var huruf = colLetter_(c + 1);
-    var punyaRumus = false;
-    var mulai = 2;                                     // baris 1 = header
-    for (; mulai <= nRow + BLOK; mulai += BLOK) {
-      var n = Math.min(BLOK, nRow - mulai + 1);
-      if (n <= 0) break;
-      var rng = sh.getRange(mulai, c + 1, n, 1);
-      var nil = rng.getValues();
-      var fm = rng.getFormulas();
-      for (var i = 0; i < n; i++) {
-        var f = fm[i][0];
+  if (!nCol) return hasil;
+  // b12: SATU pembacaan untuk SEMUA kolom per blok. Versi b11 membaca per kolom
+  // (2-3 panggilan x 10 kolom x 13 blok = ~390 panggilan) sehingga butuh 201 detik.
+  // Sekarang 13 blok x 2 panggilan = 26 panggilan, cakupan malah lebih luas.
+  var BLOK = 1500;
+  var SIMPAN = 40;                              // pola rumus per kolom
+  var pakai = kolomTarget && kolomTarget.length ? kolomTarget : null;
+  var isPakai = {};
+  for (var p = 0; p < nCol; p++) isPakai[p] = pakai ? (pakai.indexOf(p) >= 0) : true;
+
+  for (var mulai = 2; mulai <= nRow; mulai += BLOK) {
+    var n = Math.min(BLOK, nRow - mulai + 1);
+    if (n <= 0) break;
+    var rng = sh.getRange(mulai, 1, n, nCol);
+    var nil = rng.getValues();
+    var fm = rng.getFormulas();                 // 1 panggilan tambahan untuk SEMUA kolom
+    for (var i = 0; i < n; i++) {
+      var barisSheet = mulai + i;
+      var vRow = nil[i], fRow = fm[i];
+      for (var c = 0; c < nCol; c++) {
+        if (!isPakai[c]) continue;
+        var f = fRow[c];
         if (f && String(f).replace(/^\s+/, '').charAt(0) === '=') {
-          punyaRumus = true;
           posisiRumus[c] = (posisiRumus[c] || 0) + 1;
           var simpan = daftarRumus[c];
-          if (simpan && simpan.length < SIMPAN_RUMUS) simpan.push({ f: String(f), r: mulai + i });
+          if (simpan && simpan.length < SIMPAN) simpan.push({ f: String(f), r: barisSheet });
         }
-      }
-      for (var j = 0; j < n; j++) {
-        var t = teks_(nil[j][0]);
+        var v = vRow[c];
+        var t = teks_(v);
         if (t && (t.charAt(0) === '#' || /^NaN$/i.test(t))) {
-          out[huruf + '|' + (mulai + j)] = t;         // NOMOR BARIS SHEET (1-based), sama seperti pindaiGalat
-        }
-      }
-    }
-    // Sel kosong hanya dicatat untuk kolom yang benar-benar berisi rumus di suatu tempat.
-    if (!punyaRumus) continue;
-    for (var mulai2 = 2; mulai2 <= nRow; mulai2 += BLOK) {
-      var n2 = Math.min(BLOK, nRow - mulai2 + 1);
-      if (n2 <= 0) break;
-      var blk2 = sh.getRange(mulai2, c + 1, n2, 1).getValues();
-      for (var k = 0; k < n2; k++) {
-        var vv = blk2[k][0];
-        if (vv === '' || vv === null || vv === undefined) {
-          kosongPeta[huruf + '|' + (mulai2 + k)] = true;   // NOMOR BARIS SHEET (1-based)
+          hasil.err[colLetter_(c + 1) + '|' + barisSheet] = t;
+        } else if (v === '' || v === null || v === undefined) {
+          // sel kosong baru dicatat bila kolomnya memang berumus (diputuskan sesudah loop)
+          hasil.kosong[colLetter_(c + 1) + '|' + barisSheet] = true;
         }
       }
     }
   }
+  // Buang catatan kosong untuk kolom yang tidak berumus di mana pun.
+  var kolomBerumus = {};
+  for (var kk in posisiRumus) if (posisiRumus.hasOwnProperty(kk) && posisiRumus[kk] > 0) kolomBerumus[kk] = true;
+  for (var key in hasil.kosong) {
+    if (!hasil.kosong.hasOwnProperty(key)) continue;
+    var hrf = key.split('|')[0];
+    if (!kolomBerumus[colToNum_(hrf) - 1]) delete hasil.kosong[key];
+  }
   return hasil;
 }
 
+
 /**
- * b11: apakah rumus layak dipasang di baris ini?
+ * b12: apakah rumus layak dipasang di baris ini?
  *
  * Aturan inti: JANGAN usulkan bila hasilnya hanya akan kosong lagi. Contoh nyata:
  * AG = round(I/M;4) dengan M = 0 -> #DIV/0! -> ditelan iferror -> kosong kembali.
  * Jadi setiap sel acuan yang berupa ANGKA harus terisi dan bukan nol.
  * Acuan yang dirangkai dengan & (teks) tidak dipaksa angka.
  */
-function pembandingRumus_(rumus, barisSheet, vBaris, kol) {
+function pembandingRumus_(rumus, barisSheet, vBaris) {
   var ruj = rujukanRumus_(rumus);
   if (!ruj.length) return { ok: true, catatan: 'Rumus tidak bergantung pada sel lain.' };
-  // b11: rujukan pada `rumus` masih menunjuk baris TEMPLATE (mis. I61), sedangkan yang
-  // dipasang nanti adalah versi yang sudah digeser (I15083). Geser dulu sebelum diperiksa.
+  // rujukan pada `rumus` masih menunjuk baris TEMPLATE (mis. I61); geser ke baris tujuan.
   var geser = barisSheet - 1 - ruj[0].baris;
   if (!isFinite(geser)) geser = 0;
   var kosong = [], nol = [], teks = [], dipakai = [];
@@ -632,7 +635,7 @@ function pembandingRumus_(rumus, barisSheet, vBaris, kol) {
     var v = vBaris[cc];
     var hampa = (v === '' || v === null || v === undefined);
     if (hampa) { kosong.push(a1); continue; }
-    if (teksBoleh_(rumus, a1)) continue;                 // memang dirangkai sebagai teks
+    if (teksBoleh_(rumus, a1.replace(String(rr + 1), String(ruj[0].baris + 1)))) continue;
     if (!bilanganKetat_(v)) { teks.push(a1 + '="' + v + '"'); continue; }
     if (angka_(v) === 0) nol.push(a1);
   }
@@ -915,7 +918,13 @@ function scanSheet_(sh, sheetName, only) {
     // aturan "rumus kosong padahal pembandingnya terisi" di luar blok sampel.
     var pembanding = [cEngine, cOper, cSolarL, cLuas, cDate];
     for (var pj = 0; pj < pembanding.length; pj++) if (pembanding[pj] >= 0) tandai[pembanding[pj]] = true;
-    for (var cc = 0; cc < nCol; cc++) if (isFormulaCol[cc] || posisiRumus_[cc] || tandai[cc]) kolomPindai.push(cc);
+    // b12: JANGAN menebak kolom mana yang berumus. Seluruh kolom yang punya header ikut
+    // dipindai. Versi b11 hanya memakai isFormulaCol/posisiRumus_ yang masih kosong saat
+    // titik ini (ayam-telur), sehingga kolom seperti AG/AH tidak pernah diperiksa sama sekali.
+    for (var cc = 0; cc < nCol; cc++) {
+      if (String(headers[cc] || '').trim() === '') continue;
+      kolomPindai.push(cc);
+    }
   })();
 
   // b11: pemindaian menyeluruh dijalankan di sini -- SETELAH kolomPindai terbentuk dan
