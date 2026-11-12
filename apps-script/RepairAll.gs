@@ -45,8 +45,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.12',
-  BUILD: 'b13',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.13',
+  BUILD: 'b14',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -64,6 +64,9 @@ var CFG = {
 function doGet(e) {
   var p = (e && e.parameter) || {};
   var action = String(p.action || '').toLowerCase();
+  if (action === 'cek' ) {
+    return jsonOut_(cekSel_(String(p.cells || 'ZPAS637!AG15083,ZPAS637!AH15083')));
+  }
   if (action === 'ping' || action === 'preview' || action === 'apply' || action === 'diagnosa') {
     return jsonOut_(handle_({
       action: action,
@@ -79,6 +82,80 @@ function doGet(e) {
   return t.evaluate()
     .setTitle('PG2 — Repair Spreadsheet')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+
+/**
+ * b14: pemeriksa sel langsung. Menjawab "apakah sel ini benar-benar kosong menurut
+ * Apps Script?" tanpa menebak. Dipakai karena pindaiDalam_ melaporkan kosongTotal 0
+ * padahal gviz menunjukkan AG15083/AH15083/AG15086/AH15086 kosong.
+ *
+ * GET ?action=cek&cells=ZPAS637!AG15083,ZPAS637!AH15083
+ */
+function cekSel_(spec) {
+  var T0 = Date.now();
+  var ss = SpreadsheetApp.openById(CFG.SPREADSHEET_ID);
+  var daftar = String(spec || '').split(',');
+  var hasil = [];
+  for (var i = 0; i < daftar.length; i++) {
+    var s = String(daftar[i] || '').trim();
+    if (!s) continue;
+    var pisah = s.split('!');
+    var namaSheet = pisah.length > 1 ? pisah[0] : 'ZPAS637';
+    var a1 = pisah.length > 1 ? pisah[1] : pisah[0];
+    var m = /^([A-Za-z]+)(\d+)$/.exec(a1);
+    if (!m) { hasil.push({ sel: s, galat: 'format sel tidak dikenal' }); continue; }
+    var baris = parseInt(m[2], 10);
+    var kol = colToNum_(m[1]);
+    var rec = { sel: namaSheet + '!' + m[1].toUpperCase() + baris, baris: baris, kolom: kol };
+    try {
+      var sh = ss.getSheetByName(namaSheet);
+      if (!sh) { rec.galat = 'sheet tidak ditemukan'; hasil.push(rec); continue; }
+      var r = sh.getRange(baris, kol, 1, 1);
+      var v = r.getValue();
+      var f = r.getFormula();
+      rec.nilai = (v === '' || v === null || v === undefined) ? '(kosong)' : String(v);
+      rec.tipeNilai = typeof v;
+      rec.rumus = f || '(tidak ada rumus)';
+      rec.kosongMenurutGetValue = (v === '' || v === null || v === undefined);
+      rec.kosongMenurutGetValues = (function () {
+        try { var vv = r.getValues()[0][0]; return (vv === '' || vv === null || vv === undefined); }
+        catch (e) { return 'err:' + e.message; }
+      })();
+      rec.panjangString = typeof v === 'string' ? v.length : null;
+      rec.kodeKarakter = typeof v === 'string' && v.length <= 4
+        ? Array.prototype.map.call(v, function (ch) { return ch.charCodeAt(0); }) : null;
+    } catch (e) {
+      rec.galat = e.message;
+    }
+    hasil.push(rec);
+  }
+  // Sekaligus: apa yang dilihat pindaiDalam_ untuk dua blok pertama kolom AG.
+  var blokCek = [];
+  try {
+    var sh2 = ss.getSheetByName('ZPAS637');
+    var akhir = sh2.getLastRow();
+    var bloks = [[15001, 1500], [16501, 1500]];
+    for (var bi = 0; bi < bloks.length; bi++) {
+      var mulai = bloks[bi][0], n = Math.min(bloks[bi][1], akhir - mulai + 1);
+      if (n <= 0) continue;
+      var rng = sh2.getRange(mulai, 1, n, 39);
+      var vals = rng.getValues();
+      var fm = rng.getFormulas();
+      var hit = 0, contoh = [];
+      for (var rr = 0; rr < n; rr++) {
+        var v = vals[rr][32];
+        if (v === '' || v === null || v === undefined) {
+          hit++;
+          if (contoh.length < 4) contoh.push({ baris: mulai + rr, panjang: (typeof v === 'string' ? v.length : null), tipe: typeof v });
+        }
+      }
+      blokCek.push({ mulai: mulai, n: n, kolomAGKosong: hit, contoh: contoh, punyaFormulas: fm.length, rumusAGBaris1: fm[0][32] || '' });
+    }
+  } catch (e2) {
+    blokCek.push({ galat: e2.message });
+  }
+  return { ok: true, build: CFG.BUILD, cek: hasil, blokCek: blokCek, ms: Date.now() - T0 };
 }
 
 function doPost(e) {
