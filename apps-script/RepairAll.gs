@@ -45,8 +45,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.9',
-  BUILD: 'b10',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.10',
+  BUILD: 'b11',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -144,6 +144,7 @@ function api(req) {
  */
 function lengkap_(build) {
   var perlu = {
+    b11: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA', 'PINDAI_PENUH'],
     b10: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA'],
     b9: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG'],
     b8: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS'],
@@ -174,7 +175,7 @@ function sidikFitur_() {
     if (typeof diagnosa_ === 'function') f.push('DIAGNOSA');
     if (String(buildPlan_).indexOf('dibuka SEKALI') >= 0) f.push('SATU_BUKA');
     if (String(scanSheet_).indexOf('CFG.SAMPEL_BARIS') >= 0) f.push('SAMPEL');
-    if (typeof pindaiGalat === 'function') f.push('PINDAI_GALAT');
+    if (typeof pindaiDalam_ === 'function') f.push('PINDAI_GALAT');   // diteruskan demi kompatibilitas
     if (String(scanSheet_).indexOf('galatLuarIdx') >= 0) f.push('GALAT_LUAR_SAMPEL');
     if (String(scanSheet_).indexOf('numTotal / terisi') >= 0) f.push('ISNUM_DARI_NILAI');
     if (String(preview_).indexOf('plan.waktu') >= 0) f.push('PREVIEW_WAKTU');
@@ -183,6 +184,7 @@ function sidikFitur_() {
     if (String(scanSheet_).indexOf('periksaPrasyarat_(rumusTpl, row, col, sh,') >= 0) f.push('PRASYARAT_BACA_LANGSUNG');
     // b10: penanda diperiksa di fungsi pemeriksanya sendiri, bukan di scanSheet_.
     if (String(periksaPrasyarat_).indexOf('bilanganKetat_') >= 0 && String(periksaPrasyarat_).indexOf('bukanAngka') >= 0) f.push('PRASYARAT_ANGKA');
+    if (String(pindaiDalam_).indexOf('posisiRumus') >= 0 && String(scanSheet_).indexOf('polaTerdekat_') >= 0) f.push('PINDAI_PENUH');
     if (String(buildPlan_).indexOf('waktu') >= 0) f.push('WAKTU');
   } catch (e) { f.push('GAGAL_' + (e && e.message ? e.message.slice(0, 40) : 'unknown')); }
   return f;
@@ -539,26 +541,134 @@ function buildPlan_(keys) {
  * Deteksi sel error DI LUAR blok sampel tanpa mengunduh seluruh sheet.
  * Dipakai oleh optimizeGrid_. Kembalikan { "huruf|baris": teksError }.
  */
-function pindaiGalat(sh, nRow, nCol, kolomTarget) {
-  var out = {};
-  if (!kolomTarget.length) return out;
-  var blokRow = 2000;   // 2000 sel per panggilan (~0,2-1 s), jauh lebih murah dari 17.857
+/**
+ * b11: satu lintasan menyeluruh atas seluruh baris.
+ *
+ * Menggantikan pindaiGalat yang hanya mencari teks error (#REF!, #DIV/0!, ...).
+ * Fungsi ini mencatat TIGA hal sekaligus dalam satu pembacaan:
+ *   1. teks error            -> out['HURUF|barisIdx']
+ *   2. sel kosong pada kolom yang PUNYA rumus di mana pun -> out['HURUF|barisIdx'] = '(kosong)'
+ *   3. rumus pola           -> daftarRumus[kolom] (60 terakhir) supaya bisa memulihkan
+ *                              rumus pada baris di luar blok sampel.
+ *
+ * Mengapa (3) penting: dulu isFormulaCol hanya menandai kolom yang >= FORMULA_MIN sel
+ * berumus DI SAMPEL. Kolom yang semua baris sampelnya kosong (mis. AG Ha/Jam yang seluruh
+ * barisnya kosong karena pembagi 0) tidak pernah dianggap kolom rumus, sehingga sel kosong
+ * di dalamnya TIDAK PERNAH dilaporkan. Notifikasi "data error" muncul tetapi tombol Repair
+ * tidak menawarkan apa pun. Sekarang keberadaan rumus di mana pun sudah cukup.
+ */
+function pindaiDalam_(sh, nRow, nCol, kolomTarget, posisiRumus, daftarRumus) {
+  var hasil = { err: {}, kosong: {} };
+  if (!kolomTarget.length) return hasil;
+  var out = hasil.err, kosongPeta = hasil.kosong;
+  var BLOK = 1500;          // 1500 baris per panggilan; getValues+getFormulas sekaligus
+  var SIMPAN_RUMUS = 60;    // 60 pola terakhir sudah lebih dari cukup
   for (var b = 0; b < kolomTarget.length; b++) {
     var c = kolomTarget[b];
     var huruf = colLetter_(c + 1);
-    // mulai = 2 (baris 1 adalah header). Kunci memakai INDEKS ARRAY (0-based) agar sama
-    // dengan values[]/formulas[] di scanSheet_ -> tidak ada geser satu baris.
-    for (var mulai = 2; mulai <= nRow; mulai += blokRow) {
-      var n = Math.min(blokRow, nRow - mulai + 1);
+    var punyaRumus = false;
+    var mulai = 2;                                     // baris 1 = header
+    for (; mulai <= nRow + BLOK; mulai += BLOK) {
+      var n = Math.min(BLOK, nRow - mulai + 1);
       if (n <= 0) break;
-      var blk = sh.getRange(mulai, c + 1, n, 1).getValues();
+      var rng = sh.getRange(mulai, c + 1, n, 1);
+      var nil = rng.getValues();
+      var fm = rng.getFormulas();
       for (var i = 0; i < n; i++) {
-        var t = teks_(blk[i][0]);
-        if (t && (t.charAt(0) === '#' || /^NaN$/i.test(t))) out[huruf + '|' + (mulai + i - 1)] = t;
+        var f = fm[i][0];
+        if (f && String(f).replace(/^\s+/, '').charAt(0) === '=') {
+          punyaRumus = true;
+          posisiRumus[c] = (posisiRumus[c] || 0) + 1;
+          var simpan = daftarRumus[c];
+          if (simpan && simpan.length < SIMPAN_RUMUS) simpan.push({ f: String(f), r: mulai + i });
+        }
+      }
+      for (var j = 0; j < n; j++) {
+        var t = teks_(nil[j][0]);
+        if (t && (t.charAt(0) === '#' || /^NaN$/i.test(t))) {
+          out[huruf + '|' + (mulai + j)] = t;         // NOMOR BARIS SHEET (1-based), sama seperti pindaiGalat
+        }
+      }
+    }
+    // Sel kosong hanya dicatat untuk kolom yang benar-benar berisi rumus di suatu tempat.
+    if (!punyaRumus) continue;
+    for (var mulai2 = 2; mulai2 <= nRow; mulai2 += BLOK) {
+      var n2 = Math.min(BLOK, nRow - mulai2 + 1);
+      if (n2 <= 0) break;
+      var blk2 = sh.getRange(mulai2, c + 1, n2, 1).getValues();
+      for (var k = 0; k < n2; k++) {
+        var vv = blk2[k][0];
+        if (vv === '' || vv === null || vv === undefined) {
+          kosongPeta[huruf + '|' + (mulai2 + k)] = true;   // NOMOR BARIS SHEET (1-based)
+        }
       }
     }
   }
-  return out;
+  return hasil;
+}
+
+/**
+ * b11: apakah rumus layak dipasang di baris ini?
+ *
+ * Aturan inti: JANGAN usulkan bila hasilnya hanya akan kosong lagi. Contoh nyata:
+ * AG = round(I/M;4) dengan M = 0 -> #DIV/0! -> ditelan iferror -> kosong kembali.
+ * Jadi setiap sel acuan yang berupa ANGKA harus terisi dan bukan nol.
+ * Acuan yang dirangkai dengan & (teks) tidak dipaksa angka.
+ */
+function pembandingRumus_(rumus, barisSheet, vBaris, kol) {
+  var ruj = rujukanRumus_(rumus);
+  if (!ruj.length) return { ok: true, catatan: 'Rumus tidak bergantung pada sel lain.' };
+  // b11: rujukan pada `rumus` masih menunjuk baris TEMPLATE (mis. I61), sedangkan yang
+  // dipasang nanti adalah versi yang sudah digeser (I15083). Geser dulu sebelum diperiksa.
+  var geser = barisSheet - 1 - ruj[0].baris;
+  if (!isFinite(geser)) geser = 0;
+  var kosong = [], nol = [], teks = [], dipakai = [];
+  for (var i = 0; i < ruj.length; i++) {
+    var rr = ruj[i].baris + geser, cc = ruj[i].kolom;
+    if (rr < 0 || cc < 0) continue;
+    var a1 = hurufKolom_(cc + 1) + (rr + 1);
+    if (dipakai.indexOf(a1) >= 0) continue;
+    dipakai.push(a1);
+    var v = vBaris[cc];
+    var hampa = (v === '' || v === null || v === undefined);
+    if (hampa) { kosong.push(a1); continue; }
+    if (teksBoleh_(rumus, a1)) continue;                 // memang dirangkai sebagai teks
+    if (!bilanganKetat_(v)) { teks.push(a1 + '="' + v + '"'); continue; }
+    if (angka_(v) === 0) nol.push(a1);
+  }
+  if (!kosong.length && !nol.length && !teks.length) {
+    return { ok: true, catatan: 'Semua acuan terisi: ' + dipakai.join(', ') + '.' };
+  }
+  var sebab = [];
+  if (kosong.length) sebab.push(kosong.join(', ') + ' masih kosong');
+  if (nol.length) sebab.push(nol.join(', ') + ' bernilai 0 (pembagi/penjumlah kosong)');
+  if (teks.length) sebab.push(teks.join(', ') + ' berisi teks, bukan angka');
+  return {
+    ok: false,
+    alasan: 'PRASYARAT TIDAK SIAP: ' + sebab.join('; ') + '. Rumus pola kolom ini membutuhkannya, ' +
+      'jadi memasangnya sekarang hanya menghasilkan sel kosong lagi (error ditelan iferror) ' +
+      'dan masalahnya justru tersembunyi. Lengkapi dulu ' + dipakai.join(', ') + ' dengan angka yang benar.'
+  };
+}
+
+/** Pola rumus dengan jarak baris terdekat dari baris tujuan. */
+function polaTerdekat_(daftar, barisSheet) {
+  var best = null, jarak = 1e9;
+  for (var i = 0; i < daftar.length; i++) {
+    var d = Math.abs(daftar[i].r - barisSheet);
+    if (d < jarak) { jarak = d; best = daftar[i]; }
+  }
+  return best;
+}
+
+/** Apakah nilai pembanding ini terisi (bukan kosong / 0)? */
+function adaIsi_(v) {
+  if (v === '' || v === null || v === undefined) return false;
+  if (typeof v === 'number') return v !== 0 && isFinite(v);
+  var t = teks_(v);
+  if (!t) return false;
+  var n = angka_(v);
+  return !(isFinite(n) && n === 0);
 }
 
 function scanSheet_(sh, sheetName, only) {
@@ -579,6 +689,14 @@ function scanSheet_(sh, sheetName, only) {
   // baris (AF=I, AG=I/M, AH=Y/M, AI=Y/I, AJ=LEFT(E,3), AK=D, AL=B, AM=C).
   // Jadi cukup dibaca APA adanya dari sampel; yang perlu diperiksa penuh hanya kolom A
   // (text(B,"MMM")) dan AC (Biaya Total, 14.217 rumus = 8% sel).
+  // b11: penanda baris yang datanya TIDAK LENGKAP di memori. Wajib dideklarasikan di awal
+  // (var bersifat hoisted; kalau diletakkan setelah pemakaian nilainya undefined).
+  var barisSintetis = {};   // dibuat hanya untuk menampung sel error di luar sampel
+  var barisParsial = {};    // hanya berisi Wilayah+Lokasi (hasil baca duaKolom), kolom lain tak diketahui
+  // b11: penanda rumus per kolom. Wajib ada sebelum profil kolom & sebelum pindaiDalam_.
+  var posisiRumus_ = {};
+  var daftarRumus = {};
+
   var SAMPEL = Math.min(CFG.SAMPEL_BARIS || 300, Math.max(2, lastRow - 1));
   var blokAkhir = Math.min(SAMPEL, lastRow - SAMPEL);
 
@@ -588,6 +706,7 @@ function scanSheet_(sh, sheetName, only) {
   out.waktu.sampelAwal = Date.now() - _t; _t = Date.now();
   var headers = sampelAwal[0].map(function (v) { return String(v == null ? '' : v).trim(); });
   var nCol = headers.length, nRow = lastRow;
+  for (var pc = 0; pc < nCol; pc++) { posisiRumus_[pc] = 0; daftarRumus[pc] = []; }
 
   // Blok terakhir: menangkap data yang baru diisi di bawah (baris baru = tempat error paling sering)
   var sampelAkhir = blokAkhir > 0 ? sh.getRange(lastRow - blokAkhir + 1, 1, blokAkhir, nCol).getValues() : [];
@@ -610,11 +729,20 @@ function scanSheet_(sh, sheetName, only) {
   }
 
   /* --- 1. Riwayat Lokasi -> Wilayah (untuk aturan [4]) --- */
+  // b11: kolom pembanding untuk aturan "rumus kosong padahal pembandingnya ada"
   var cWil = -1, cLok = -1, cJenis = -1;
+  var cEngine = -1, cOper = -1, cSolarL = -1, cLuas = -1, cDate = -1, cBulan = -1;
   for (var h = 0; h < nCol; h++) {
-    if (cWil < 0 && /^wilayah$/i.test(headers[h])) cWil = h;
-    if (cLok < 0 && /^lokasi$/i.test(headers[h])) cLok = h;
-    if (cJenis < 0 && /^(jenis engine|kode engine)$/i.test(headers[h])) cJenis = cJenis < 0 ? h : cJenis;
+    var hd = String(headers[h] || '');
+    if (cWil < 0 && /^wilayah$/i.test(hd)) cWil = h;
+    if (cLok < 0 && /^lokasi$/i.test(hd)) cLok = h;
+    if (cJenis < 0 && /^(jenis engine|kode engine)$/i.test(hd)) cJenis = cJenis < 0 ? h : cJenis;
+    if (cEngine < 0 && /^engine$/i.test(hd)) cEngine = h;
+    if (cOper < 0 && /^operating\s*time/i.test(hd)) cOper = h;
+    if (cSolarL < 0 && /^solar\s*terpakai/i.test(hd)) cSolarL = h;
+    if (cLuas < 0 && /^luas\s*siram/i.test(hd)) cLuas = h;
+    if (cDate < 0 && /^date$/i.test(hd)) cDate = h;
+    if (cBulan < 0 && /^(r\s*bulan|bulan)$/i.test(hd)) cBulan = h;
   }
   var lokasiToWil = {}, lokasiBentrok = {};
   if (cWil >= 0 && cLok >= 0) {
@@ -626,7 +754,10 @@ function scanSheet_(sh, sheetName, only) {
     for (var rw2 = 1; rw2 < nRow; rw2++) {
       var barisDua = duaKol[rw2 - 1];
       if (!barisDua) continue;
-      if (!values[rw2]) values[rw2] = [];
+      // b11: tandai baris yang di sini hanya diisi Wilayah+Lokasi. Nilai kolom LAIN pada
+      // baris tersebut tidak ada di memori (undefined), BUKAN kosong di sheet. Tanpa tanda
+      // ini, setiap kolom lain terbaca "kosong" -> ribuan item palsu.
+      if (!values[rw2]) { values[rw2] = []; barisParsial[rw2] = true; }
       values[rw2][cWil] = barisDua[cWil - dasar2];
       values[rw2][cLok] = barisDua[cLok - dasar2];
     }
@@ -668,13 +799,33 @@ function scanSheet_(sh, sheetName, only) {
   // Tanpa ini, sel error pada baris 301..17.557 akan terlewat. Dipindai per kolom berblok
   // 2.000 sel: hanya kolom yang mungkin bermasalah (kolom rumus + kolom yang punya aturan
   // turunan + kolom Wilayah) supaya tetap murah.
-  var kolomPindai = [];
-  (function () {
-    var tandai = {};
-    for (var kk = 0; kk < rules.length; kk++) tandai[rules[kk].target] = true;
-    if (cWil >= 0) tandai[cWil] = true;
-    for (var cc = 0; cc < nCol; cc++) if (isFormulaCol[cc] || tandai[cc]) kolomPindai.push(cc);
-  })();
+  /* --- 2. Profil kolom: numerik? kolom rumus? letak rumus pertama? --- */
+  var isNum = new Array(nCol), isFormulaCol = new Array(nCol);
+  var firstF = new Array(nCol);
+  var barisBerdata = 0;
+  // v1.23.2 (performa): status "baris ada data" dihitung SEKALI.
+  // Dulu barisAdaData_() dipanggil di dalam loop kolom x baris = 39 x 17.856 = 696.384
+  // panggilan, masing-masing memindai 39 sel -> ~27 juta operasi per preview/apply.
+  var adaData = new Array(nRow);
+  for (var r0 = 1; r0 < nRow; r0++) {
+    var ad = barisAdaData_(values[r0]);
+    adaData[r0] = ad;
+    if (ad) barisBerdata++;
+  }
+
+  var rules = aturanTurunan_(headers);
+
+  // ===== b6a: lewati kolom yang tidak punya urusan sama sekali =====
+  // Pengukuran b6 (Index Solar 151 baris x 39 kolom) menunjukkan loop memindai 5.889 sel
+  // kosong tanpa hasil. Kolom yang di sampel tidak punya rumus DAN tidak punya nilai DAN
+  // bukan kolom di luar sampel (Wilayah/Lokasi) tidak mungkin menghasilkan item.
+  var kolomPenting = {};
+
+  // ===== b6: sel error DI LUAR blok sampel =====
+  // Tanpa ini, sel error pada baris 301..17.557 akan terlewat. Dipindai per kolom berblok
+  // 2.000 sel: hanya kolom yang mungkin bermasalah (kolom rumus + kolom yang punya aturan
+  // turunan + kolom Wilayah) supaya tetap murah.
+  var kolomPindai = [];   // dibangun setelah profil kolom (lihat di bawah)
   // Kolom penting = punya rumus di sampel, atau punya nilai di sampel, atau target aturan,
   // atau kolom Wilayah/Lokasi (yang datanya dibaca di luar sampel).
   for (var kp2 = 0; kp2 < nCol; kp2++) {
@@ -690,25 +841,27 @@ function scanSheet_(sh, sheetName, only) {
     kolomPenting[kp2] = punyaRumus || punyaNilai || targetAturan || luarSampel;
   }
 
-  var galatLuar = pindaiGalat(sh, nRow, nCol, kolomPindai);
-  out.waktu.pindaiGalat = Date.now() - _t; _t = Date.now();
   // Sisipkan sebagai baris semu: nilai error ditaruh di values[] agar loop memperlakukannya
   // sama seperti error yang ditemukan di sampel, tetapi TIDAK dihitung sebagai "baris berdata"
   // (adaData tetap dari sampel) -- item tetap dibuat karena nilainya error.
   // Sel error di luar sampel disimpan PALING AKHIR ke values[] -- setelah profil kolom
   // dihitung -- supaya jenis kolom (numerik/teks) ditentukan oleh data normal, bukan
   // oleh nilai error. Penandaan barisnya dilakukan pada variabel terpisah.
-  var galatLuarIdx = {};   // "barisIdx|kolom" -> teks error
+  var galatLuarIdx = {};   // "barisIdx|kolom" -> teks error (diisi setelah pemindaian)
+  var galatLuar = {}, kosongLuar = {};
   for (var gk in galatLuar) {
     if (!galatLuar.hasOwnProperty(gk)) continue;
     var pisah = gk.split('|');
-    var hr = parseInt(pisah[1], 10);                     // SUDAH indeks array (0 = header)
+    // b11: pindaiDalam_ mengembalikan NOMOR BARIS SHEET (1-based, baris 2 = data pertama).
+    // Indeks array = nomorBaris - 1. Tanpa konversi ini, nilai disisipkan satu baris terlalu
+    // jauh sehingga seluruh kolom di luar sampel tampak kosong (17.749 item palsu).
+    var barisSheet = parseInt(pisah[1], 10);
     var kc = colToNum_(pisah[0]) - 1;
+    var hr = barisSheet - 1;
     if (hr < 1 || hr >= nRow) continue;
     galatLuarIdx[hr + '|' + kc] = galatLuar[gk];
   }
 
-  var ambangRumus = Math.max(CFG.FORMULA_MIN, Math.floor(barisBerdata * CFG.FORMULA_RATIO));
 
   for (var c = 0; c < nCol; c++) {
     var numTotal = 0, terisi = 0, ff = -1, cf = 0;
@@ -738,10 +891,49 @@ function scanSheet_(sh, sheetName, only) {
     // NILAI hasil rumus pada sampel, bukan dari keberadaan rumus.
     isNum[c] = terisi > 0 ? (numTotal / terisi) >= 0.6 : false;
     firstF[c] = ff;
-    isFormulaCol[c] = cf >= CFG.FORMULA_MIN && cf >= Math.min(ambangRumus, barisBerdata);
+    // b11: BUG LAMA. `cf` dihitung dari SELURUH nRow, tetapi formulas[] hanya terisi pada
+    // blok sampel, jadi cf maksimum = SAMPEL (300). Sementara ambangRumus =
+    // max(FORMULA_MIN, floor(barisBerdata * FORMULA_RATIO)) memakai jumlah baris SELURUH
+    // sheet. Untuk sheet 18.348 baris ambangnya 9.174 -- mustahil dicapai 300 baris,
+    // sehingga SETIAP kolom rumus dianggap bukan kolom rumus dan tidak pernah dipindai.
+    // Perbandingan yang benar memakai porsi terhadap baris yang benar-benar di sampel.
+    var dalamSampel = Math.min(SAMPEL, nRow - 1) + blokAkhir;
+    var ambangSampel = Math.max(CFG.FORMULA_MIN, Math.floor(dalamSampel * CFG.FORMULA_RATIO));
+    isFormulaCol[c] = cf >= CFG.FORMULA_MIN && (cf >= ambangSampel || posisiRumus_[c] > 0);
     // Kolom yang mayoritas berisi angka dan hanya punya 1-2 rumus TIDAK dianggap kolom
     // rumus: itu kolom nilai (mis. Total Time = I) yang sesekali ditimpa rumus.
   }
+
+  // b11: kolomPindai dibangun SETELAH profil kolom. Dulu dibangun sebelum isFormulaCol
+  // dihitung, sehingga isFormulaCol[cc] masih undefined dan kolom rumus tidak pernah ikut
+  // dipindai -- inilah sebab 4 sel di baris 15.083 tidak pernah terdeteksi.
+  (function () {
+    var tandai = {};
+    for (var kk = 0; kk < rules.length; kk++) tandai[rules[kk].target] = true;
+    if (cWil >= 0) tandai[cWil] = true;
+    // b11: kolom pembanding ikut dipindai supaya nilainya tersedia untuk
+    // aturan "rumus kosong padahal pembandingnya terisi" di luar blok sampel.
+    var pembanding = [cEngine, cOper, cSolarL, cLuas, cDate];
+    for (var pj = 0; pj < pembanding.length; pj++) if (pembanding[pj] >= 0) tandai[pembanding[pj]] = true;
+    for (var cc = 0; cc < nCol; cc++) if (isFormulaCol[cc] || posisiRumus_[cc] || tandai[cc]) kolomPindai.push(cc);
+  })();
+
+  // b11: pemindaian menyeluruh dijalankan di sini -- SETELAH kolomPindai terbentuk dan
+  // SEBELUM loop membaca nilai. Satu-satunya pemanggilan pindaiDalam_.
+  var _tp = Date.now();
+  var hasilPindai = pindaiDalam_(sh, nRow, nCol, kolomPindai, posisiRumus_, daftarRumus);
+  galatLuar = hasilPindai.err;
+  kosongLuar = hasilPindai.kosong;
+  out.waktu.pindaiGalat = Date.now() - _tp; _t = Date.now();
+  for (var gk9 in galatLuar) {
+    if (!galatLuar.hasOwnProperty(gk9)) continue;
+    var ps9 = gk9.split('|');
+    var bs9 = parseInt(ps9[1], 10), kk9 = colToNum_(ps9[0]) - 1;
+    var hi9 = bs9 - 1;                       // nomor baris sheet -> indeks array
+    if (hi9 < 1 || hi9 >= nRow) continue;
+    galatLuarIdx[hi9 + '|' + kk9] = galatLuar[gk9];
+  }
+
 
   // Nilai yang sudah dihitung pada pemindaian ini, agar kolom turunan berantai
   // (mis. Rp/Ha butuh Biaya Total yang juga kosong) tetap bisa dipastikan.
@@ -753,8 +945,9 @@ function scanSheet_(sh, sheetName, only) {
     if (!galatLuarIdx.hasOwnProperty(gk2)) continue;
     var pg = gk2.split('|');
     var hg = parseInt(pg[0], 10), kg = parseInt(pg[1], 10);
-    if (!values[hg]) values[hg] = [];
+    if (!values[hg]) { values[hg] = []; barisSintetis[hg] = {}; }
     if (!formulas[hg]) formulas[hg] = [];
+    if (barisSintetis[hg]) barisSintetis[hg][kg] = true;
     values[hg][kg] = galatLuarIdx[gk2];
     formulas[hg][kg] = '';        // bukan sel rumus -> akan masuk aturan error/nilai
     adaData[hg] = true;
@@ -781,6 +974,14 @@ function scanSheet_(sh, sheetName, only) {
       if (!adaData[row]) continue;
 
       var vRow = values[row];
+      // b11: baris sintetis (dibuat untuk sel error di luar sampel) hanya berisi SATU kolom.
+      // Tanpa penjagaan ini, semua kolom lain pada baris itu terbaca undefined -> dianggap
+      // kosong -> ribuan item palsu (pernah terjadi: 17.749 item).
+      var bsint = barisSintetis[row];
+      if (bsint && !bsint[col]) continue;
+      // b11: baris parsial hanya memuat Wilayah & Lokasi di memori. Kolom lain nilainya
+      // TIDAK DIKETAHUI (bukan kosong) -> jangan dinilai sama sekali.
+      if (barisParsial[row] && col !== cWil && col !== cLok) continue;
       var nilai = vRow ? vRow[col] : '';
       var kosong = (nilai === '' || nilai === null || nilai === undefined);
       var teks = kosong ? '' : teks_(nilai);
@@ -793,16 +994,22 @@ function scanSheet_(sh, sheetName, only) {
       if (only && !only[kunci]) continue;
 
       /* baris acuan rumus terdekat */
-      var tpl = -1;
+      var tpl = -1, rumusTpl = '';
       if (isFormulaCol[col]) {
         tpl = acuanTerakhir >= 0 ? acuanTerakhir : firstF[col];
         if (tpl >= 0 && Math.abs(tpl - row) > CFG.TEMPLATE_LOOKUP && !CFG.PREFER_FORMULA_FAR) tpl = -1;
         if (tpl === row) tpl = firstF[col] === row ? -1 : firstF[col];
+        if (tpl >= 0 && formulas[tpl]) rumusTpl = formulas[tpl][col] || '';
+      }
+      // b11: kolom yang seluruh baris sampelnya kosong tidak pernah punya tpl.
+      // Pakai pola rumus dari baris lain (hasil pindaiDalam_) sebagai acuan.
+      if (!rumusTpl && daftarRumus[col] && daftarRumus[col].length) {
+        var pola = polaTerdekat_(daftarRumus[col], row + 1);
+        if (pola && (pola.r - 1) !== row) { rumusTpl = pola.f; tpl = pola.r - 1; }
       }
 
       /* [1] & [2] kolom rumus -> tulis ulang rumus, SETELAH prasyarat diperiksa (b8) */
-      if ((kosong || error) && tpl >= 0) {
-        var rumusTpl = formulas[tpl][col];
+      if ((kosong || error) && tpl >= 0 && rumusTpl) {
         // b9: prasyarat dibaca LANGSUNG dari sel acuan di sheet, bukan dari sampel di memori.
         // b8 membaca dari salinan sampel; di mock sampelnya lengkap sehingga lolos uji,
         // tetapi di produksi salinan itu tidak memuat baris tujuan -> K152 kosong DILOLOSKAN.
@@ -894,6 +1101,59 @@ function scanSheet_(sh, sheetName, only) {
         }
       }
     }
+  }
+
+  /* --- 3b. b11: rumus yang kosong padahal seharusnya terisi --- */
+  // Sel kosong TIDAK disisipkan ke values[] seperti error. Error aman karena teks "#REF!"
+  // bukan nilai sah, tetapi sel kosong yang disisipkan akan membuat baris di luar sampel
+  // tampak "ada data" lalu seluruh kolom dinilai kosong (17.749 item palsu). Jadi sel
+  // kosong diproses di sini secara terpisah, memakai pola rumus dari pindaiDalam_.
+  var diusulkan = {};
+  var cacheBaris = {};   // barisIdx -> nilai SATU BARIS PENUH dibaca dari sheet
+  for (var ki in kosongLuar) {
+    if (!kosongLuar.hasOwnProperty(ki)) continue;
+    var pp = ki.split('|');
+    var barisSheetK = parseInt(pp[1], 10);
+    var kolK = colToNum_(pp[0]) - 1;
+    if (!(kolK >= 0) || kolK >= nCol) continue;
+    if (barisSheetK < 2 || barisSheetK > nRow) continue;
+    if (!kolomPenting[kolK]) continue;                  // kolom yang sengaja dilewati
+    var kunciK = sheetName + '!' + pp[0] + barisSheetK;
+    if (only && !only[kunciK]) continue;
+    if (diusulkan[kunciK]) continue;
+
+    // Kolom harus benar-benar berumus (ada rumus di mana pun).
+    if (!posisiRumus_[kolK] && !isFormulaCol[kolK]) continue;
+    var polaK = (daftarRumus[kolK] && daftarRumus[kolK].length) ? polaTerdekat_(daftarRumus[kolK], barisSheetK) : null;
+    if (!polaK) continue;
+
+    // Aturan: hanya usulkan bila pembandingnya sudah terisi. Tanpa ini, rumus hanya akan
+    // menghasilkan kosong lagi (mis. Operating = 0 -> #DIV/0! -> ditelan iferror).
+    var rowIdx = barisSheetK - 1;
+    // b11: values[rowIdx] untuk baris di luar sampel hanya memuat Wilayah+Lokasi (hasil
+    // baca duaKolom). Memakainya membuat SEMUA kolom lain terbaca kosong. Jadi baris ini
+    // dibaca utuh dari sheet, sekali per baris (di-cache).
+    if (!cacheBaris[rowIdx]) {
+      try {
+        cacheBaris[rowIdx] = sh.getRange(barisSheetK, 1, 1, nCol).getValues()[0] || [];
+      } catch (e) { cacheBaris[rowIdx] = []; }
+    }
+    var vBaris = cacheBaris[rowIdx];
+    if (!vBaris || !vBaris.length) continue;
+    var bukti = pembandingRumus_(polaK.f, barisSheetK, vBaris, { engine: cEngine, oper: cOper, solar: cSolarL, luas: cLuas, date: cDate });
+    if (!bukti.ok) {
+      out.skipped.push(lewat_(sheetName, rowIdx, kolK, headers[kolK] || pp[0], pp[0], '',
+        bukti.alasan));
+      continue;
+    }
+
+    var rumusK = rumusPratinjau_(polaK.f, barisSheetK - polaK.r);
+    diusulkan[kunciK] = true;
+    out.items.push(item_(sheetName, rowIdx, kolK, headers[kolK] || pp[0], pp[0],
+      'rumus', '', '', 'formula', rumusK,
+      'Pola: rumus baris ' + polaK.r + '. ' + bukti.catatan,
+      'Sel kosong pada kolom rumus. Ditulis ulang memakai pola rumus di kolom yang sama.',
+      polaK.r));
   }
 
   out.waktu.loop = Date.now() - Tloop;
