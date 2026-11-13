@@ -45,8 +45,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.14',
-  BUILD: 'b15',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.15',
+  BUILD: 'b16',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -1286,6 +1286,33 @@ function scanSheet_(sh, sheetName, only) {
       polaK.r));
   }
 
+  // b16: cacat tingkat kolom. Dijalankan pada data yang sudah ada di memori (tanpa I/O
+  // tambahan), jadi tidak menambah waktu pemindaian.
+  try {
+    var cacatKolom = aturanRujukanSalah_(sh, headers, formulas, sampelAwal, nRow, nCol);
+    for (var qc = 0; qc < cacatKolom.length; qc++) {
+      var kc2 = cacatKolom[qc];
+      var hurufR = colLetter_(kc2.kolom + 1);
+      var hurufHarus = colLetter_(kc2.harusnya + 1);
+      var hurufSkg = colLetter_(kc2.sekarang + 1);
+      var kunciR = sheetName + '!' + hurufR + kc2.barisAwal;
+      if (only && !only[kunciR]) continue;
+      out.items.push(item_(sheetName, kc2.barisAwal - 1, kc2.kolom, kc2.nama, hurufR,
+        'rumus',
+        '=' + hurufSkg + kc2.barisAwal, '=' + hurufHarus + kc2.barisAwal, 'formula',
+        '=' + hurufHarus + kc2.barisAwal,
+        'Kolom "' + kc2.nama + '" merujuk kolom ' + hurufSkg + ', padahal namanya menyatakan ' +
+        'kolom "' + String(headers[kc2.harusnya] || '') + '" (' + hurufHarus + ').',
+        'Seluruh ' + kc2.totalDiperiksa + ' baris yang diperiksa merujuk kolom yang salah, ' +
+        'sehingga nilai kolom ini salah pada SEMUA baris. Hanya baris ' + kc2.barisAwal +
+        ' yang ditampilkan sebagai contoh.',
+        kc2.barisAwal - 1));
+    }
+    out.waktu.cacatKolom = cacatKolom.length;
+  } catch (eKol) {
+    out.waktu.cacatKolomGalat = String(eKol && eKol.message || eKol);
+  }
+
   out.waktu.jejak = jejak;
   var cekKol = ['AG', 'AH'];
   var cekol = ['AG', 'AH'];
@@ -1658,6 +1685,77 @@ function colToNum_(letter) {
   var n = 0;
   for (var i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
   return n;
+}
+
+
+/**
+ * b16: kolom "R <Nama>" (duplikat rujukan) harus merujuk kolom "<Nama>", bukan kolom lain.
+ *
+ * Kasus nyata ZPAS637:
+ *   AK "R Lokasi"   = =D24   -> benar (D = Lokasi)
+ *   AL "R Irigator" = =B24   -> SALAH (seharusnya =F24, F = Irigator)
+ *   AM "R Wilayah"  = =C24   -> benar (C = Wilayah)
+ * AL berisi tanggal pada 18.568/18.568 baris karena menunjuk kolom Date.
+ *
+ * Sebelumnya bug ini TIDAK terdeteksi sama sekali: nilainya bukan error dan tidak
+ * kosong, jadi seluruh pemeriksaan berbasis sel melewatinya. Bug seperti ini hanya
+ * terlihat dengan membandingkan rujukan rumus terhadap nama kolomnya.
+ *
+ * Mengembalikan array: { kolom, nama, targetSeharusnya, targetSekarang, barisAwal }.
+ */
+function aturanRujukanSalah_(sh, headers, formulas, sampelAwal, nRow, nCol) {
+  var temuan = [];
+  // peta nama kolom (dinormalkan) -> indeks kolom pertama yang cocok
+  var peta = {};
+  for (var i = 0; i < nCol; i++) {
+    var nm = normKolom_(headers[i]);
+    if (nm && !peta.hasOwnProperty(nm)) peta[nm] = i;
+  }
+  for (var c = 0; c < nCol; c++) {
+    var judul = String(headers[c] || '');
+    var m = /^R\s+(.+)$/i.exec(judul.trim());
+    if (!m) continue;
+    var sasaranNama = normKolom_(m[1]);
+    if (!peta.hasOwnProperty(sasaranNama)) continue;   // tidak ada kolom asalnya
+    var harusnya = peta[sasaranNama];
+    if (harusnya === c) continue;
+
+    // Periksa baris pada blok sampel: rujukan satu sel tunggal ke kolom tetap?
+    var salah = 0, total = 0, contohBaris = -1, kolomSekarang = -1;
+    var batas = Math.min(nRow, sampelAwal.length, 400);
+    for (var r = 1; r < batas; r++) {
+      var f = formulas[r] ? formulas[r][c] : '';
+      if (!f) continue;
+      var ruj = rujukanRumus_(f);
+      if (ruj.length !== 1) continue;            // hanya rumus rujukan tunggal
+      total++;
+      var t = ruj[0];
+      // rujukan harus ke kolom yang sama untuk seluruh baris, dan ke baris relatif sama
+      if (t.kolom === harusnya && (t.baris - (r + 1)) === (ruj[0].baris - (r + 1))) {
+        // sudah benar (kolom tepat); baris relatif otomatis sama karena rumusnya seragam
+      }
+      if (t.kolom === harusnya) continue;
+      salah++;
+      if (contohBaris < 0) { contohBaris = r; kolomSekarang = t.kolom; }
+    }
+    if (total === 0 || salah === 0) continue;
+    // hanya laporkan bila SEMUA baris yang diperiksa salah rujukan kolomnya
+    if (salah !== total) continue;
+    temuan.push({
+      kolom: c,
+      nama: judul.trim(),
+      harusnya: harusnya,
+      sekarang: kolomSekarang,
+      barisAwal: contohBaris >= 0 ? contohBaris + 1 : 2,
+      totalDiperiksa: total
+    });
+  }
+  return temuan;
+}
+
+/** Normalkan nama kolom untuk dicocokkan: huruf kecil, tanpa spasi/tanda baca. */
+function normKolom_(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 function normRumus_(f) {
