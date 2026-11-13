@@ -1,6 +1,6 @@
 // PG2 Irrigation Evaluation Dashboard - ZPAS637
 // Auto-sync to Google Sheets ID: 1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o
-// v1.23.0 — tombol Repair pada notifikasi data error (tulis ke Sheets via Apps Script)
+// v1.23.16 — Operating Time eksak dari gviz JSON (koreksi pembulatan CSV)
 // Updated: sheet ZPAS637 = 38 kolom A..AL (kolom bantu 'R ...' di A + 3 di ujung), parsing berbasis label
 const SPREADSHEET_ID = '1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o';
 const SHEET_NAME = 'ZPAS637';
@@ -22,6 +22,15 @@ const datesUrlFor = (letter) => `${GVIZ_BASE}?tq=${encodeURIComponent(dateGroupQ
 const DATES_URL = datesUrlFor(DATE_COL);
 // JSON penuh dipakai hanya sebagai fallback bila CSV bermasalah
 const GVIZ_URL = `${GVIZ_BASE}?tqx=out:json&sheet=${SHEET_NAME}`;
+// v1.23.16: kolom "Operating Time" TIDAK bisa diambil dari CSV.
+// gviz CSV mengirim angka TERFORMAT, jadi 18,5 jam terkirim sebagai "19" (dibulatkan
+// tanpa desimal). Terukur: 700 baris berbeda, akumulasi +346,10 jam, dan setiap baris
+// 18,5 jam terbaca 19 (error 2,6% pada perhitungan per-baris).
+// Perbaikan: ambil NILAI ASLI kolom M lewat gviz JSON (V = nilai mentah), lalu pakai
+// nilainya untuk mengganti angka yang dibulatkan. Payload 511 KB -> dienkode menjadi
+// ~93 KB (hanya angka, dipisah koma) dan di-cache terpisah.
+const EXACT_OPER_COL = 'M';
+const EXACT_URL = `${GVIZ_BASE}?tqx=out:json&sheet=${SHEET_NAME}&tq=${encodeURIComponent('select ' + EXACT_OPER_COL)}`;
 const INDEX_SHEET = 'Index Solar';
 const INDEX_URL = `${GVIZ_BASE}?tqx=out:csv&sheet=${encodeURIComponent(INDEX_SHEET)}`;
 const SAMPLE_URL = './assets/sample-data.csv';
@@ -737,7 +746,26 @@ function parseShortDate(str, fallbackYear) {
 }
 
 // Susun objek baris dari CSV + overlay tanggal akurat
-function buildRows(csvText, datesText) {
+// v1.23.16: ubah respons gviz JSON satu kolom menjadi deretan angka ringkas
+// ("8,7,18.5,..."). Hanya angka; sel kosong menjadi 0. Null bila respons tidak sah.
+function parseExactColumn(jsonText) {
+  const m = /setResponse\(([\s\S]*)\)\s*;\s*$/.exec(String(jsonText || '').trim());
+  if (!m) return null;
+  let obj;
+  try { obj = JSON.parse(m[1]); } catch (e) { return null; }
+  const t = obj && obj.table;
+  if (!t || !t.rows) return null;
+  const out = new Array(t.rows.length);
+  for (let i = 0; i < t.rows.length; i++) {
+    const r = t.rows[i];
+    const c = r && r.c && r.c[0];
+    const v = c ? c.v : null;
+    out[i] = (typeof v === 'number' && isFinite(v)) ? v : 0;
+  }
+  return out.join(',');
+}
+
+function buildRows(csvText, datesText, exactOper) {
   const t0 = performance.now();
   const rows = parseCSVFast(csvText);
   if (rows.length < 2) throw new Error('CSV kosong / format tidak dikenal');
@@ -760,6 +788,15 @@ function buildRows(csvText, datesText) {
     for (let i = 0; i < 12; i++) if (yearOfMonth[i]) { adaTahun = true; break; }
     if (!adaTahun) yearOfMonth = null;
   }
+
+  // v1.23.16: deretan nilai Operating Time yang tepat (bila tersedia).
+  let exactArr = null;
+  if (exactOper) {
+    const parts = String(exactOper).split(',');
+    if (parts.length === rows.length - 1) exactArr = parts;
+    else console.warn('[data] panjang kolom eksak tidak cocok:', parts.length, 'vs', rows.length - 1);
+  }
+  let _exactDipakai = 0;
 
   const I = (label) => idx[label];
   const cDate = I('Date'), cWil = I('Wilayah'), cLok = I('Lokasi'), cEng = I('Engine'), cIri = I('Irigator'),
@@ -820,6 +857,8 @@ function buildRows(csvText, datesText) {
       });
       continue;
     }
+    // v1.23.16: Operating Time memakai nilai ASLI (bukan CSV yang sudah dibulatkan).
+    const exactOperRow = exactArr ? parseFloat(exactArr[r - 1]) : NaN;
     const g = (i) => (i === undefined || i < 0 || row[i] === undefined ? '' : row[i]);
     const num = (i) => {
       if (i === undefined || i < 0) return 0;
@@ -886,6 +925,7 @@ function buildRows(csvText, datesText) {
     _dqCtx = { baris: sheetRow, kolom: '', huruf: '' };
     const yr = date.getFullYear(), mo = date.getMonth();
     const rowBSolar = num(cBSolar), rowBUpah = num(cBUpah), rowBAlat = num(cBAlat);
+    const rowSolarVal = num(cSolar);          // v1.23.16: dasar hitung ulang AG/AH/AI
     const rowBTotRaw = num(cBTotal);
     const rawBTotStr = g(cBTotal).trim();
     let rowBTotal = rowBTotRaw;
@@ -923,7 +963,12 @@ function buildRows(csvText, datesText) {
     }
 
     const rawTotOperStr = g(cTotOper).trim();
-    const rowPrep = num(cPrep), rowOper = num(cOper);
+    let rowPrep = num(cPrep), rowOper = num(cOper);
+    // Koreksi pembulatan CSV dengan nilai asli dari sheet (hanya bila berbeda).
+    if (cOper !== undefined && isFinite(exactOperRow) && exactOperRow !== rowOper) {
+      _exactDipakai++;
+      rowOper = exactOperRow;
+    }
     const rowTotOperRaw = num(cTotOper);
     // "Tot. Oper. Time" TIDAK dilaporkan sebagai rumus kosong lagi (v1.23.2).
     // Audit data 17.660 baris: kolom ini bukan rumus melainkan angka waktu terpakai yang
@@ -934,6 +979,33 @@ function buildRows(csvText, datesText) {
     let rowTotOper = rowTotOperRaw;
     if (!rawTotOperStr && (rowPrep > 0 || rowOper > 0) && cTotOper !== undefined) {
       rowTotOper = rowPrep + rowOper;
+    }
+
+    // v1.23.16: kolom turunan murni (tanpa ROUND di sheet) dihitung ulang dari nilai eksak.
+    // CSV membulatkan AG/AH/AI ke 2 desimal (0,1875 -> "0,19"), sehingga akumulasi meleset
+    // +3,84 Ha/Jam dan -1,71 L/Ha. Karena rumus sheet-nya =I/M, =Y/M, =Y/I (tanpa ROUND),
+    // hasil hitung ulang IDENTIK dengan spreadsheet. Penjagaan: hanya dipakai bila nilai
+    // CSV memang cocok dengan hasil hitung dalam toleransi pembulatan; bila tidak cocok
+    // (sel diisi manual), nilai CSV dipertahankan apa adanya.
+    let rowHaJam = num(cHaJam), rowSolarJam = num(cSolarJam), rowSolarHa = num(cSolarHa);
+    // Kolom yang selnya kosong di sheet jangan diisi hasil hitung (biar tetap 0/kosong).
+    const dekat = (kolomIdx, csvVal, hitung) => {
+      if (kolomIdx === undefined || kolomIdx < 0) return false;
+      const mentah = g(kolomIdx);
+      if (mentah === '' || mentah === undefined || mentah === null) return false;
+      // Toleransi = galat pembulatan 2 desimal DI CSV (0,005) + galat pembulatan
+      // hasil hitung kita sendiri (0,0005), ditambah sedikit kelonggaran relatif.
+      // Di luar toleransi ini nilainya dianggap diisi manual -> tidak ditimpa.
+      return Math.abs(csvVal - hitung) <= Math.max(0.0056, Math.abs(hitung) * 0.001);
+    };
+    if (rowOper > 0) {
+      const hHa = rowLuas / rowOper, hAh = rowSolarVal / rowOper;
+      if (dekat(cHaJam, rowHaJam, hHa)) rowHaJam = hHa;
+      if (dekat(cSolarJam, rowSolarJam, hAh)) rowSolarJam = hAh;
+    }
+    if (rowLuas > 0) {
+      const hAi = rowSolarVal / rowLuas;
+      if (dekat(cSolarHa, rowSolarHa, hAi)) rowSolarHa = hAi;
     }
 
     const d = {
@@ -949,8 +1021,8 @@ function buildRows(csvText, datesText) {
       availability: num(cAvail), utilization: num(cUtil), air: num(cAir),
       solarTerpakai: num(cSolar),
       biayaSolar: rowBSolar, biayaUpah: rowBUpah, biayaAlat: rowBAlat, biayaTotal: rowBTotal,
-      rpPerHa: rowRpHa, kwh: num(cKwh), haPerHari: num(cHaHari), haPerJam: num(cHaJam),
-      solarPerJam: num(cSolarJam), solarPerHa: num(cSolarHa),
+      rpPerHa: rowRpHa, kwh: num(cKwh), haPerHari: num(cHaHari), haPerJam: rowHaJam,
+      solarPerJam: rowSolarJam, solarPerHa: rowSolarHa,
       jenisEngine: g(cJEng).trim(),
       bulanR: g(cBulan).trim(),          // kolom A sheet: bantu bulan (Mei..Sep)
       _y: yr, _m: mo,
@@ -1275,16 +1347,16 @@ function fingerprint(text) {
 // Ambil payload (CSV + tanggal) - CSV utama, JSON penuh bila gagal
 async function fetchPayload({ preferCache = false } = {}) {
   if (preferCache) {
-    const [csv, dates, index] = await Promise.all([cacheGet(CSV_URL), cacheGet(DATES_URL), cacheGet(INDEX_URL)]);
+    const [csv, dates, index, exact] = await Promise.all([cacheGet(CSV_URL), cacheGet(DATES_URL), cacheGet(INDEX_URL), cacheGet(EXACT_URL)]);
     if (csv && csv.length > 1000) {
       const meta = readMeta();
-      return { csv, dates, index, sig: meta ? meta.sig : fingerprint(csv), ts: meta ? meta.ts : Date.now(), fromCache: true };
+      return { csv, dates, index, exact, sig: meta ? meta.sig : fingerprint(csv), ts: meta ? meta.ts : Date.now(), fromCache: true };
     }
     return null;   // cache kosong / belum ada: jangan unduh ulang dari jaringan di sini (sudah ditangani netPromise)
   }
   // paralel: CSV (sumber utama) + kolom tanggal (~3 KB) + Index Solar (~16 KB).
   // Kalau index.html sudah memulai unduhan lebih awal, hasilnya dipakai ulang di sini.
-  let csv = null, dates = null, index = null;
+  let csv = null, dates = null, index = null, exact = null;
   const earlyCsv = window.__pgCsvEarly, earlyDates = window.__pgDatesEarly, earlyIndex = window.__pgIndexEarly;
   if (earlyCsv || earlyDates || earlyIndex) {
     // Bila unduhan awal gagal, batalkan dulu sebelum mengulang (hindari dua unduhan
@@ -1298,6 +1370,11 @@ async function fetchPayload({ preferCache = false } = {}) {
     window.__pgCsvEarly = null; window.__pgDatesEarly = null; window.__pgIndexEarly = null;   // lepas teks dari memori
   }
   const indexPromise = index ? Promise.resolve(index) : fetchText(INDEX_URL).catch(() => null);   // ~16 KB, dijalankan paralel
+  // v1.23.16: nilai asli Operating Time (~93 KB setelah dirapikan). Opsional: bila gagal,
+  // dashboard tetap jalan memakai CSV (angka lama, sedikit dibulatkan).
+  const exactPromise = fetchText(EXACT_URL, 20000)
+    .then(t => parseExactColumn(t))
+    .catch(() => null);
   if (!csv || !dates) {
     // lengkapi/ulangi bagian yang belum berhasil (juga menutup kasus unduhan awal gagal)
     const retries = await Promise.allSettled([
@@ -1308,9 +1385,11 @@ async function fetchPayload({ preferCache = false } = {}) {
     if (!dates && retries[1].status === 'fulfilled') dates = retries[1].value;
   }
   index = await indexPromise;
+  exact = await exactPromise;
   const ts = Date.now();
   if (csv && csv.length > 1000) {
-    return { csv, dates, index, sig: fingerprint(csv) + '|' + (index ? fingerprint(index) : '-'), ts, fromCache: false };
+    return { csv, dates, index, exact,
+             sig: fingerprint(csv) + '|' + (index ? fingerprint(index) : '-'), ts, fromCache: false };
   }
   // CSV bermasalah -> baru ambil JSON gviz penuh (jauh lebih besar, hanya sebagai cadangan)
   console.warn('[data] CSV gagal, memakai fallback JSON gviz');
@@ -5980,7 +6059,7 @@ function applyPayload(payload, { fromCache = false } = {}) {
   const _awal = rawData.length === 0;
   dqRingkasan = null;   // dihitung ulang tiap parse (peringatan kualitas data)
   let rows;
-  if (payload.csv) { rows = buildRows(payload.csv, payload.dates); payload.csv = null; payload.dates = null; }
+  if (payload.csv) { rows = buildRows(payload.csv, payload.dates, payload.exact); payload.csv = null; payload.dates = null; payload.exact = null; }
   else { rows = parseGvizJSON(payload.json); payload.json = null; }
   if (!rows.length) throw new Error('Tidak ada baris data yang bisa dibaca (periksa kolom Date/Wilayah pada sheet)');
   rows.sort((a, b) => a.date - b.date);
@@ -6083,6 +6162,7 @@ async function loadData(opts = {}) {
       // simpan mentah untuk kunjungan berikutnya (sebelum teksnya dilepas dari memori)
       if (payload.csv) { cachePut(CSV_URL, payload.csv); if (payload.dates) cachePut(payload.datesKey || DATES_URL, payload.dates); }
       if (payload.index) cachePut(INDEX_URL, payload.index);
+      if (payload.exact) cachePut(EXACT_URL, payload.exact);   // v1.23.16: nilai asli Operating Time
       applyPayload(payload);
       if (!first && !silent) showToast(`Data diperbarui — ${formatInt(rawData.length)} records`, 'success');
     } else {
