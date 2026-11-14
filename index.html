@@ -207,6 +207,133 @@
           #filterSearch { min-height: 44px; }
         }
 
+        /* ============================================================
+           v1.23.19 — kartu KPI "Resume Waktu" robek di layar HP.
+           Terukur di v1.23.18 (viewport 360px): label 3 baris + chip 2 baris
+           saling menimpa, dan angka 26px lebar 126px di ruang 97px sehingga
+           "257.932,9" tembus 30px ke kolom sebelah (di 412px pun masih 4px).
+           Hanya berlaku di bawah 640px (di desktop grid-nya 4 kolom, 205px
+           per kartu, dan tidak ada masalah). 640-1023px DIBIARKAN apa adanya.
+           CSS saja: struktur HTML dan app.js tidak diubah.
+           ============================================================ */
+        @media (max-width: 639.98px) {
+          /* Chip status jangan memaksa sebaris dengan judul: turun ke baris
+             sendiri, rata kiri, supaya judul dan chip tidak saling tindih. */
+          #overviewWaktuResume > div.grid > div > div:first-child {
+            display: block !important;
+          }
+          /* Judul: satu baris penuh, tidak lagi berbagi tempat dengan chip */
+          #overviewWaktuResume > div.grid > div > div:first-child > span:first-child {
+            display: block; font-size: 10px; letter-spacing: 0.03em;
+          }
+          #overviewWaktuResume > div.grid > div > div:first-child > span:last-child {
+            display: inline-block; margin-top: 4px; max-width: 100%;
+            font-size: 10px; line-height: 1.3; padding: 2px 6px;
+            white-space: nowrap; text-align: left;
+          }
+          #overviewWaktuResume > div.grid > div > div:first-child > span:last-child svg {
+            width: 11px; height: 11px; vertical-align: -1px;
+          }
+
+          /* Angka utama menyesuaikan lebar kolom. Diukur dengan nilai terlebar
+             yang benar-benar ada di data ("329.807,7" butuh 105px pada 20px):
+             kolom 360px hanya menyisakan 97px, jadi 18px. */
+          #overviewWaktuResume > div.grid .text-\[26px\] { font-size: 18px !important; line-height: 1.15; }
+          #overviewWaktuResume > div.grid .text-\[26px\] > .text-\[14px\] { font-size: 12px !important; }
+          #overviewWaktuResume > div.grid .text-\[26px\] > .text-\[13px\] { font-size: 11px !important; }
+
+          /* Kalau suatu saat angkanya luar biasa panjang, lebih baik turun
+             baris daripada menembus kartu sebelah (diuji dengan 12.345.678,9). */
+          #overviewWaktuResume > div.grid > div:nth-child(-n+2) .text-\[26px\] { overflow-wrap: anywhere; }
+
+          /* Kartu 3 & 4 berisi angka ribuan (bukan persen): kalau suatu saat
+             nilainya luar biasa panjang, biarkan pecah baris, jangan menembus
+             kartu sebelah. */
+          #overviewWaktuResume > div.grid > div:nth-child(n+3) .text-\[26px\] { overflow-wrap: anywhere; }
+
+          /* Kartu 3 & 4: baris "Rata-rata / j-hari" dan "Plan / Tot Oper"
+             angkanya panjang, jadi ditumpuk (bukan dipaksa 2 kolom) agar
+             tidak pecah di tengah angka. */
+          #overviewWaktuResume > div.grid > div:nth-child(n+3) > div:last-child { display: block !important; }
+          #overviewWaktuResume > div.grid > div:nth-child(n+3) > div:last-child > span { display: block; margin-top: 2px; }
+        }
+        /* Kartu "Ringkasan Semua Wilayah": kotak Solar/Rp-Ha/Ha-Jam/Ltr-Ha
+           hanya 33px di HP, sedangkan angka seperti "1.580.425" butuh ~46px
+           sehingga "L" turun baris dan angka menyentuh tepi. Di HP kotaknya
+           ditumpuk jadi satu baris penuh dengan label di kiri, angka di kanan. */
+        @media (max-width: 639.98px) {
+          #overviewWilayahCards > div > div:nth-child(4) { grid-template-columns: 1fr; gap: 2px; }
+          #overviewWilayahCards > div > div:nth-child(4) > div {
+            display: flex; align-items: baseline; justify-content: space-between;
+            gap: 6px; padding: 3px 7px;
+          }
+          #overviewWilayahCards > div > div:nth-child(4) > div > div { white-space: nowrap; }
+          #overviewWilayahCards > div > div:nth-child(4) > div > div:first-child { flex-shrink: 0; }
+        }
+        /* Kartu "Top Engine & Irigator": dua kolom di HP hanya menyisakan
+           ~125px, sehingga nama + angka saling menindih (SPC0099769,98 Ha).
+           Di HP dua kolom itu ditumpuk jadi satu kolom penuh. */
+        @media (max-width: 639.98px) {
+          #topEngine, #topIrigator { overflow-wrap: anywhere; }
+          .grid:has(> div > #topEngine) { grid-template-columns: 1fr; row-gap: 14px; }
+        }
+        /* Tab Biaya: kartu 2 kolom menyisakan 95px untuk keterangan
+           ("Solar+Upah+Alat"), padahal butuh ~130px sampai menembus kartu
+           sebelah. Keterangan diberi baris sendiri dengan huruf sedikit lebih
+           kecil. Tab Data: banner audit memaksa teks dan dua tombol berbagi
+           satu baris sempit sehingga teks jadi satu kata per baris. */
+        @media (max-width: 639.98px) {
+          #biayaCards > div > div:first-child { flex-wrap: wrap; row-gap: 4px; }
+          #biayaCards > div > div:first-child > span:last-child {
+            font-size: 9px; letter-spacing: 0; line-height: 1.2;
+          }
+          #dataTabAuditBanner { flex-wrap: wrap; }
+          #dataTabAuditBanner > div:first-child { flex: 1 1 100%; }
+          #dataTabAuditBanner > div:first-child > div:last-child { flex: 1 1 auto; min-width: 0; }
+          #dataTabAuditBanner > div:last-child { flex-wrap: wrap; gap: 6px; }
+          /* Judul "Detail Data Harian" + tombol Export: beri ruang, tombol
+             turun baris bila tidak cukup. */
+          #tab-data .flex.flex-wrap.items-center.justify-between { row-gap: 8px; }
+        }
+        /* Tab Utilisasi: kartu waktu alat (12 kartu) memakai pola header yang
+           sama seperti kartu biaya — keterangan teks menembus 5-19px ke kartu
+           sebelah di 360px. */
+        @media (max-width: 639.98px) {
+          #waktuCards > div > div:first-child { flex-wrap: wrap; row-gap: 4px; }
+          #waktuCards > div > div:first-child > span:last-child {
+            font-size: 9px; letter-spacing: 0; line-height: 1.2;
+          }
+        }
+        /* Tab Data: kotak "Filter tabel..." (200px) + tombol Export (95px)
+           tidak muat dalam 310px sehingga kotak pencarian terpotong di tepi
+           kanan. Di HP keduanya ditumpuk jadi satu baris penuh. */
+        @media (max-width: 639.98px) {
+          #tab-data .flex.flex-wrap.items-center.justify-between > div.flex.items-center.gap-2 {
+            flex-wrap: wrap; width: 100%; row-gap: 6px;
+          }
+          #tab-data .flex.flex-wrap.items-center.justify-between > div.flex.items-center.gap-2 > input { flex: 1 1 100%; width: 100%; }
+        }
+        @media (min-width: 390px) and (max-width: 411.98px) {
+          #overviewWaktuResume > div.grid .text-\[26px\] { font-size: 20px !important; }
+        }
+        @media (min-width: 412px) and (max-width: 639.98px) {
+          #overviewWaktuResume > div.grid .text-\[26px\] { font-size: 22px !important; }
+        }
+        /* Layar 320px: ruang dalam kartu hanya 77px, jadi padding dirapatkan
+           sedikit dan angka 17px supaya "239.656,0" tetap utuh dalam satu baris. */
+        @media (max-width: 359.98px) {
+          #overviewWaktuResume > div.grid > div { padding: 12px; }
+          /* Chip "Kesiapan Prima" (83px) nyaris menyentuh tepi kartu 109px:
+             huruf & padding dirapatkan supaya ada jarak aman ke tepi. */
+          #overviewWaktuResume > div.grid > div > div:first-child > span:last-child {
+            font-size: 9px; padding: 2px 5px; letter-spacing: 0;
+          }
+          #overviewWaktuResume > div.grid .text-\[26px\] { font-size: 16px !important; }
+          /* Baris "Tertinggi / Terendah" ditumpuk supaya tidak menyentuh tepi kartu */
+          #overviewWaktuResume > div.grid > div > div:nth-child(4) { display: block !important; }
+          #overviewWaktuResume > div.grid > div > div:nth-child(4) > span { display: block; margin-top: 2px; }
+        }
+
         /* Lapisan atas selalu di atas laci filter */
         #loadingOverlay { z-index: 80 !important; }
         #toastHost { z-index: 90 !important; }
@@ -230,7 +357,7 @@
                             <span class="inline-flex min-w-0 items-center gap-1.5 truncate rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
                                 <span class="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"></span><span class="truncate">ZPAS637 LIVE</span>
                             </span>
-                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.23.18</span>
+                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.23.19</span>
                             <span class="hidden sm:inline">•</span>
                             <span id="lastSync" class="hidden min-w-0 truncate sm:inline">Syncing...</span>
                             
@@ -443,7 +570,7 @@
                             <i data-lucide="table-2" class="h-3.5 w-3.5"></i><span>Detail Data Harian</span>
                         </button>
                         <span class="ml-auto hidden flex-shrink-0 items-center gap-1.5 pl-3 pr-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 xl:inline-flex">
-                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.23.18</span>
+                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.23.19</span>
                         </span>
                     </div>
                 </nav>
