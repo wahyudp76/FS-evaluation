@@ -5576,7 +5576,12 @@ function renderDQBADGE() {
   if (!total) { badge.classList.add('hidden'); badge.classList.remove('inline-flex'); return; }
   badge.classList.remove('hidden'); badge.classList.add('inline-flex');
   const t = document.getElementById('dqBadgeText');
-  if (t) t.textContent = formatInt(total) + ' data janggal / error';
+  // v1.23.17: teks panjang membuat badge meluber di HP (142x19 px, menabrak tombol Sync).
+  // Di layar sempit cukup angka + kata pendek; rincian tetap ada di panel audit.
+  if (t) {
+    const sempit = window.matchMedia ? window.matchMedia('(max-width: 639.98px)').matches : window.innerWidth < 640;
+    t.textContent = sempit ? formatInt(total) + ' error' : formatInt(total) + ' data janggal / error';
+  }
   try {
     const rincian = [];
     if (dqRingkasan.rumus && dqRingkasan.rumus.total) rincian.push(`${formatInt(dqRingkasan.rumus.total)} rumus kosong`);
@@ -5973,7 +5978,10 @@ function showToast(message, type = 'info', ms = 6000, opts) {
   if (!host) {
     host = document.createElement('div');
     host.id = 'toastHost';
-    host.className = 'fixed bottom-4 right-4 z-[60] flex w-[min(92vw,380px)] flex-col gap-2';
+    // v1.23.17: pointer-events-none pada wadah + pointer-events-auto pada tiap toast.
+    // Sebelumnya wadah setinggi 251px (33% layar HP) menangkap sentuhan sehingga konten
+    // di bawahnya tidak bisa diklik, meski tombolnya hanya memakai sebagian area.
+    host.className = 'pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(92vw,380px)] flex-col gap-2';
     document.body.appendChild(host);
   }
   // Saat panel (audit/repair) terbuka, geser notifikasi ke bawah agar tombol
@@ -5983,6 +5991,9 @@ function showToast(message, type = 'info', ms = 6000, opts) {
     return el && !el.classList.contains('hidden') && el.style.display !== 'none';
   });
   host.style.bottom = panelTerbuka ? '8px' : '';
+  // Toast informatif panjang di HP menutupi 33% layar dan tidak hilang sendiri.
+  // Batasi tinggi tiap toast + beri batas jumlah agar konten selalu terlihat.
+  while (host.children.length >= 3) host.removeChild(host.firstElementChild);
   const styles = {
     info:    { bg:'bg-slate-900',  icon:'info' },
     success: { bg:'bg-emerald-600',icon:'check-circle-2' },
@@ -5990,7 +6001,7 @@ function showToast(message, type = 'info', ms = 6000, opts) {
     error:   { bg:'bg-red-600',    icon:'alert-octagon' }
   }[type] || { bg:'bg-slate-900', icon:'info' };
   const el = document.createElement('div');
-  el.className = `${styles.bg} flex items-start gap-2.5 rounded-2xl px-4 py-3 text-[12px] font-medium text-white shadow-soft-lg opacity-0 transition-opacity duration-300`;
+  el.className = `${styles.bg} pointer-events-auto flex items-start gap-2.5 rounded-2xl px-4 py-3 text-[12px] font-medium text-white shadow-soft-lg opacity-0 transition-opacity duration-300`;
   el.innerHTML = `<i data-lucide="${styles.icon}" class="mt-0.5 h-4 w-4 flex-shrink-0"></i><span class="leading-relaxed">${esc(message)}</span>`;
   host.appendChild(el);
   refreshIcons();
@@ -6005,7 +6016,8 @@ function showToast(message, type = 'info', ms = 6000, opts) {
     aksi.forEach((a) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[11px] font-bold text-slate-900 shadow-xs transition hover:bg-slate-100 active:scale-95';
+      // v1.23.17: 25px terlalu kecil untuk jari; dinaikkan ke 36px (HP) / 32px (desktop).
+      b.className = 'inline-flex min-h-[36px] items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-[11px] font-bold text-slate-900 shadow-xs transition hover:bg-slate-100 active:scale-95 sm:min-h-[32px]';
       b.innerHTML = `<i data-lucide="${a.ikon || 'wrench'}" class="h-3.5 w-3.5"></i><span></span>`;
       b.querySelector('span').textContent = a.label;
       b.addEventListener('click', () => {
@@ -6017,7 +6029,7 @@ function showToast(message, type = 'info', ms = 6000, opts) {
     });
     const tutup = document.createElement('button');
     tutup.type = 'button';
-    tutup.className = 'ml-auto rounded-full px-2 py-1 text-[11px] font-semibold text-white/70 transition hover:text-white';
+    tutup.className = 'ml-auto inline-flex min-h-[36px] min-w-[44px] items-center justify-center rounded-full px-2 py-1 text-[11px] font-semibold text-white/70 transition hover:text-white sm:min-h-[32px]';
     tutup.textContent = 'Nanti';
     tutup.addEventListener('click', () => { el.style.opacity = '0'; setTimeout(() => el.remove(), 350); });
     bar.appendChild(tutup);

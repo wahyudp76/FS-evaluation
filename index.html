@@ -140,6 +140,28 @@
             .filter-sheet-head { display: none !important; }
         }
 
+        /* v1.23.17 — target sentuh minimum 44x44 px (WCAG 2.5.8 AA + pedoman Android 48dp).
+           Ditulis sebagai CSS biasa, BUKAN kelas arbitrary Tailwind, karena tailwind.css
+           dikompilasi ulang saat deploy: kelas baru seperti min-h-[44px] tidak ada di CSS
+           lama dan akan diam-diam tidak berefek sampai build berikutnya. */
+        /* Cakupan 1023.98px, bukan 639.98px: tablet Android juga perangkat sentuh dan
+           memakai ukuran tombol yang sama besarnya dengan HP pada breakpoint ini. */
+        @media (max-width: 1023.98px) {
+          #btnSync, #btnFilters, #btnInstallPWA {
+            min-height: 44px; min-width: 44px; justify-content: center;
+          }
+          .tab-btn { min-height: 44px; }
+          #dqBadge { min-height: 32px; }   /* 32px = batas minimal praktis untuk chip di dalam baris ticker */
+        }
+        /* Wadah notifikasi tidak boleh menangkap sentuhan di area kosongnya.
+           Sebelumnya wadah setinggi 251-310 px (24-38% layar HP) menghalangi klik konten. */
+        #toastHost { pointer-events: none; }
+        #toastHost > * { pointer-events: auto; max-height: 42vh; overflow-y: auto; }
+        /* Tombol di dalam notifikasi: 25-29 px terlalu kecil untuk jari (min 44 dp Android). */
+        @media (max-width: 1023.98px) {
+          #toastHost > * button { min-height: 44px; }
+        }
+
         /* Lapisan atas selalu di atas laci filter */
         #loadingOverlay { z-index: 80 !important; }
         #toastHost { z-index: 90 !important; }
@@ -163,10 +185,10 @@
                             <span class="inline-flex min-w-0 items-center gap-1.5 truncate rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
                                 <span class="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"></span><span class="truncate">ZPAS637 LIVE</span>
                             </span>
-                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.23.1</span>
+                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.23.17</span>
                             <span class="hidden sm:inline">•</span>
                             <span id="lastSync" class="hidden min-w-0 truncate sm:inline">Syncing...</span>
-                            <button id="dqBadge" type="button" title="Lihat peringatan kualitas data &amp; audit error" class="hidden min-w-0 flex-shrink-0 items-center gap-1.5 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-500/30 transition hover:bg-amber-100"><i data-lucide="alert-triangle" class="h-3 w-3 flex-shrink-0"></i><span id="dqBadgeText" class="truncate">0 data error</span></button>
+                            
                         </div>
                     </div>
                 </div>
@@ -179,10 +201,10 @@
                     <button id="btnInstallPWA" type="button" aria-label="Pasang aplikasi" title="Pasang aplikasi" class="hidden items-center gap-2 rounded-full bg-emerald-600 px-3 py-2 text-[12px] font-medium text-white shadow-soft transition hover:bg-emerald-700 sm:px-4 sm:text-[13px]">
                         <i data-lucide="download" class="h-4 w-4"></i><span class="hidden sm:inline">Install App</span>
                     </button>
-                    <button id="btnSync" type="button" aria-label="Sinkronkan data sekarang" title="Sinkronkan data sekarang" class="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-[12px] font-medium text-white shadow-soft transition hover:bg-slate-800 sm:px-4 sm:text-[13px]">
+                    <button id="btnSync" type="button" aria-label="Sinkronkan data sekarang" title="Sinkronkan data sekarang" class="inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-[12px] font-medium text-white shadow-soft transition hover:bg-slate-800 sm:min-h-0 sm:px-4 sm:text-[13px]">
                         <i data-lucide="refresh-cw" class="h-4 w-4"></i><span class="hidden sm:inline">Sync</span>
                     </button>
-                    <button id="btnFilters" type="button" aria-controls="filterPanel" aria-expanded="false" aria-label="Buka panel filter" title="Filter &amp; kontrol" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-700 shadow-soft transition hover:bg-slate-50 sm:px-4 lg:hidden">
+                    <button id="btnFilters" type="button" aria-controls="filterPanel" aria-expanded="false" aria-label="Buka panel filter" title="Filter &amp; kontrol" class="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-700 shadow-soft transition hover:bg-slate-50 sm:min-h-0 sm:px-4 lg:hidden">
                         <i data-lucide="sliders-horizontal" class="h-4 w-4"></i><span class="hidden sm:inline">Filter</span>
                     </button>
                     <a href="https://github.com/wahyudp76/FS-evaluation" target="_blank" class="hidden h-9 w-9 sm:inline-flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:text-slate-900 transition">
@@ -193,6 +215,11 @@
             <!-- Ticker ringkas (selalu tampil di semua tab) -->
             <div class="flex items-center gap-3 overflow-x-auto border-t border-slate-100 py-2 text-[11px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 <span class="flex flex-shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-600/20"><i data-lucide="activity" class="h-3 w-3"></i> Ringkasan</span>
+                <!-- v1.23.17: badge kualitas data pindah ke baris ticker. Di HP ia bertumpuk
+                     dengan tombol Sync/Filter (terukur tumpang tindih 40x16 px dan 12x17 px)
+                     karena baris judul kekurangan ruang. Di ticker ia punya baris sendiri,
+                     dan tingginya dinaikkan ke 28px agar mudah disentuh. -->
+                <button id="dqBadge" type="button" title="Lihat peringatan kualitas data &amp; audit error" aria-label="Lihat peringatan kualitas data" class="hidden flex-shrink-0 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-500/30 transition hover:bg-amber-100"><i data-lucide="alert-triangle" class="h-3.5 w-3.5 flex-shrink-0"></i><span id="dqBadgeText">0 data error</span></button>
                 <div id="headerTicker" class="flex items-center gap-3 whitespace-nowrap">
                     <span class="text-slate-400">Memuat metrik...</span>
                 </div>
@@ -371,7 +398,7 @@
                             <i data-lucide="table-2" class="h-3.5 w-3.5"></i><span>Detail Data Harian</span>
                         </button>
                         <span class="ml-auto hidden flex-shrink-0 items-center gap-1.5 pl-3 pr-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 xl:inline-flex">
-                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.23.1</span>
+                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.23.17</span>
                         </span>
                     </div>
                 </nav>
