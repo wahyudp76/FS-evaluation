@@ -160,6 +160,35 @@
         /* Tombol di dalam notifikasi: 25-29 px terlalu kecil untuk jari (min 44 dp Android). */
         @media (max-width: 1023.98px) {
           #toastHost > * button { min-height: 44px; }
+          /* v1.23.20 — notifikasi di HP sebelumnya setinggi 180-310px (30-40%
+             layar) karena teks panjang + 2-3 tombol. Sekarang: teks 2 baris
+             (ketuk untuk buka), tombol tindakan berbagi baris, dan tumpukan
+             dibatasi 2 notifikasi. Tombol tutup (x) tetap 44x44. */
+          /* Tumpukan dibatasi 2 notifikasi (dulu bisa 3) dan tingginya
+             dibatasi supaya KPI di atas tetap terlihat. */
+          #toastHost { max-height: 40vh; }
+          #toastHost > * { max-height: 34vh; }
+          /* Kelas line-clamp tidak ada di assets/tailwind.css (precompiled),
+             jadi aturan potong-teks ditulis eksplisit di sini. */
+          #toastHost > * { flex-wrap: wrap; }
+          #toastHost > * > div { flex: 1 1 100%; }
+          #toastHost .js-toast-teks {
+            cursor: pointer; display: -webkit-box; -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+            flex: 1 1 0%; min-width: 0;
+          }
+          #toastHost .js-toast-teks.is-buka {
+            display: block; -webkit-line-clamp: unset; line-clamp: unset; overflow: visible;
+          }
+          #toastHost .js-toast-tutup { width: 44px; height: 44px; margin: -10px -14px -10px 0; }
+          #toastHost > * > div { row-gap: 6px; }
+          #toastHost > * > div > button:not(.js-toast-tutup) { min-width: 0; padding-left: 12px; padding-right: 12px; font-size: 10.5px; }
+          /* Label panjang ("Repair spreadsheet", "Lihat rincian") dipecah jadi
+             dua baris di HP, bukan melebarkan tombol sampai memakan seluruh
+             lebar notifikasi. */
+          #toastHost > * > div > button:not(.js-toast-tutup) span {
+            white-space: normal; text-align: left; max-width: 62px; line-height: 1.15;
+          }
         }
 
 
@@ -334,6 +363,17 @@
           #overviewWaktuResume > div.grid > div > div:nth-child(4) > span { display: block; margin-top: 2px; }
         }
 
+        /* HP sangat sempit (<=359px): baris tombol notifikasi dirapatkan agar
+           ketiga tombol tetap satu baris, tidak menambah tinggi notifikasi. */
+        @media (max-width: 359.98px) {
+          #toastHost { max-height: 44vh; }
+          #toastHost > * { padding-left: 12px; padding-right: 12px; }
+          #toastHost > * > div { column-gap: 4px; }
+          #toastHost > * > div > button:not(.js-toast-tutup) { font-size: 10px; padding-left: 9px; padding-right: 9px; gap: 4px; }
+          #toastHost > * > div > button:not(.js-toast-tutup) span { max-width: 58px; }
+          #toastHost > * > div > button:last-child { padding-left: 4px; padding-right: 4px; }
+        }
+
         /* Lapisan atas selalu di atas laci filter */
         #loadingOverlay { z-index: 80 !important; }
         #toastHost { z-index: 90 !important; }
@@ -357,7 +397,7 @@
                             <span class="inline-flex min-w-0 items-center gap-1.5 truncate rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
                                 <span class="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"></span><span class="truncate">ZPAS637 LIVE</span>
                             </span>
-                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.23.19</span>
+                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.23.20</span>
                             <span class="hidden sm:inline">•</span>
                             <span id="lastSync" class="hidden min-w-0 truncate sm:inline">Syncing...</span>
                             
@@ -570,7 +610,7 @@
                             <i data-lucide="table-2" class="h-3.5 w-3.5"></i><span>Detail Data Harian</span>
                         </button>
                         <span class="ml-auto hidden flex-shrink-0 items-center gap-1.5 pl-3 pr-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 xl:inline-flex">
-                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.23.19</span>
+                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.23.20</span>
                         </span>
                     </div>
                 </nav>

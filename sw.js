@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
 // v1.23.8 — naikkan versi agar app.js terbaru benar-benar terpakai; v1.23.1 — optimasi muat: peta tahun-bulan (784 KB -> 583 B), render lebih ringan; v1.23.0: tombol Repair ke Google Sheets
-const VERSION = 'v1.23.19';
+const VERSION = 'v1.23.20';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v2';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)

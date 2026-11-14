@@ -5993,7 +5993,9 @@ function showToast(message, type = 'info', ms = 6000, opts) {
   host.style.bottom = panelTerbuka ? '8px' : '';
   // Toast informatif panjang di HP menutupi 33% layar dan tidak hilang sendiri.
   // Batasi tinggi tiap toast + beri batas jumlah agar konten selalu terlihat.
-  while (host.children.length >= 3) host.removeChild(host.firstElementChild);
+  // v1.23.20: 2 notifikasi sekaligus (dulu 3) supaya tidak menumpuk menutupi layar.
+  // Notifikasi lama (mis. "sync gagal" yang sudah tidak relevan) dibuang lebih dulu.
+  while (host.children.length >= 2) host.removeChild(host.firstElementChild);
   const styles = {
     info:    { bg:'bg-slate-900',  icon:'info' },
     success: { bg:'bg-emerald-600',icon:'check-circle-2' },
@@ -6002,10 +6004,28 @@ function showToast(message, type = 'info', ms = 6000, opts) {
   }[type] || { bg:'bg-slate-900', icon:'info' };
   const el = document.createElement('div');
   el.className = `${styles.bg} pointer-events-auto flex items-start gap-2.5 rounded-2xl px-4 py-3 text-[12px] font-medium text-white shadow-soft-lg opacity-0 transition-opacity duration-300`;
-  el.innerHTML = `<i data-lucide="${styles.icon}" class="mt-0.5 h-4 w-4 flex-shrink-0"></i><span class="leading-relaxed">${esc(message)}</span>`;
+  // v1.23.20: pesan panjang di HP membuat notifikasi setinggi 180-240px (30-40%
+  // layar) sehingga menutupi KPI. Di HP teks dipotong ke 2 baris dan bisa
+  // dibuka-tutup dengan mengetuk teksnya; teks utuh tetap ada di DOM.
+  el.innerHTML = `<i data-lucide="${styles.icon}" class="mt-0.5 h-4 w-4 flex-shrink-0"></i>`
+    + `<span class="js-toast-teks cursor-pointer leading-relaxed" title="Ketuk untuk lihat seluruh pesan"></span>`
+    + `<button type="button" class="js-toast-tutup -mr-1.5 -mt-1 ml-0.5 inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Tutup notifikasi">&times;</button>`;
+  el.querySelector('.js-toast-teks').textContent = message;
+  el.querySelector('.js-toast-tutup').addEventListener('click', () => {
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 350);
+  });
   host.appendChild(el);
   refreshIcons();
   requestAnimationFrame(()=>{ el.style.opacity = '1'; });
+
+  // Ketuk teks = buka/tutup seluruh pesan (HP). Klik juga menghentikan hitung
+  // mundur otomatis supaya pesan panjang sempat dibaca.
+  const spanTeks = el.querySelector('.js-toast-teks');
+  spanTeks.addEventListener('click', () => {
+    const terbuka = spanTeks.classList.toggle('is-buka');
+    if (terbuka) el.dataset.hover = '1'; else delete el.dataset.hover;
+  });
 
   // Tombol tindakan (mis. Repair) di dalam notifikasi
   const aksi = (opts && opts.aksi) || null;
