@@ -1,6 +1,6 @@
 // PG2 Irrigation Dashboard - Service Worker (PWA)
 // v1.23.8 — naikkan versi agar app.js terbaru benar-benar terpakai; v1.23.1 — optimasi muat: peta tahun-bulan (784 KB -> 583 B), render lebih ringan; v1.23.0: tombol Repair ke Google Sheets
-const VERSION = 'v1.23.20';
+const VERSION = 'v1.23.21';
 const CACHE_NAME = 'pg2-irrigation-' + VERSION;
 const RUNTIME_CACHE = 'pg2-runtime-' + VERSION;
 const DATA_CACHE = 'pg2-data-v2';   // cache payload app.js — dipertahankan tiap ganti versi (v1.16.0)
@@ -83,7 +83,10 @@ function staleWhileRevalidate(event, cacheName) {
 
 // Network-first: app shell selalu versi terbaru, fallback ke cache saat offline
 function networkFirst(event, cacheName) {
-  return fetch(event.request)
+  // v1.23.21: GitHub Pages mengirim cache-control max-age=600, sehingga fetch()
+  // di dalam service worker bisa mengembalikan app.js/index.html LAMA sampai 10
+  // menit walau sudah deploy. 'no-cache' memaksa revalidasi tiap kali.
+  return fetch(event.request, { cache: 'no-cache' })
     .then((res) => putInCache(cacheName, event.request, res))
     .catch(() =>
       caches.match(event.request).then((cached) => {

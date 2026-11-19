@@ -40,7 +40,7 @@ const META_KEY = 'pg2-meta-v1';
 const AUTO_SYNC_MS = 5 * 60 * 1000;
 const FULL_REFRESH_MS = 30 * 60 * 1000;   // unduhan penuh dipaksa maks. tiap 30 mnt (tangkap edit baris lama)
 const REQ_TIMEOUT_MS = 25000;
-const EARLY_GRACE_MS = 45000;   // unduhan awal sudah berjalan paling dulu -> tenggang longgar
+const EARLY_GRACE_MS = 120000;  // v1.23.21: payload 6,2 MB; 45 s terlalu cepat untuk jaringan HP lambat
 
 // State
 let rawData = [];
@@ -1350,7 +1350,15 @@ async function fetchPayload({ preferCache = false } = {}) {
     const [csv, dates, index, exact] = await Promise.all([cacheGet(CSV_URL), cacheGet(DATES_URL), cacheGet(INDEX_URL), cacheGet(EXACT_URL)]);
     if (csv && csv.length > 1000) {
       const meta = readMeta();
-      return { csv, dates, index, exact, sig: meta ? meta.sig : fingerprint(csv), ts: meta ? meta.ts : Date.now(), fromCache: true };
+      // v1.23.21 — PERBAIKAN PENTING (akar masalah "sync tidak mengubah tanggal"):
+      // dulu sig payload cache diambil dari meta.sig (sidik jari unduhan TERAKHIR),
+      // padahal isi cache bisa BERBEDA dari itu (mis. cache tertinggal beberapa hari).
+      // Akibatnya saat Sync mengunduh data baru, sidik jarinya kebetulan sama dengan
+      // meta.sig lama -> dianggap "tidak berubah" -> payload baru DIBUANG dan yang
+      // tampil tetap data basi selamanya. Sekarang sig dihitung dari ISI cache
+      // yang benar-benar dipakai, sehingga data baru selalu terdeteksi berbeda.
+      const sigCache = fingerprint(csv) + '|' + (index ? fingerprint(index) : '-');
+      return { csv, dates, index, exact, sig: sigCache, ts: meta ? meta.ts : Date.now(), fromCache: true };
     }
     return null;   // cache kosong / belum ada: jangan unduh ulang dari jaringan di sini (sudah ditangani netPromise)
   }
@@ -1359,12 +1367,14 @@ async function fetchPayload({ preferCache = false } = {}) {
   let csv = null, dates = null, index = null, exact = null;
   const earlyCsv = window.__pgCsvEarly, earlyDates = window.__pgDatesEarly, earlyIndex = window.__pgIndexEarly;
   if (earlyCsv || earlyDates || earlyIndex) {
-    // Bila unduhan awal gagal, batalkan dulu sebelum mengulang (hindari dua unduhan
-    // besar berjalan bersamaan di jaringan lambat). promise awal membawa .abort().
-    const pakaiAwal = (p, nama) => p ? withTimeout(p, EARLY_GRACE_MS, nama).catch(() => {
-      try { if (p.abort) p.abort(); } catch (_e) {}
-      return null;
-    }) : Promise.resolve(null);
+    // v1.23.21: unduhan awal TIDAK dibatalkan lagi.
+    // Dulu: bila lewat tenggang 45 s, unduhan 6,2 MB di-abort lalu diunduh ULANG dari
+    // nol. Di jaringan lambat (<=500 KB/s) ini berujung dashboard berhenti di
+    // "Syncing..." lebih dari 80 detik, dan bila pengguna menutup aplikasi -> data
+    // baru tidak pernah tersimpan. Sekarang: tunggu lebih sabar (120 s) dan bila
+    // memang belum selesai, biarkan unduhan awal jalan terus (tidak dibatalkan)
+    // sementara satu percobaan ulang dijalankan; mana pun yang siap duluan dipakai.
+    const pakaiAwal = (p, nama) => p ? withTimeout(p, EARLY_GRACE_MS, nama).catch(() => null) : Promise.resolve(null);
     const [c, d, idx] = await Promise.all([pakaiAwal(earlyCsv, 'csv'), pakaiAwal(earlyDates, 'dates'), pakaiAwal(earlyIndex, 'index')]);
     csv = c; dates = d; index = idx;
     window.__pgCsvEarly = null; window.__pgDatesEarly = null; window.__pgIndexEarly = null;   // lepas teks dari memori
@@ -5504,7 +5514,32 @@ function initFiltersUI() {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
   });
-  $('#btnSync').addEventListener('click', ()=>{ loadData({ manual: true }); });
+  // v1.23.21: klik biasa = sync; TEKAN LAMA 1,2 detik = paksa muat ulang bersih
+  // (hapus cache lokal + service worker lalu unduh ulang dari spreadsheet).
+  (function () {
+    const btn = $('#btnSync');
+    if (!btn) return;
+    let tahan = null, panjang = false;
+    const mulai = () => {
+      panjang = false;
+      clearTimeout(tahan);
+      tahan = setTimeout(() => {
+        panjang = true;
+        if (navigator.vibrate) { try { navigator.vibrate(30); } catch (e) {} }
+        pulihkanData(true);
+      }, 1200);
+    };
+    const selesai = () => clearTimeout(tahan);
+    btn.addEventListener('pointerdown', mulai);
+    btn.addEventListener('pointerup', selesai);
+    btn.addEventListener('pointerleave', selesai);
+    btn.addEventListener('pointercancel', selesai);
+    btn.addEventListener('click', (ev) => {
+      if (panjang) { ev.preventDefault(); ev.stopPropagation(); panjang = false; return; }
+      loadData({ manual: true });
+    });
+    btn.title = 'Klik: sync • Tahan 1,2 detik: paksa muat ulang bersih';
+  })();
   // Panel filter: laci penuh (mobile/tablet) atau kolom sticky (desktop)
   const btnFilters = $('#btnFilters');
   if (btnFilters && !btnFilters.dataset.bound) {
@@ -6066,9 +6101,17 @@ function showToast(message, type = 'info', ms = 6000, opts) {
 
 function setSyncLabel(ts, fromCache) {
   const el = $('#lastSync'); if (!el) return;
-  const jam = new Date(ts).toLocaleTimeString('id-ID');
-  const src = fromCache ? 'cache' : (dataSource === 'sample' ? 'contoh' : 'live');
-  el.textContent = `Sync ${jam} • ${formatInt(rawData.length)} records • ${src}`;
+  const jam = new Date(ts).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  // v1.23.21: data contoh harus diberi label 'contoh' walau dimuat dari cache lokal,
+  // supaya tidak tertukar dengan data spreadsheet sungguhan.
+  const src = dataSource === 'sample' ? 'contoh' : (fromCache ? 'cache' : 'live');
+  // v1.23.21: sertakan TANGGAL DATA TERAKHIR. Dulu label hanya "Sync 13.05 • 19.273
+  // records" sehingga pengguna tidak tahu sampai tanggal berapa data yang tampil.
+  const tgl = rawDataMaxDate
+    ? ' • s.d. ' + rawDataMaxDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/\./g, '')
+    : '';
+  el.textContent = `Sync ${jam} • ${formatInt(rawData.length)} records${tgl} • ${src}`;
+  el.title = `Terakhir ambil data: ${new Date(ts).toLocaleString('id-ID')}`;
 }
 
 // v1.15.0 — samakan rentang tanggal dengan ujung data live (paling awal s.d.
@@ -6085,7 +6128,34 @@ function _ikutiRentangLive() {
   }
 }
 
-// Terapkan payload ke dashboard: parse (sekali) + filter + render tab aktif
+// v1.23.21 — Pemulihan mandiri untuk kasus "sudah sync tapi tanggal tidak berubah".
+// Penyebab yang mungkin: payload lama tersimpan di Cache Storage, app.js/index.html
+// versi lawas masih dipegang service worker, atau localStorage menyimpan meta basi.
+// Diuji: setelah pemulihan, dashboard memakai data terbaru dari spreadsheet.
+async function pulihkanData(manual = true) {
+  if (isSyncing) return;
+  try {
+    // 1) hapus payload data + cache shell (BUKAN localStorage preferensi pengguna)
+    try {
+      const names = await caches.keys();
+      await Promise.all(names.filter((n) => n.startsWith('pg2-data') || n.startsWith('pg2-irrigation') || n.startsWith('pg2-runtime')).map((n) => caches.delete(n)));
+    } catch (e) { console.debug('[pulih] hapus cache gagal', e && e.message); }
+    // 2) lepas service worker lama supaya berkas terbaru benar-benar diambil
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    } catch (e) {}
+    // 3) meta sync lama dibuang agar unduhan penuh benar-benar dijalankan
+    try { localStorage.removeItem(META_KEY); } catch (e) {}
+    appliedSig = '';
+    showToast('Cache lokal dibersihkan — mengunduh data terbaru dari spreadsheet…', 'info', 5000);
+    await loadData({ manual: true });
+  } catch (e) {
+    showToast('Pemulihan gagal: ' + (e && e.message ? e.message : 'tidak diketahui'), 'error', 7000);
+  }
+}
+
+// Terapkan payload ke dashboard: parse (sekali) + filter + render tab aktif// Terapkan payload ke dashboard: parse (sekali) + filter + render tab aktif
 function applyPayload(payload, { fromCache = false } = {}) {
   const t0 = performance.now();
   const _awal = rawData.length === 0;
@@ -6147,6 +6217,14 @@ async function loadData(opts = {}) {
   }
   try {
     const firstLoad = (rawData.length === 0);
+    // v1.23.21: beri tahu pengguna bila unduhan lama. Dulu layar hanya diam di
+    // "Syncing..." tanpa keterangan sehingga terlihat seperti macet.
+    if (manual) {
+      clearTimeout(loadData._lama);
+      loadData._lama = setTimeout(() => {
+        if (isSyncing) showToast('Masih mengunduh data spreadsheet (jaringan lambat)…', 'info', 6000);
+      }, 12000);
+    }
     // Probe ringan: mulai paralel sejak awal. Sync otomatis melewati unduhan penuh bila
     // probe sama; sync manual tetap mengunduh tapi menyimpan probe agar sync otomatis
     // berikutnya bisa melewati unduhan (v1.9.0: dulu probe manual = null).
@@ -6204,7 +6282,14 @@ async function loadData(opts = {}) {
         if (m) { m.ts = Date.now(); m.fullTs = Date.now(); if (_pendingProbe) m.probe = _pendingProbe; writeMeta(m); lastMeta = m; }
       } catch (e) {}
       setSyncLabel(Date.now(), false);
-      if (manual) showToast('Data sudah terbaru', 'info', 3000);
+      if (manual) {
+        // v1.23.21: banyak kasus "sudah sync tapi tanggal tidak berubah" ternyata
+        // berasal dari berkas/cache lokal yang basi, bukan dari spreadsheet.
+        // Beri satu tombol pemulihan supaya tidak perlu minta bantuan teknis.
+        showToast(`Data di spreadsheet sama dengan yang tampil (${formatInt(rawData.length)} records). Kalau seharusnya lebih baru, bersihkan cache lokal.`, 'info', 9000, {
+          aksi: [{ label: 'Muat ulang bersih', ikon: 'rotate-cw', run: () => pulihkanData(true) }]
+        });
+      }
     }
     syncFailures = 0;
   } catch (e) {
@@ -6231,6 +6316,20 @@ async function loadData(opts = {}) {
       // v1.16.0: cache sudah tampil tapi jaringan gagal -> pertahankan data tersimpan
       try { const m = readMeta(); if (m) setSyncLabel(m.ts || Date.now(), true); } catch (_e) {}
       showToast('Offline — menampilkan data tersimpan terakhir', 'warn', 6000);
+    } else if (rawData.length === 0) {
+      // v1.23.21: BELUM ADA DATA SAMA SEKARL dan file contoh juga tidak tersedia.
+      // Dulu cabang ini tidak ada: layar tetap kosong tanpa pesan apa pun dan
+      // tombol Sync kembali diam, sehingga tampak "tidak terjadi apa-apa".
+      const alasan = e && e.message ? esc(e.message) : 'jaringan';
+      overlay.style.display = 'flex';
+      overlay.innerHTML = `<div class="text-center p-6 max-w-[420px]"><div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600"><i data-lucide="alert-triangle" class="h-6 w-6"></i></div>`
+        + `<div class="mt-4 text-[13px] font-medium text-slate-900">Gagal memuat data</div>`
+        + `<div class="mt-1 text-[11px] text-slate-500">Tidak dapat menghubungi Google Sheets (${alasan}). Periksa koneksi lalu coba lagi.</div>`
+        + `<button id="btnRetryLoad2" class="mt-4 rounded-full bg-slate-900 px-4 py-2 text-[12px] font-medium text-white">Coba lagi</button></div>`;
+      refreshIcons();
+      const rb2 = $('#btnRetryLoad2');
+      if (rb2) rb2.addEventListener('click', () => { overlay.style.display = 'none'; loadData({ manual: true }); });
+      showToast(`Sync gagal (${alasan}) — data belum bisa dimuat`, 'error', 9000);
     } else {
       // sudah ada data tampil -> jangan tutupi dashboard, cukup beri tahu
       // (jadwal ulang ditangani di finally agar tidak ganda)
@@ -6238,6 +6337,7 @@ async function loadData(opts = {}) {
     }
   } finally {
     isSyncing = false;
+    clearTimeout(loadData._lama);
     // Jaga agar sync otomatis BERULANG tiap 5 menit (dulu: timer tidak pernah dipasang ulang
     // setelah sync pertama sehingga auto-sync mati total). Gagal = backoff progresif.
     try { scheduleSync(syncFailures > 0); } catch (e) {}
