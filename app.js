@@ -118,6 +118,7 @@ let filters = {
   months: new Set(),
   year: 'all',
   jenisEngine: new Set(),   // v1.18.0: multi-pilih per tipe (dulu dropdown tunggal)
+  powerEngine: new Set(),   // v1.23.22: multi-pilih Power Engine (kolom AM sheet ZPAS637)
   search: '',
   tableSearch: ''
 };
@@ -1024,6 +1025,8 @@ function buildRows(csvText, datesText, exactOper) {
       rpPerHa: rowRpHa, kwh: num(cKwh), haPerHari: num(cHaHari), haPerJam: rowHaJam,
       solarPerJam: rowSolarJam, solarPerHa: rowSolarHa,
       jenisEngine: g(cJEng).trim(),
+      // v1.23.22: kolom AM "Power Engine" (45 / 75 / 130 / 150 / 220 / 260)
+      powerEngine: powerEngineBersih(g(I('Power Engine'))),
       bulanR: g(cBulan).trim(),          // kolom A sheet: bantu bulan (Mei..Sep)
       _y: yr, _m: mo,
       _hasIssue: wilayahAutoHealed || bTotalAutoHealed,
@@ -1199,6 +1202,7 @@ function parseIndexSolar(csvText) {
       lokasi: g(cLok),
       irigator: g(cIri),
       jenis: g(cJenis) || '-',
+      powerEngine: '-',                 // v1.23.22: sheet Index Solar tidak punya kolom Power Engine
       jenisIrigator: g(cJIri) || '-',
       solar, jam, kalibrasi, lpjSheet, lpjAktual,
       selisihRaw,
@@ -1272,10 +1276,13 @@ function parseGvizJSON(text) {
       kwh: num('Kosumsi kWh') || num('Konsumsi kWh') || num('kwh'),
       haPerHari: num('Ha/Hari'), haPerJam: num('Ha/Jam'),
       solarPerJam: num('Solar Ltr/jam'), solarPerHa: num('Solar Ltr/Ha'), jenisEngine: str('Jenis Engine'),
+      // v1.23.22: kolom AM "Power Engine" (45 / 75 / 130 / 150 / 220 / 260)
+      powerEngine: powerEngineBersih(str('Power Engine')),
       bulanR: str('R Bulan'),
       _y: date.getFullYear(), _m: date.getMonth(), _s: ''
     };
     d._s = (d.lokasi + ' ' + d.engine + ' ' + d.irigator + ' ' + d.wilayah + ' ' + d.jenisIrigator + ' ' + d.jenisEngine + ' ' +
+            (d.powerEngine && d.powerEngine !== '-' ? d.powerEngine + ' hp ' : '') +
             (d.kwh ? 'kwh ' + d.kwh + ' ' : '') + formatDateISO(date)).toLowerCase();
     out.push(d);
   }
@@ -1422,12 +1429,23 @@ function rowNumericMatch(d, q) {
 }
 
 // Filtering
+/* v1.23.22 — kolom AM "Power Engine" berisi teks seperti '130', '45', dan 6 baris '#N/A'.
+   Nilai dibersihkan jadi teks tanpa desimal agar cocok saat dicentang/diurutkan:
+   '130' -> '130', '130.0' -> '130', '#N/A' / kosong -> '-'. */
+function powerEngineBersih(nilai) {
+  const v = String(nilai == null ? '' : nilai).trim();
+  if (!v || v.indexOf('#') === 0 || /^(n\/a|na|null|undefined)$/i.test(v)) return '-';
+  const n = parseFloat(v.replace(',', '.'));
+  if (isFinite(n) && n > 0) return String(Math.round(n * 10) / 10);
+  return '-';
+}
+
 function applyFilters() {
   // Satu lintasan untuk semua kondisi (jauh lebih cepat dari berantai .filter())
   const t0 = performance.now();
   const startMs = filters.start ? filters.start.getTime() : null;
   const endMs = filters.end ? (filters.end.getTime() + 86399999) : null;
-  const fMonths = filters.months, fWilayah = filters.wilayah, fJenis = filters.jenisEngine;
+  const fMonths = filters.months, fWilayah = filters.wilayah, fJenis = filters.jenisEngine, fPower = filters.powerEngine;
   const y = (filters.year !== 'all') ? parseInt(filters.year, 10) : null;
   const q1 = filters.search ? filters.search.toLowerCase() : null;
   // v1.16.0: tableSearch pindah ke renderTable (lokal tabel; dulu mati & bocor ke filter global)
@@ -1442,6 +1460,7 @@ function applyFilters() {
     if (y !== null && !isNaN(y) && d._y !== y) continue;
     if (fWilayah.size && !fWilayah.has(d.wilayah)) continue;
     if (fJenis.size && !fJenis.has(d.jenisEngine)) continue;   // v1.18.0: filter jenis engine multi-pilih
+    if (fPower.size && !fPower.has(d.powerEngine || '-')) continue;   // v1.23.22: filter Power Engine
     if (q1 && d._s.indexOf(q1) === -1) continue;
     out.push(d);
   }
@@ -5156,6 +5175,7 @@ function updateFilterSheetMeta() {
   if (filters.months.size) n++;
   if (filters.year !== 'all') n++;
   if (filters.jenisEngine.size) n++;
+  if (filters.powerEngine.size) n++;   // v1.23.22
   if (filters.search) n++;
   if (rawData.length && filters.start && filters.end && rawDataMinDate && rawDataMaxDate) {
     const full = filters.start.getTime() <= rawDataMinDate.getTime() && filters.end.getTime() >= rawDataMaxDate.getTime();
@@ -5241,9 +5261,70 @@ function initFiltersUI() {
       });
     });
   }
+  // v1.23.22: Power Engine (kolom AM) -> chip di header + centang di panel filter
+  const powerCount = {};
+  for (let i = 0; i < rawData.length; i++) {
+    const pw = rawData[i].powerEngine || '-';
+    powerCount[pw] = (powerCount[pw] || 0) + 1;
+  }
+  const powerSet = Object.keys(powerCount).sort((a, b) => {
+    const na = parseFloat(a), nb = parseFloat(b);
+    if (isFinite(na) && isFinite(nb)) return na - nb;      // urut angka: 45, 75, 130, ...
+    if (isFinite(na)) return -1;
+    if (isFinite(nb)) return 1;
+    return a.localeCompare(b);
+  });
+  const powerContainer = $('#powerCheckboxes');
+  if (powerContainer) {
+    powerContainer.innerHTML = powerSet.map(pw=>`
+    <label class="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white cursor-pointer transition">
+      <input type="checkbox" value="${esc(pw)}" class="power-cb h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+      <span class="text-[12px] font-medium text-slate-700 font-mono">${pw === '-' ? 'Tanpa data' : esc(pw) + ' hp'}</span>
+      <span class="ml-auto text-[10px] font-mono text-slate-400">${formatInt(powerCount[pw])}</span>
+    </label>
+  `).join('') || '<div class="px-2 py-3 text-center text-[11px] text-slate-400">Tidak ada data Power Engine</div>';
+    powerContainer.querySelectorAll('.power-cb').forEach(cb=>{
+      cb.addEventListener('change', (ev)=>{
+        if (ev.target.checked) filters.powerEngine.add(ev.target.value);
+        else filters.powerEngine.delete(ev.target.value);
+        currentPage=1; updateAll(); renderPowerChips();
+      });
+    });
+  }
+  // chip ringkas di header: bisa diketuk untuk memfilter cepat (1 chip = hanya itu)
+  function renderPowerChips() {
+    const box = $('#powerChips');
+    if (!box) return;
+    box.innerHTML = powerSet.map(pw=>{
+      const on = filters.powerEngine.has(pw);
+      // Chip yang tidak dipilih tetap terbaca jelas (slate-400 terlalu pucat dan
+      // terlihat seperti tombol mati); pembeda cukup dari warna hijau saat aktif.
+      const gaya = on
+        ? 'bg-emerald-600 text-white ring-1 ring-emerald-600'
+        : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50';
+      return `<button type="button" data-power="${esc(pw)}" aria-pressed="${on}" title="${pw === '-' ? 'Tanpa data Power Engine' : 'Power Engine ' + esc(pw) + ' hp'} • ${formatInt(powerCount[pw])} records" class="flex-shrink-0 rounded-full px-2.5 py-1 font-mono text-[10px] font-semibold transition ${gaya}">${pw === '-' ? '—' : esc(pw)}${pw === '-' ? '' : '<span class="pe-hp font-normal opacity-70">hp</span>'}</button>`;
+    }).join('');
+    box.querySelectorAll('[data-power]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const pw = b.dataset.power;
+        if (filters.powerEngine.has(pw)) filters.powerEngine.delete(pw);
+        else filters.powerEngine.add(pw);
+        syncPowerCheckboxes();
+        currentPage=1; updateAll(); renderPowerChips();
+      });
+    });
+  }
+  function syncPowerCheckboxes() {
+    $$('.power-cb').forEach(cb=>{ cb.checked = filters.powerEngine.has(cb.value); });
+  }
+  renderPowerChips();
+
   const yearsSet = [...new Set(rawData.map(d=>d.date.getFullYear()))].sort();
   const yearSel = $('#filterYear');
   if (yearSel) yearSel.innerHTML = '<option value="all">Semua Tahun</option>' + yearsSet.map(y=>`<option value="${y}">${y}</option>`).join('');
+  // v1.23.22: renderPowerChips dipakai juga oleh Reset filter, jadi diletakkan di
+  // lingkup initFiltersUI (bukan di dalam blok Power) agar tetap bisa dipanggil.
+  window.__pgRenderPowerChips = renderPowerChips;
   const shortNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
   function renderMonthChips() {
     const container = $('#activeMonthChips');
@@ -5430,8 +5511,11 @@ function initFiltersUI() {
   $('#tableSearch').addEventListener('search', onTableSearch);
   $('#btnClearFilters').addEventListener('click', ()=>{
     filters.wilayah.clear(); filters.months.clear(); filters.year='all'; filters.jenisEngine.clear(); filters.search=''; filters.tableSearch='';
+    filters.powerEngine.clear();                                   // v1.23.22
     $$('.wilayah-cb').forEach(cb=>cb.checked=false);
     $$('.jenis-cb').forEach(cb=>cb.checked=false);
+    $$('.power-cb').forEach(cb=>cb.checked=false);                  // v1.23.22
+    $$('#powerChips [data-power]').forEach(b=>{ b.setAttribute('aria-pressed','false'); b.className = b.className.replace('bg-emerald-600 text-white ring-1 ring-emerald-600','bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'); });
     $$('.month-btn').forEach(b=>{ b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100'); b.classList.add('bg-white','text-slate-600','border-slate-200'); });
     if ($('#filterYear')) $('#filterYear').value='all';
     if ($('#filterMonthDropdown')) $('#filterMonthDropdown').value='all';
