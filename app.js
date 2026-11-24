@@ -5261,7 +5261,8 @@ function initFiltersUI() {
       });
     });
   }
-  // v1.23.22: Power Engine (kolom AM) -> chip di header + centang di panel filter
+  // v1.23.22: Power Engine (kolom AM) -> daftar centang, gaya sama dengan
+  // Wilayah & Jenis Engine. Isinya mengikuti data yang sedang dimuat.
   const powerCount = {};
   for (let i = 0; i < rawData.length; i++) {
     const pw = rawData[i].powerEngine || '-';
@@ -5279,52 +5280,23 @@ function initFiltersUI() {
     powerContainer.innerHTML = powerSet.map(pw=>`
     <label class="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white cursor-pointer transition">
       <input type="checkbox" value="${esc(pw)}" class="power-cb h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
-      <span class="text-[12px] font-medium text-slate-700 font-mono">${pw === '-' ? 'Tanpa data' : esc(pw) + ' hp'}</span>
+      <span class="text-[12px] font-medium text-slate-700">${pw === '-' ? 'Tanpa data' : esc(pw) + ' hp'}</span>
       <span class="ml-auto text-[10px] font-mono text-slate-400">${formatInt(powerCount[pw])}</span>
     </label>
   `).join('') || '<div class="px-2 py-3 text-center text-[11px] text-slate-400">Tidak ada data Power Engine</div>';
     powerContainer.querySelectorAll('.power-cb').forEach(cb=>{
+      cb.checked = filters.powerEngine.has(cb.value);          // pertahankan pilihan saat data diperbarui
       cb.addEventListener('change', (ev)=>{
         if (ev.target.checked) filters.powerEngine.add(ev.target.value);
         else filters.powerEngine.delete(ev.target.value);
-        currentPage=1; updateAll(); renderPowerChips();
+        currentPage=1; updateAll();
       });
     });
   }
-  // chip ringkas di header: bisa diketuk untuk memfilter cepat (1 chip = hanya itu)
-  function renderPowerChips() {
-    const box = $('#powerChips');
-    if (!box) return;
-    box.innerHTML = powerSet.map(pw=>{
-      const on = filters.powerEngine.has(pw);
-      // Chip yang tidak dipilih tetap terbaca jelas (slate-400 terlalu pucat dan
-      // terlihat seperti tombol mati); pembeda cukup dari warna hijau saat aktif.
-      const gaya = on
-        ? 'bg-emerald-600 text-white ring-1 ring-emerald-600'
-        : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50';
-      return `<button type="button" data-power="${esc(pw)}" aria-pressed="${on}" title="${pw === '-' ? 'Tanpa data Power Engine' : 'Power Engine ' + esc(pw) + ' hp'} • ${formatInt(powerCount[pw])} records" class="flex-shrink-0 rounded-full px-2.5 py-1 font-mono text-[10px] font-semibold transition ${gaya}">${pw === '-' ? '—' : esc(pw)}${pw === '-' ? '' : '<span class="pe-hp font-normal opacity-70">hp</span>'}</button>`;
-    }).join('');
-    box.querySelectorAll('[data-power]').forEach(b=>{
-      b.addEventListener('click', ()=>{
-        const pw = b.dataset.power;
-        if (filters.powerEngine.has(pw)) filters.powerEngine.delete(pw);
-        else filters.powerEngine.add(pw);
-        syncPowerCheckboxes();
-        currentPage=1; updateAll(); renderPowerChips();
-      });
-    });
-  }
-  function syncPowerCheckboxes() {
-    $$('.power-cb').forEach(cb=>{ cb.checked = filters.powerEngine.has(cb.value); });
-  }
-  renderPowerChips();
-
+  // Dropdown tahun (dulu ada tepat setelah blok Jenis Engine; dipulihkan lagi)
   const yearsSet = [...new Set(rawData.map(d=>d.date.getFullYear()))].sort();
   const yearSel = $('#filterYear');
   if (yearSel) yearSel.innerHTML = '<option value="all">Semua Tahun</option>' + yearsSet.map(y=>`<option value="${y}">${y}</option>`).join('');
-  // v1.23.22: renderPowerChips dipakai juga oleh Reset filter, jadi diletakkan di
-  // lingkup initFiltersUI (bukan di dalam blok Power) agar tetap bisa dipanggil.
-  window.__pgRenderPowerChips = renderPowerChips;
   const shortNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
   function renderMonthChips() {
     const container = $('#activeMonthChips');
@@ -5515,7 +5487,6 @@ function initFiltersUI() {
     $$('.wilayah-cb').forEach(cb=>cb.checked=false);
     $$('.jenis-cb').forEach(cb=>cb.checked=false);
     $$('.power-cb').forEach(cb=>cb.checked=false);                  // v1.23.22
-    $$('#powerChips [data-power]').forEach(b=>{ b.setAttribute('aria-pressed','false'); b.className = b.className.replace('bg-emerald-600 text-white ring-1 ring-emerald-600','bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'); });
     $$('.month-btn').forEach(b=>{ b.classList.remove('bg-emerald-600','text-white','border-emerald-600','ring-2','ring-emerald-100'); b.classList.add('bg-white','text-slate-600','border-slate-200'); });
     if ($('#filterYear')) $('#filterYear').value='all';
     if ($('#filterMonthDropdown')) $('#filterMonthDropdown').value='all';

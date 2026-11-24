@@ -220,7 +220,6 @@
 
           /* Baris centang wilayah & jenis engine: tiap baris jadi satu target sentuh 44px */
           #wilayahCheckboxes label, #jenisCheckboxes label, #powerCheckboxes label { min-height: 44px; }
-          #powerChips button { min-height: 32px; padding-left: 12px; padding-right: 12px; }
           #wilayahCheckboxes input[type="checkbox"],
           #jenisCheckboxes input[type="checkbox"],
           #powerCheckboxes input[type="checkbox"] {
@@ -232,20 +231,6 @@
 
           /* Chip bulan aktif yang dibuat app.js */
           #activeMonthChips button { min-height: 44px; }
-
-          /* v1.23.22: chip Power Engine di header — rapatkan di layar sempit agar
-             ke-7 chip (45/75/130/150/220/260 + tanpa data) muat dalam satu baris. */
-          @media (max-width: 639.98px) {
-            #powerChips { gap: 3px; }
-            #powerChips [data-power] { padding-left: 6px; padding-right: 6px; font-size: 10px; }
-            #powerChipsLabel { padding-right: 2px; }
-          }
-          @media (max-width: 359.98px) {
-            /* Layar sangat sempit: akhiran "hp" disembunyikan (angka tetap jelas,
-               keterangan lengkap ada di tooltip) supaya ke-7 chip tetap terlihat. */
-            #powerChips .pe-hp { display: none; }
-            #powerChips [data-power] { padding-left: 7px; padding-right: 7px; }
-          }
 
           /* Tombol tutup laci (36x36) dan kotak pencarian (42px tinggi) */
           #btnCloseFilters { min-height: 44px; min-width: 44px; }
@@ -451,18 +436,6 @@
                 <div id="headerTicker" class="flex items-center gap-3 whitespace-nowrap">
                     <span class="text-slate-400">Memuat metrik...</span>
                 </div>
-            </div>
-            <!-- v1.23.22: Filter Power Engine (kolom "Power Engine" / AM sheet ZPAS637).
-                 Chip di header untuk filter cepat; versi centang ada di panel filter. -->
-            <div class="relative border-t border-slate-100">
-                <div class="flex items-center gap-2 overflow-x-auto py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    <span id="powerChipsLabel" class="flex flex-shrink-0 items-center gap-1.5 pr-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><i data-lucide="gauge" class="h-3 w-3"></i> <span class="hidden sm:inline">Power Engine</span></span>
-                    <div id="powerChips" class="flex items-center gap-1.5 whitespace-nowrap" role="group" aria-label="Filter Power Engine">
-                        <span class="text-[10px] text-slate-400">Memuat…</span>
-                    </div>
-                </div>
-                <!-- penanda bahwa deretan chip bisa digeser (hanya di layar sempit) -->
-                <div id="powerChipsFade" class="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden" aria-hidden="true"></div>
             </div>
         </div>
     </header>
