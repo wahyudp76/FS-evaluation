@@ -766,6 +766,28 @@ function parseExactColumn(jsonText) {
   return out.join(',');
 }
 
+/* v1.23.23 — cadangan bila query "group by tahun, bulan" gagal/timeout.
+   Query itu dihitung ulang Google untuk SELURUH sheet (terukur 1,8-5,2 detik,
+   jadi kalau lambat seluruh dashboard ikut tertahan di layar "Syncing..."),
+   padahal jawabannya sudah ada di CSV: kolom A "R Bulan" (Mei..Des) + tanggal
+   "25-Nov" di kolom B. Dengan ini dashboard tetap punya tahun yang benar. */
+const NAMA_BULAN = { jan:0, feb:1, mar:2, apr:3, mei:4, may:4, jun:5, jul:6, agu:7, agt:7, aug:7, sep:8, okt:9, oct:9, nov:10, des:11, dec:11 };
+function petaTahunDariCsv(rows, header, tahunAcuan) {
+  const peta = new Array(12).fill(null);
+  const iA = header.indexOf('R Bulan');
+  if (iA < 0) return null;
+  for (let r = 1; r < rows.length; r++) {
+    const x = rows[r]; if (!x) continue;
+    const kode = String(x[iA] || '').trim().slice(0, 3).toLowerCase();
+    const bl = NAMA_BULAN[kode];
+    if (bl === undefined) continue;
+    if (peta[bl] === null) peta[bl] = tahunAcuan;
+  }
+  let ada = false;
+  for (let i = 0; i < 12; i++) if (peta[i] !== null) { ada = true; break; }
+  return ada ? peta : null;
+}
+
 function buildRows(csvText, datesText, exactOper) {
   const t0 = performance.now();
   const rows = parseCSVFast(csvText);
@@ -788,6 +810,21 @@ function buildRows(csvText, datesText, exactOper) {
     let adaTahun = false;
     for (let i = 0; i < 12; i++) if (yearOfMonth[i]) { adaTahun = true; break; }
     if (!adaTahun) yearOfMonth = null;
+  }
+  if (!yearOfMonth) {
+    // v1.23.23: jangan biarkan seluruh baris berstatus "tahun cadangan".
+    // Tahun acuan: tahun terbesar yang pernah terbaca (disimpan saat muat sukses),
+    // kecuali sudah kedaluwarsa > 1 tahun -> pakai tahun berjalan.
+    let acuan = new Date().getFullYear();
+    try {
+      const tersimpan = parseInt(localStorage.getItem('pg2-year'), 10);
+      if (tersimpan && tersimpan >= acuan - 1) acuan = tersimpan;
+    } catch (e) {}
+    const peta = petaTahunDariCsv(rows, header, acuan);
+    if (peta) {
+      yearOfMonth = peta;
+      console.info('[data] peta tahun-bulan dihitung dari kolom bulan CSV (query tanggal tidak dipakai)');
+    }
   }
 
   // v1.23.16: deretan nilai Operating Time yang tepat (bila tersedia).
@@ -1392,14 +1429,26 @@ async function fetchPayload({ preferCache = false } = {}) {
   const exactPromise = fetchText(EXACT_URL, 20000)
     .then(t => parseExactColumn(t))
     .catch(() => null);
-  if (!csv || !dates) {
-    // lengkapi/ulangi bagian yang belum berhasil (juga menutup kasus unduhan awal gagal)
-    const retries = await Promise.allSettled([
-      csv ? Promise.resolve(csv) : fetchText(CSV_URL),
-      dates ? Promise.resolve(dates) : fetchText(DATES_URL)
-    ]);
-    if (!csv && retries[0].status === 'fulfilled') csv = retries[0].value;
-    if (!dates && retries[1].status === 'fulfilled') dates = retries[1].value;
+  // v1.23.23 — kolom tanggal hanya DIPAKAI kalau cepat (maks 6 detik).
+  // Query "group by tahun, bulan" dihitung ulang Google untuk seluruh sheet dan
+  // terukur butuh 1,8-5,2 detik; sementara jawabannya sebenarnya sudah ada di CSV
+  // (kolom "R Bulan" + tanggal "25-Nov"), lihat petaTahunDariCsv(). Dulu query ini
+  // ditunggu tanpa batas -> pada koneksi lambat seluruh dashboard tertahan.
+  // Sekarang: tunggu sebentar; bila lewat, dashboard langsung jalan tanpa menggantung,
+  // dan hasil query tetap disimpan ke cache untuk muat berikutnya.
+  const datesWaitMs = 6000;
+  if (!csv) {
+    csv = await fetchText(CSV_URL).catch(() => null);
+  }
+  if (!dates) {
+    let selesai = false;
+    const pDate = fetchText(DATES_URL).then(v => { selesai = true; return v; }).catch(() => { selesai = true; return null; });
+    dates = await withTimeout(pDate, datesWaitMs, 'dates').catch(() => null);
+    if (dates === null && !selesai) {
+      // biarkan unduhan berjalan di latar; hasilnya masuk cache untuk muat berikutnya
+      pDate.then(v => { if (v) cachePut(DATES_URL, v).catch(() => {}); }).catch(() => {});
+      console.info('[data] query tahun-bulan lambat -> memakai kolom bulan dari CSV');
+    }
   }
   index = await indexPromise;
   exact = await exactPromise;
@@ -4778,14 +4827,14 @@ function renderCharts(tab) {
   const topIrigator = Object.entries(irigatorMap).sort((a,b)=>b[1].luas-a[1].luas).slice(0,5);
   const tulisTop = (v) => `${formatNumber(v.luas,2)} Ha <span class="text-[10px] font-normal text-slate-400">(\u00f8${formatNumber(v.luas/(v.n||1),2)}/akt)</span>`;
   $('#topEngine').innerHTML = topEngine.map(([k,v],i)=>`
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2.5"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">${i+1}</span><span class="text-[12px] font-medium text-slate-800 font-mono">${esc(k)}</span></div>
+    <div class="flex items-center justify-between gap-2 min-w-0">
+      <div class="flex min-w-0 items-center gap-2.5"><span class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">${i+1}</span><span class="truncate text-[12px] font-medium text-slate-800 font-mono">${esc(k)}</span></div>
       <span class="text-[12px] font-semibold text-slate-900 whitespace-nowrap">${tulisTop(v)}</span>
     </div>
   `).join('') || '<div class="text-[11px] text-slate-400">No data</div>';
   $('#topIrigator').innerHTML = topIrigator.map(([k,v],i)=>`
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2.5"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">${i+1}</span><span class="text-[12px] font-medium text-slate-800 font-mono">${esc(k)}</span></div>
+    <div class="flex items-center justify-between gap-2 min-w-0">
+      <div class="flex min-w-0 items-center gap-2.5"><span class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">${i+1}</span><span class="truncate text-[12px] font-medium text-slate-800 font-mono">${esc(k)}</span></div>
       <span class="text-[12px] font-semibold text-slate-900 whitespace-nowrap">${tulisTop(v)}</span>
     </div>
   `).join('') || '<div class="text-[11px] text-slate-400">No data</div>';
@@ -5095,10 +5144,13 @@ const DETAIL_COLS = [
   { h:'Ha/Jam',             s:'haPerJam',      get:d=>d.haPerJam,                    fmt:'n3',    align:'right', sort:true, cls:'text-emerald-700 font-medium' },
   { h:'Solar Ltr/jam',      s:'solarPerJam',   get:d=>d.solarPerJam,                 fmt:'n1',    align:'right' },
   { h:'Solar Ltr/Ha',       s:'solarPerHa',    get:d=>d.solarPerHa,                  fmt:'n1',    align:'right' },
-  { h:'Jenis Engine',       s:'jenisEngine',   get:d=>d.jenisEngine,                 fmt:'text',  align:'left',  sort:true }
+  { h:'Jenis Engine',       s:'jenisEngine',   get:d=>d.jenisEngine,                 fmt:'text',  align:'left',  sort:true },
+  // v1.23.23: kolom AM "Power Engine" sebelumnya tidak ada di tabel maupun export.
+  { h:'Power Engine',       s:'powerEngine',   get:d=>d.powerEngine,                 fmt:'hp',    align:'right', sort:true }
 ];
 function detailCell(col, d) {
   const v = col.get(d);
+  if (col.fmt === 'hp') return (v && v !== '-') ? esc(v) + ' hp' : '<span class="text-slate-300">—</span>';
   switch (col.fmt) {
     case 'date': return formatDate(v);
     case 'text': return v === '' || v === null || v === undefined ? '-' : esc(v);
@@ -5636,7 +5688,8 @@ const EXPORT_COLS = [
   ['Biaya Solar (Std)', d=>d.biayaSolar], ['Biaya Upah', d=>d.biayaUpah], ['Biaya Alat', d=>d.biayaAlat],
   ['Biaya Total', d=>d.biayaTotal], ['Rp/Ha', d=>d.rpPerHa], ['Kosumsi kWh', d=>d.kwh], ['Ha/Hari', d=>d.haPerHari],
   ['Ha/Jam', d=>d.haPerJam], ['Solar Ltr/jam', d=>d.solarPerJam], ['Solar Ltr/Ha', d=>d.solarPerHa],
-  ['Jenis Engine', d=>d.jenisEngine]
+  ['Jenis Engine', d=>d.jenisEngine],
+  ['Power Engine', d=>d.powerEngine]   // v1.23.23
 ];
 function csvCell(v) {
   const s = (v === null || v === undefined) ? '' : String(v);

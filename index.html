@@ -25,6 +25,11 @@
     <meta name="apple-mobile-web-app-title" content="PG2 Irrigation">
     <meta name="application-name" content="PG2 Irrigation">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <!-- v1.23.23: preconnect ke Google Sheets + preload app.js (modul terbesar, 379 KB).
+         Sebelumnya app.js baru diminta setelah parser HTML selesai; dengan preload
+         unduhannya berjalan bersamaan dengan CSS/font (terukur ~100-300 ms di 4G). -->
+    <link rel="preconnect" href="https://docs.google.com">
+    <link rel="preload" href="./app.js?v=1.23.23" as="script" crossorigin>
     <!-- Mulai unduh data spreadsheet lebih awal: tumpang tindih dengan pemuatan skrip & font.
          Hasilnya dipakai kembali oleh app.js (tidak ada unduhan ganda). -->
     <script>
@@ -123,6 +128,23 @@
             }
         }
 
+        /* v1.23.23: target sentuh chip metrik / pilihan mode / dropdown di HP.
+           Terukur 23-31px (Total/avg chip, chip metrik tab Wilayah, Biaya, Utilisasi,
+           Index Solar, dropdown metrik & sort). Ditulis sebagai CSS biasa supaya
+           struktur HTML & logika app.js tidak disentuh. */
+        @media (max-width: 1023.98px) {
+          #tab-wilayah button, #tab-biaya button, #tab-utilisasi button, #tab-indexsolar button { min-height: 44px; }
+          #tab-wilayah select, #tab-biaya select, #tab-utilisasi select, #tab-indexsolar select { min-height: 44px; }
+          #indexPrevPage, #indexNextPage { min-height: 44px; min-width: 44px; }
+        }
+
+        /* v1.23.23: di layar 1024-1279px kolom filter hanya ~190-220px sehingga dua
+           dropdown Tahun/Bulan terpotong ("Semu..."). Perkecil huruf & padding sedikit
+           supaya teks tetap utuh tanpa membuat baris menumpuk. */
+        @media (min-width: 1024px) and (max-width: 1279.98px) {
+            #filterYear, #filterMonthDropdown { font-size: 11px; padding-left: 8px; padding-right: 4px; }
+        }
+
         @media (min-width: 1024px) {
             #filterPanel {
                 position: sticky; top: calc(var(--header-h) + 16px);
@@ -151,7 +173,9 @@
             min-height: 44px; min-width: 44px; justify-content: center;
           }
           .tab-btn { min-height: 44px; }
-          #dqBadge { min-height: 32px; }   /* 32px = batas minimal praktis untuk chip di dalam baris ticker */
+          /* v1.23.23: 32px -> 40px. Badge ini tombol pertama yang ditekan saat ada
+             data janggal; 32px terlalu kecil untuk jari (terukur 77x32). */
+          #dqBadge { min-height: 40px; }
         }
         /* Wadah notifikasi tidak boleh menangkap sentuhan di area kosongnya.
            Sebelumnya wadah setinggi 251-310 px (24-38% layar HP) menghalangi klik konten. */
@@ -312,6 +336,12 @@
            sebelah. Keterangan diberi baris sendiri dengan huruf sedikit lebih
            kecil. Tab Data: banner audit memaksa teks dan dua tombol berbagi
            satu baris sempit sehingga teks jadi satu kata per baris. */
+        /* v1.23.23: target sentuh di banner audit, tombol tabel & paginasi masih
+           29-36px (di bawah 44px yang dipakai di seluruh aplikasi). */
+        @media (max-width: 1023.98px) {
+          #dataTabAuditBanner button { min-height: 44px; }
+          #btnExport, #btnPrevPage, #btnNextPage, #pageSizeSelect { min-height: 44px; }
+        }
         @media (max-width: 639.98px) {
           #biayaCards > div > div:first-child { flex-wrap: wrap; row-gap: 4px; }
           #biayaCards > div > div:first-child > span:last-child {
@@ -398,7 +428,7 @@
                             <span class="inline-flex min-w-0 items-center gap-1.5 truncate rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-emerald-600/20">
                                 <span class="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"></span><span class="truncate">ZPAS637 LIVE</span>
                             </span>
-                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.23.22</span>
+                            <span class="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">v1.23.23</span>
                             <span class="hidden sm:inline">•</span>
                             <span id="lastSync" class="hidden min-w-0 truncate sm:inline">Syncing...</span>
                             
@@ -507,11 +537,14 @@
                             <button data-month="10" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Nov</button>
                             <button data-month="11" class="month-btn rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-medium text-slate-600 hover:bg-slate-50 transition">Des</button>
                         </div>
+                        <!-- v1.23.23: text-[12px] + padding membuat dua dropdown butuh ~251px
+                             sedangkan panel di layar 1024px hanya 190px -> meluber ke konten.
+                             min-w-0 wajib agar flex-1 benar-benar menyusut. -->
                         <div class="flex gap-1.5 mt-2">
-                            <select id="filterYear" class="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
+                            <select id="filterYear" class="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
                                 <option value="all">Semua Tahun</option>
                             </select>
-                            <select id="filterMonthDropdown" class="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
+                            <select id="filterMonthDropdown" class="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
                                 <option value="all">Semua Bulan</option>
                                 <option value="0">Januari</option>
                                 <option value="1">Februari</option>
@@ -620,7 +653,7 @@
                             <i data-lucide="table-2" class="h-3.5 w-3.5"></i><span>Detail Data Harian</span>
                         </button>
                         <span class="ml-auto hidden flex-shrink-0 items-center gap-1.5 pl-3 pr-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 xl:inline-flex">
-                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.23.22</span>
+                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span> Live Sync <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-slate-700">v1.23.23</span>
                         </span>
                     </div>
                 </nav>
@@ -1139,12 +1172,16 @@
                         <div class="col-span-12 md:col-span-6 rounded-[20px] border border-slate-200/70 bg-white p-5 md:p-6 shadow-soft">
                             <h3 class="text-[14px] font-semibold text-slate-900 mb-1 flex items-center gap-2"><span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white"><i data-lucide="trophy" class="h-3.5 w-3.5"></i></span> Top Engine &amp; Irigator</h3>
                             <p class="text-[11px] text-slate-500 mb-4">Peringkat total luas siram • ø/akt = rata-rata per aktivitas</p>
-                            <div class="grid grid-cols-2 gap-5">
-                                <div>
+                            <!-- v1.23.23: pada kartu sempit (768-1024px) dua kolom membuat angka
+                                 "877,43 Ha (ø4,99/akt)" menembus tepi kartu (terukur 10 elemen
+                                 keluar, 5px melewati layar). Di bawah 1280px ditumpuk 1 kolom;
+                                 item daftar diberi min-w-0 agar teks bisa menyusut. -->
+                            <div class="grid grid-cols-1 gap-5 min-[1280px]:grid-cols-2">
+                                <div class="min-w-0">
                                     <div class="mb-2 flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-slate-500"><span>Engine</span><span>Ha</span></div>
                                     <div id="topEngine" class="space-y-2"></div>
                                 </div>
-                                <div>
+                                <div class="min-w-0">
                                     <div class="mb-2 flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-slate-500"><span>Irigator</span><span>Ha</span></div>
                                     <div id="topIrigator" class="space-y-2"></div>
                                 </div>
@@ -1452,8 +1489,8 @@
                 <div id="tab-data" role="tabpanel" aria-labelledby="tabbtn-data" tabindex="-1" class="tab-panel hidden space-y-6">
                     <div class="flex flex-wrap items-start justify-between gap-3 rounded-[20px] border border-slate-200/70 bg-gradient-to-br from-slate-50 to-white p-5 md:p-6 shadow-soft">
                         <div>
-                            <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Detail Data Harian — 36 Kolom (A–AJ)</h2>
-                            <p class="mt-1 max-w-2xl text-[12px] text-slate-500">Record aktivitas irigasi harian dari sheet ZPAS637 (kolom A–AJ, termasuk kolom bantu "R Bulan" dari sheet). Sort dengan klik header, cari cepat, atur jumlah baris per halaman, dan export CSV.</p>
+                            <h2 class="text-[15px] font-semibold tracking-tight text-slate-900">Detail Data Harian — 37 Kolom (A–AJ)</h2>
+                            <p class="mt-1 max-w-2xl text-[12px] text-slate-500">Record aktivitas irigasi harian dari sheet ZPAS637 — seluruh kolom A–AJ termasuk "Power Engine" (AM) dan kolom bantu "R Bulan". Sort dengan klik header, cari cepat, atur jumlah baris per halaman, dan export CSV.</p>
                         </div>
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500 ring-1 ring-slate-200">Raw Records</span>
                     </div>
@@ -1498,10 +1535,10 @@
                         <table class="w-full text-left text-[12px]">
                             <thead class="sticky top-0 z-10 bg-slate-50/95 backdrop-blur text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                                     <tr>
-                                        <th data-sort="date" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Tanggal <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="bulanR" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Bulan <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="wilayah" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Wilayah <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="lokasi" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Lokasi <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="engine" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Engine <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="irigator" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Irigator <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="jenisIrigator" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Jenis Irigator <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Plan Time</th><th data-sort="luasSiram" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Luas Siram <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Kecepatan</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Tebal Siram</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Prepare</th><th data-sort="operatingTime" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Operating <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Waiting</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Repair</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Down Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Standby</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Off Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Tot. Oper. Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Total Avail</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Total Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">% Avail</th><th data-sort="utilization" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">% Util <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="air" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Air <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="solarTerpakai" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Solar L <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Solar</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Upah</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Alat</th><th data-sort="biayaTotal" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Total <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Rp/Ha</th><th data-sort="kwh" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Kosumsi kWh <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ha/Hari</th><th data-sort="haPerJam" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ha/Jam <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ltr/Jam</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ltr/Ha</th><th data-sort="jenisEngine" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Jenis Engine <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th>
+                                        <th data-sort="date" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Tanggal <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="bulanR" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Bulan <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="wilayah" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Wilayah <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="lokasi" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Lokasi <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="engine" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Engine <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="irigator" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Irigator <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="jenisIrigator" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Jenis Irigator <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Plan Time</th><th data-sort="luasSiram" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Luas Siram <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Kecepatan</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Tebal Siram</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Prepare</th><th data-sort="operatingTime" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Operating <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Waiting</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Repair</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Down Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Standby</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Off Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Tot. Oper. Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Total Avail</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Total Time</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">% Avail</th><th data-sort="utilization" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">% Util <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="air" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Air <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="solarTerpakai" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Solar L <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Solar</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Upah</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Alat</th><th data-sort="biayaTotal" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Biaya Total <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Rp/Ha</th><th data-sort="kwh" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Kosumsi kWh <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ha/Hari</th><th data-sort="haPerJam" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ha/Jam <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ltr/Jam</th><th class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Ltr/Ha</th><th data-sort="jenisEngine" class="cursor-pointer px-3 py-3 text-left whitespace-nowrap hover:text-slate-700 ">Jenis Engine <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th><th data-sort="powerEngine" class="cursor-pointer px-3 py-3 text-right whitespace-nowrap hover:text-slate-700 ">Power Engine <i data-lucide="arrow-up-down" class="inline h-3 w-3 opacity-40"></i></th>
                                     </tr>
                                     <tr class="bg-slate-50/70 text-[9px] font-medium tracking-normal text-slate-400">
-                                        <td colspan="36" class="px-3 py-1.5 text-left normal-case">Seluruh 36 kolom sheet ZPAS637 (A–AJ) • geser ke kanan untuk kolom lainnya • klik header bertanda ↕ untuk mengurutkan</td>
+                                        <td colspan="37" class="px-3 py-1.5 text-left normal-case">Seluruh 37 kolom sheet ZPAS637 (A–AJ) • geser ke kanan untuk kolom lainnya • klik header bertanda ↕ untuk mengurutkan</td>
                                     </tr>
                                 </thead>
                             <tbody id="dataTableBody" class="divide-y divide-slate-100">
@@ -1549,7 +1586,7 @@
         </div>
     </div>
 
-    <script type="module" src="./app.js?v=1.23.22"></script>
+    <script type="module" src="./app.js?v=1.23.23"></script>
     <script>
         // Ikon digambar setelah library (defer) selesai dimuat
         (function renderIcons() {
@@ -1566,7 +1603,7 @@
                         window.location.reload();
                     }
                 });
-                navigator.serviceWorker.register('./sw.js?v=1.23.22')
+                navigator.serviceWorker.register('./sw.js?v=1.23.23')
                     .then(reg => {
                         console.log('SW registered:', reg.scope);
                         reg.update().catch(() => {});
