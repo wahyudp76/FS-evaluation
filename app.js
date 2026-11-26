@@ -6481,7 +6481,7 @@ const REPAIR_ENDPOINT = 'https://script.google.com/macros/s/AKfycbzbYiFhvPaQ3cDU
 const REPAIR_PAGE_URL = REPAIR_ENDPOINT;                 // konsol penuh di tab baru
 // Harus sama dengan CFG.TOKEN pada RepairAll.gs
 const REPAIR_TOKEN = 'pg2-repair-2026';
-const REPAIR_TIMEOUT_MS = 95000;   // v1.23.24: pemindaian penuh butuh ~58 dtk, beri ruang
+const REPAIR_TIMEOUT_MS = 150000;  // v1.23.25: pindai ~48-58 dtk + tulis + verifikasi + log
 // v1.23.24: build Apps Script terendah yang mengenali perbaikan Wilayah di luar blok sampel.
 // Diperiksa dari respons "preview" agar build lama TIDAK tampil seolah semua beres.
 const REPAIR_BUILD_MIN = 'b18';
@@ -6593,6 +6593,13 @@ async function panggilRepair(aksi, keys) {
   };
 
   const tokenHilang = (d) => !!(d && d.ok === false && /tidak membawa token|Token tidak cocok/i.test(String(d.error || '')));
+  // Gagal sesaat (jaringan/timeout) memang layak dicoba sekali lagi; penolakan sah tidak.
+  const sesaat = (e) => {
+    const n = (e && e.name) || '';
+    return n === 'AbortError' || n === 'TypeError' || /Failed to fetch|network|load failed/i.test(String((e && e.message) || ''));
+  };
+  // Boleh diulang? token hilang = perlu jalur lain; gagal sesaat = layak ulang.
+  const bolehUlang = (e) => !!(e && (e.tokenHilang || sesaat(e))) || !(e && e.dariServer);
 
   try {
     if (aksi === 'apply') {
@@ -6600,13 +6607,19 @@ async function panggilRepair(aksi, keys) {
       try {
         const d = await viaPost();
         return tokenHilang(d) ? await viaGet() : d;
-      } catch (e) { return await viaGet(); }
+      } catch (e) {
+        if (!bolehUlang(e)) throw e;   // v1.23.25: jangan menulis dua kali
+        return await viaGet();
+      }
     }
     // Baca saja: GET dulu -- paling andal, tidak bergantung pada body melewati redirect.
     try {
       const d = await viaGet();
       return tokenHilang(d) ? await viaPost() : d;
-    } catch (e) { return await viaPost(); }
+    } catch (e) {
+      if (!bolehUlang(e)) throw e;
+      return await viaPost();
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -6628,7 +6641,15 @@ async function bacaJsonRepair(res) {
       : 'Respons Apps Script bukan JSON — kemungkinan kode di Web App belum ter-deploy dengan versi baru.');
   }
   const data = JSON.parse(teks.slice(mulai, akhir + 1));
-  if (data && data.ok === false) throw new Error(data.error || 'Apps Script menolak permintaan.');
+  if (data && data.ok === false) {
+    // v1.23.25: bedakan "server menjawab lalu menolak" dari "gagal menghubungi server".
+    // Tanpa penanda ini, penolakan sah (mis. spreadsheet terkunci) diulang lewat GET sehingga
+    // perintah apply berjalan DUA kali dan pesan aslinya tertutup pesan jaringan.
+    const err = new Error(data.error || 'Apps Script menolak permintaan.');
+    err.dariServer = true;
+    err.tokenHilang = /tidak membawa token|Token tidak cocok/i.test(String(data.error || ''));
+    throw err;
+  }
   return data;
 }
 
@@ -6883,9 +6904,21 @@ function tampilkanRepairGagal(err) {
   const kodeLama = /tryLock|getDocumentLock|null/i.test(pesan) && /null|tryLock/i.test(pesan);
 
   const ditolakServer = /Apps Script menolak permintaan/i.test(pesan);
+  const terkunci = /locked|dipakai proses lain/i.test(pesan);
   if (body) {
     body.innerHTML = `
-      ${ditolakServer ? `
+      ${terkunci ? `
+      <div class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-950">
+        <div class="font-bold">Spreadsheet sedang dipakai proses lain</div>
+        <div class="mt-1">Ini bukan kegagalan perbaikan. Apps Script menolak memulai penulisan karena
+        spreadsheet masih dipakai (sisa pemeriksaan sebelumnya, perbaikan lain, atau Anda sedang menyunting sel).</div>
+        <div class="mt-1.5"><b>Yang perlu dilakukan:</b></div>
+        <ol class="mt-1 list-decimal space-y-0.5 pl-4">
+          <li>Tutup tab spreadsheet lain bila ada.</li>
+          <li>Tunggu ±1 menit, lalu tekan <b>Periksa ulang</b>.</li>
+          <li>Bila perbaikan sebelumnya sebenarnya sudah berhasil, daftarnya akan kosong (0 sel) — artinya sudah selesai.</li>
+        </ol>
+      </div>` : ditolakServer ? `
       <div class="rounded-xl border border-rose-300 bg-rose-50 p-3 text-[11px] leading-relaxed text-rose-950">
         <div class="font-bold">Apps Script gagal menjalankan perbaikan</div>
         <div class="mt-1">Penyebabnya dilaporkan langsung oleh Apps Script (lihat pesan di atas). Yang paling sering:</div>
