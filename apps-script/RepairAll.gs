@@ -1,5 +1,5 @@
 /**
- * PG2 Irrigation Dashboard — Layanan Perbaikan Spreadsheet  (v1.23.24 / b17)
+ * PG2 Irrigation Dashboard — Layanan Perbaikan Spreadsheet  (v1.23.24 / b18)
  * ---------------------------------------------------------------------------
  * Google Apps Script yang terikat pada spreadsheet
  * 1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o, dijalankan sebagai PEMILIK
@@ -47,7 +47,7 @@ var CFG = {
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
   VERSION: '1.23.24',
-  BUILD: 'b17',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  BUILD: 'b18',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -75,14 +75,50 @@ function doGet(e) {
       keys: p.keys ? String(p.keys).split('|') : null
     }));
   }
-  var t = HtmlService.createTemplateFromFile('Repair');
-  t.token = String(p.token || CFG.TOKEN);
-  t.embed = String(p.embed || '') === '1';
-  t.scope = String(p.keys || '');
-  t.autoApply = String(p.do || '') === 'apply';
-  return t.evaluate()
-    .setTitle('PG2 — Repair Spreadsheet')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  // Buka /exec tanpa action -> halaman konsol HTML.
+  // b18: dulu HtmlService dipanggil tanpa penjaga. Bila file Repair.html belum ada di proyek
+  // Apps Script, doGet MELEMPAR "No HTML file named Repair was found" dan seluruh Web App
+  // (termasuk ?action=preview) ikut gagal dengan halaman error HTML, bukan JSON. Sekarang
+  // konsol dibuat langsung dari kode sehingga Web App tetap berfungsi tanpa file tambahan.
+  try {
+    var t = HtmlService.createTemplateFromFile('Repair');
+    t.token = String(p.token || CFG.TOKEN);
+    t.embed = String(p.embed || '') === '1';
+    t.scope = String(p.keys || '');
+    t.autoApply = String(p.do || '') === 'apply';
+    return t.evaluate()
+      .setTitle('PG2 — Repair Spreadsheet')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  } catch (err) {
+    return HtmlService.createHtmlOutput(konsolBawaan_())
+      .setTitle('PG2 — Repair Spreadsheet')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
+}
+
+/**
+ * b18: konsol minimal bila Repair.html tidak dipasang. Tujuannya bukan menggantikan konsol
+ * lengkap, melainkan menjaga /exec tidak melempar error yang membuat web app tampak rusak.
+ */
+function konsolBawaan_() {
+  return '<!doctype html><html lang="id"><head><meta charset="utf-8">' +
+    '<title>PG2 — Repair Spreadsheet</title>' +
+    '<style>body{font:14px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0;background:#f1f5f9;color:#0f172a}' +
+    '.w{max-width:640px;margin:40px auto;padding:0 16px}.c{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:22px}' +
+    'code{background:#f1f5f9;border-radius:5px;padding:1px 5px;font-size:12px}a{color:#b45309}' +
+    'li{margin:4px 0}.ok{background:#ecfdf5;color:#065f46;border-radius:9px;padding:9px 12px;font-weight:700;font-size:12.5px}</style></head><body><div class="w"><div class="c">' +
+    '<h1 style="font-size:18px;margin:0 0 6px">PG2 — Repair Spreadsheet</h1>' +
+    '<div class="ok">Web App aktif (build ' + CFG.BUILD + ').</div>' +
+    '<p>Halaman konsol lengkap tidak terpasang (file <code>Repair.html</code> tidak ada di proyek Apps Script), ' +
+    'jadi halaman ini ditampilkan sebagai gantinya. Web App tetap bisa dipakai.</p>' +
+    '<p><b>Tetap bisa dipakai sekarang:</b></p><ul>' +
+    '<li>Kembali ke dashboard PG2, klik badge audit, lalu <b>Repair spreadsheet</b> — tombol itu memakai JSON API, bukan halaman ini.</li>' +
+    '<li>Periksa langsung: <a href="?action=ping">?action=ping</a> · <a href="?action=preview&token=' + CFG.TOKEN + '">?action=preview</a></li>' +
+    '</ul>' +
+    '<p><b>Ingin halaman konsol lengkap?</b> Di editor Apps Script: <code>+</code> → <b>HTML</b> → beri nama ' +
+    '<b>Repair</b> → tempel isi <code>apps-script/Repair.html</code> dari repo → simpan → ' +
+    '<b>Deploy → Manage deployments → Edit → New version → Deploy</b>.</p>' +
+    '</div></div></body></html>';
 }
 
 
@@ -222,6 +258,7 @@ function api(req) {
  */
 function lengkap_(build) {
   var perlu = {
+    b18: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA', 'PINDAI_PENUH', 'PINDAI_SATU_LINTAS', 'WILAYAH_PENUH', 'PINDAI_WILAYAH', 'KONSOL_TAHAN_GAGAL'],
     b17: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA', 'PINDAI_PENUH', 'PINDAI_SATU_LINTAS', 'WILAYAH_PENUH', 'PINDAI_WILAYAH'],
     b12: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA', 'PINDAI_PENUH', 'PINDAI_SATU_LINTAS'],
     b11: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA', 'PINDAI_PENUH'],
@@ -270,6 +307,7 @@ function sidikFitur_() {
     // b17: pemindaian Wilayah di seluruh sheet (bukan hanya blok sampel).
     if (String(scanSheet_).indexOf('b17: Wilayah kosong di SELURUH sheet') >= 0) f.push('WILAYAH_PENUH');
     if (String(pindaiDalam_).indexOf('cWilPindai') >= 0) f.push('PINDAI_WILAYAH');
+    if (String(doGet).indexOf('konsolBawaan_') >= 0) f.push('KONSOL_TAHAN_GAGAL');
   } catch (e) { f.push('GAGAL_' + (e && e.message ? e.message.slice(0, 40) : 'unknown')); }
   return f;
 }

@@ -6484,7 +6484,7 @@ const REPAIR_TOKEN = 'pg2-repair-2026';
 const REPAIR_TIMEOUT_MS = 95000;   // v1.23.24: pemindaian penuh butuh ~58 dtk, beri ruang
 // v1.23.24: build Apps Script terendah yang mengenali perbaikan Wilayah di luar blok sampel.
 // Diperiksa dari respons "preview" agar build lama TIDAK tampil seolah semua beres.
-const REPAIR_BUILD_MIN = 'b17';
+const REPAIR_BUILD_MIN = 'b18';
 
 const REPAIR_TIPE = {
   rumus:   { label: 'Rumus Kosong',   ikon: 'sigma',        cls: 'bg-rose-100 text-rose-800' },
