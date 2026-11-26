@@ -6481,7 +6481,10 @@ const REPAIR_ENDPOINT = 'https://script.google.com/macros/s/AKfycbzbYiFhvPaQ3cDU
 const REPAIR_PAGE_URL = REPAIR_ENDPOINT;                 // konsol penuh di tab baru
 // Harus sama dengan CFG.TOKEN pada RepairAll.gs
 const REPAIR_TOKEN = 'pg2-repair-2026';
-const REPAIR_TIMEOUT_MS = 90000;
+const REPAIR_TIMEOUT_MS = 95000;   // v1.23.24: pemindaian penuh butuh ~58 dtk, beri ruang
+// v1.23.24: build Apps Script terendah yang mengenali perbaikan Wilayah di luar blok sampel.
+// Diperiksa dari respons "preview" agar build lama TIDAK tampil seolah semua beres.
+const REPAIR_BUILD_MIN = 'b17';
 
 const REPAIR_TIPE = {
   rumus:   { label: 'Rumus Kosong',   ikon: 'sigma',        cls: 'bg-rose-100 text-rose-800' },
@@ -6492,6 +6495,7 @@ const REPAIR_TIPE = {
 };
 
 let _repairBusy = false;
+let _repairKunciTerapkan = false;   // v1.23.24: build server terlalu lama -> tombol Terapkan dikunci
 let _repairHasil = null;   // hasil apply terakhir (untuk panel audit)
 
 /* ---------------------------------------------------------- */
@@ -6613,7 +6617,15 @@ async function bacaJsonRepair(res) {
   const mulai = teks.indexOf('{');
   const akhir = teks.lastIndexOf('}');
   if (mulai === -1 || akhir === -1) {
-    throw new Error('Respons Apps Script bukan JSON. Pastikan Web App sudah di-deploy ulang dengan Versi baru.');
+    // v1.23.24: Apps Script melaporkan error sebagai HALAMAN HTML, bukan JSON. Dulu pesannya
+    // hanya "bukan JSON" sehingga penyebabnya tak pernah terlihat. Ambil inti pesannya.
+    let inti = '';
+    const mErr = /(?:Error Exception|Exception|Error):\s*([^<\n]{0,160})/i.exec(teks)
+      || /<title>([^<]{0,160})<\/title>/i.exec(teks);
+    if (mErr) inti = String(mErr[1]).replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
+    throw new Error(inti
+      ? 'Apps Script menolak permintaan: ' + inti + '. Periksa berkas di proyek Apps Script (RepairAll.gs / Repair.html).'
+      : 'Respons Apps Script bukan JSON — kemungkinan kode di Web App belum ter-deploy dengan versi baru.');
   }
   const data = JSON.parse(teks.slice(mulai, akhir + 1));
   if (data && data.ok === false) throw new Error(data.error || 'Apps Script menolak permintaan.');
@@ -6683,6 +6695,11 @@ function bukaRepairPanel() {
   const dq = document.getElementById('dqOverlay');
   if (dq) dq.classList.add('hidden');
 
+  // v1.23.24: notifikasi "2 data error" biasanya tampil TEPAT sebelum panel ini dibuka dan
+  // menutupi tombol Terapkan/Tutup di HP. Pengguna sudah memilih tindakan, jadi tiriskan.
+  const host = document.getElementById('toastHost');
+  if (host) host.innerHTML = '';
+
   ov.classList.remove('hidden');
   ov.style.display = 'flex';
   mulaiRepair({});
@@ -6710,14 +6727,44 @@ function repairBusy(v) {
   _repairBusy = v;
   ['repairApply', 'repairRetry', 'repairClose', 'repairFooterClose'].forEach((id) => {
     const b = document.getElementById(id);
-    if (b) b.disabled = v;
+    if (!b) return;
+    // v1.23.24: jangan aktifkan kembali tombol Terapkan bila build server masih terlalu lama.
+    if (!v && id === 'repairApply' && _repairKunciTerapkan) { b.disabled = true; return; }
+    b.disabled = v;
   });
+}
+
+let _repairTick = null;
+
+/** v1.23.24: Apps Script butuh ~58 dtk untuk memindai 19.744 baris. Tanpa penghitung,
+ *  panel terlihat macet ("Mohon tunggu…" diam saja) sehingga pengguna menutupnya. */
+function mulaiHitungRepair(pesanAwal) {
+  hentikanHitungRepair();
+  const t0 = Date.now();
+  const tulis = () => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    const el = document.getElementById('repairElapsed');
+    if (el) el.textContent = s + ' dtk';
+    const sub = document.getElementById('repairSub');
+    if (sub) {
+      sub.textContent = s < 20
+        ? pesanAwal
+        : 'Masih memeriksa ' + formatInt(19744) + ' baris di kedua sheet — pemindaian penuh biasanya 50–70 detik. Jangan tutup panel ini.';
+    }
+  };
+  tulis();
+  _repairTick = setInterval(tulis, 1000);
+}
+
+function hentikanHitungRepair() {
+  if (_repairTick) { clearInterval(_repairTick); _repairTick = null; }
 }
 
 /** Langkah 1: minta pratinjau ke Apps Script lalu tampilkan. */
 async function mulaiRepair(opts) {
   if (_repairBusy) return;
   const body = document.getElementById('repairBody');
+  _repairKunciTerapkan = false;
   repairBusy(true);
   document.getElementById('repairApply').disabled = true;
   document.getElementById('repairRetry').classList.add('hidden');
@@ -6727,13 +6774,17 @@ async function mulaiRepair(opts) {
     <div class="flex items-center gap-2 font-semibold text-slate-800">
       <i data-lucide="loader-2" class="h-4 w-4 animate-spin text-amber-600"></i>
       Memeriksa spreadsheet — mencari sel yang bisa diperbaiki dengan pasti…
+      <span id="repairElapsed" class="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-800">0 dtk</span>
     </div>
-    <div class="mt-1 text-[11px] text-slate-500">
+    <div id="repairSub" class="mt-1 text-[11px] text-slate-500">
       ${adaIsuLokal
         ? 'Dashboard juga menemukan ' + formatInt(kumpulkanRencanaRepair().length) + ' sel yang bisa diperbaiki dari hasil audit lokal.'
         : 'Daftar diambil langsung dari spreadsheet agar selalu sama dengan kondisi terkini.'}
     </div>`);
-  if (body) body.innerHTML = '<div class="py-8 text-center text-[12px] text-slate-400">Mohon tunggu…</div>';
+  if (body) body.innerHTML = '<div class="py-8 text-center text-[12px] text-slate-400">Mohon tunggu — pemeriksaan pertama bisa sampai 1 menit…</div>';
+  mulaiHitungRepair(adaIsuLokal
+    ? 'Dashboard juga menemukan ' + formatInt(kumpulkanRencanaRepair().length) + ' sel yang bisa diperbaiki dari hasil audit lokal.'
+    : 'Daftar diambil langsung dari spreadsheet agar selalu sama dengan kondisi terkini.');
 
   try {
     const data = await panggilRepair('preview');
@@ -6741,6 +6792,7 @@ async function mulaiRepair(opts) {
   } catch (err) {
     tampilkanRepairGagal(err);
   } finally {
+    hentikanHitungRepair();
     repairBusy(false);
   }
 }
@@ -6753,6 +6805,30 @@ function tampilkanPratinjauRepair(data) {
   const txt = document.getElementById('repairApplyText');
   const retry = document.getElementById('repairRetry');
   if (retry) retry.classList.remove('hidden');
+
+  // v1.23.24: build server lebih lama -> tombol Repair akan terus menampilkan "tidak ada
+  // yang bisa diperbaiki" walau dashboard masih melihat 2 sel kosong. Katakan apa adanya.
+  const buildServer = String((data && data.build) || '');
+  const buildLama = !!buildServer && buildServer < REPAIR_BUILD_MIN;
+  if (buildLama) {
+    repairStatus(`
+      <div class="flex items-center gap-2 font-semibold text-amber-800">
+        <i data-lucide="triangle-alert" class="h-4 w-4 text-amber-600"></i>
+        Kode Apps Script masih ${esc(buildServer)} — perlu ${esc(REPAIR_BUILD_MIN)}
+      </div>
+      <div class="mt-1 text-[11px] leading-relaxed text-amber-950">
+        Versi yang ter-deploy belum mengenali perbaikan <b>Wilayah kosong</b> di luar 300 baris awal & akhir,
+        jadi sel seperti <span class="font-mono">C705</span> dan <span class="font-mono">C1791</span> tidak pernah ditawarkan.
+        Tempel ulang <code class="rounded bg-white px-1">apps-script/RepairAll.gs</code> terbaru ke proyek Apps Script,
+        lalu <b>Deploy → Manage deployments → Edit → New version → Deploy</b>.
+      </div>`, 'warn');
+    if (body) body.innerHTML = daftarDilewatiHtml(skipped);
+    btn.disabled = true;
+    _repairKunciTerapkan = true;
+    if (txt) txt.textContent = 'Perbarui Apps Script dulu';
+    refreshIcons();
+    return;
+  }
 
   if (!items.length) {
     repairStatus(`
@@ -6806,9 +6882,20 @@ function tampilkanRepairGagal(err) {
   // Kode di Apps Script belum ikut diperbarui (versi deployment lama) -> beri jalan pintas.
   const kodeLama = /tryLock|getDocumentLock|null/i.test(pesan) && /null|tryLock/i.test(pesan);
 
+  const ditolakServer = /Apps Script menolak permintaan/i.test(pesan);
   if (body) {
     body.innerHTML = `
-      ${kodeLama ? `
+      ${ditolakServer ? `
+      <div class="rounded-xl border border-rose-300 bg-rose-50 p-3 text-[11px] leading-relaxed text-rose-950">
+        <div class="font-bold">Apps Script gagal menjalankan perbaikan</div>
+        <div class="mt-1">Penyebabnya dilaporkan langsung oleh Apps Script (lihat pesan di atas). Yang paling sering:</div>
+        <ul class="mt-1 list-disc space-y-0.5 pl-4">
+          <li>File <code class="rounded bg-white px-1">Repair.html</code> belum ada di proyek Apps Script, padahal kode memanggilnya.</li>
+          <li>Tempelan <code class="rounded bg-white px-1">RepairAll.gs</code> terpotong.</li>
+          <li>Deployment masih versi lama.</li>
+        </ul>
+        <div class="mt-1.5">Perbaiki di spreadsheet → <b>Extensions → Apps Script</b>, lalu ulangi.</div>
+      </div>` : kodeLama ? `
       <div class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-950">
         <div class="font-bold">Kode di Apps Script masih versi lama</div>
         <div class="mt-1">Pesan di atas muncul karena kode <code class="rounded bg-white px-1">RepairAll.gs</code> yang ter-deploy belum memuat perbaikan terbaru.

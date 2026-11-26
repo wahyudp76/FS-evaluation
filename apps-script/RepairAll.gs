@@ -1,5 +1,5 @@
 /**
- * PG2 Irrigation Dashboard — Layanan Perbaikan Spreadsheet  (v1.23.3)
+ * PG2 Irrigation Dashboard — Layanan Perbaikan Spreadsheet  (v1.23.24 / b17)
  * ---------------------------------------------------------------------------
  * Google Apps Script yang terikat pada spreadsheet
  * 1mhXxr7cfdnS-A_gJ6E4aixGRSzINdGP94orr-2lL45o, dijalankan sebagai PEMILIK
@@ -23,6 +23,7 @@
  *        Deviasi L/jam = (Solar/Jam) - Kalibrasi)        -> nilai dihitung.
  *   [4] Sel KOSONG pada kolom Wilayah -> diisi dari riwayat pasangan
  *       Lokasi->Wilayah yang KONSISTEN (satu wilayah saja).
+ *       b17: diperiksa di SELURUH baris sheet, bukan hanya blok sampel.
  *   [5] Teks angka / desimal bertitik ("21.08", "1,5", "Rp 2.500.000") pada
  *       kolom numerik                                     -> dijadikan angka murni.
  *
@@ -45,8 +46,8 @@ var CFG = {
   SHEETS: ['ZPAS637', 'Index Solar'],
   TOKEN: 'pg2-repair-2026',
   SAMPEL_BARIS: 300,        // b6: jumlah baris sampel untuk pola rumus/nilai (165 ms vs 5.481 ms)
-  VERSION: '1.23.15',
-  BUILD: 'b16',             // naikkan setiap kali kode diperbarui, untuk cek deployment
+  VERSION: '1.23.24',
+  BUILD: 'b17',             // naikkan setiap kali kode diperbarui, untuk cek deployment
   MAX_CHANGES: 800,        // batas jumlah sel per satu kali terapkan
   TEMPLATE_LOOKUP: 400,    // jarak maksimum baris acuan rumus
   PREFER_FORMULA_FAR: false, // true = pakai rumus acuan walau jauh, false = hitung nilai
@@ -221,6 +222,7 @@ function api(req) {
  */
 function lengkap_(build) {
   var perlu = {
+    b17: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA', 'PINDAI_PENUH', 'PINDAI_SATU_LINTAS', 'WILAYAH_PENUH', 'PINDAI_WILAYAH'],
     b12: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA', 'PINDAI_PENUH', 'PINDAI_SATU_LINTAS'],
     b11: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA', 'PINDAI_PENUH'],
     b10: ['DIAGNOSA', 'SATU_BUKA', 'SAMPEL', 'PINDAI_GALAT', 'GALAT_LUAR_SAMPEL', 'ISNUM_DARI_NILAI', 'PREVIEW_WAKTU', 'WAKTU', 'RINCIAN_WAKTU', 'PRASYARAT_RUMUS', 'PRASYARAT_BACA_LANGSUNG', 'PRASYARAT_ANGKA'],
@@ -265,6 +267,9 @@ function sidikFitur_() {
     if (String(pindaiDalam_).indexOf('posisiRumus') >= 0 && String(scanSheet_).indexOf('polaTerdekat_') >= 0) f.push('PINDAI_PENUH');
     if (String(pindaiDalam_).indexOf('SEMPUA') < 0 && String(pindaiDalam_).indexOf('SATU pembacaan') >= 0) f.push('PINDAI_SATU_LINTAS');
     if (String(buildPlan_).indexOf('waktu') >= 0) f.push('WAKTU');
+    // b17: pemindaian Wilayah di seluruh sheet (bukan hanya blok sampel).
+    if (String(scanSheet_).indexOf('b17: Wilayah kosong di SELURUH sheet') >= 0) f.push('WILAYAH_PENUH');
+    if (String(pindaiDalam_).indexOf('cWilPindai') >= 0) f.push('PINDAI_WILAYAH');
   } catch (e) { f.push('GAGAL_' + (e && e.message ? e.message.slice(0, 40) : 'unknown')); }
   return f;
 }
@@ -636,7 +641,7 @@ function buildPlan_(keys) {
  * di dalamnya TIDAK PERNAH dilaporkan. Notifikasi "data error" muncul tetapi tombol Repair
  * tidak menawarkan apa pun. Sekarang keberadaan rumus di mana pun sudah cukup.
  */
-function pindaiDalam_(sh, nRow, nCol, kolomTarget, posisiRumus, daftarRumus) {
+function pindaiDalam_(sh, nRow, nCol, kolomTarget, posisiRumus, daftarRumus, kolomWil) {
   var hasil = { err: {}, kosong: {}, frm: {} };
   if (!nCol) return hasil;
   // b12: SATU pembacaan untuk SEMUA kolom per blok. Versi b11 membaca per kolom
@@ -647,6 +652,17 @@ function pindaiDalam_(sh, nRow, nCol, kolomTarget, posisiRumus, daftarRumus) {
   var pakai = kolomTarget && kolomTarget.length ? kolomTarget : null;
   var isPakai = {};
   for (var p = 0; p < nCol; p++) isPakai[p] = pakai ? (pakai.indexOf(p) >= 0) : true;
+
+  // b17: kolom Wilayah ikut dipakai meski sengaja tidak masuk kolomTarget. Kolom Wilayah
+  // berisi nilai (bukan rumus), jadi tanpa ini sel kosongnya TIDAK PERNAH tercatat oleh
+  // filter "hanya kolom berumus" di bawah. Akibatnya butir [4] (Wilayah kosong dari
+  // riwayat lokasi) hanya sempat berjalan di 300 baris awal & 300 baris akhir.
+  var cWilPindai = (kolomWil && kolomWil.wilayah >= 0 && kolomWil.wilayah < nCol) ? kolomWil.wilayah : -1;
+  var cLokPindai = (kolomWil && kolomWil.lokasi >= 0 && kolomWil.lokasi < nCol) ? kolomWil.lokasi : -1;
+  if (cWilPindai >= 0) isPakai[cWilPindai] = true;
+  if (cLokPindai >= 0) isPakai[cLokPindai] = true;
+  // Wilayah dianggap "kolom penting" walau tidak berumus sama sekali.
+  if (cWilPindai >= 0) posisiRumus[cWilPindai] = posisiRumus[cWilPindai] || 0;
 
   for (var mulai = 2; mulai <= nRow; mulai += BLOK) {
     var n = Math.min(BLOK, nRow - mulai + 1);
@@ -677,6 +693,19 @@ function pindaiDalam_(sh, nRow, nCol, kolomTarget, posisiRumus, daftarRumus) {
           // sel kosong baru dicatat bila kolomnya memang berumus (diputuskan sesudah loop)
           hasil.kosong[colLetter_(c + 1) + '|' + barisSheet] = true;
         }
+      }
+    }
+  }
+  // b17: Wilayah kosong dipisahkan SEBELUM penyaringan kolom berumus. Kolom Wilayah memang
+  // bukan kolom rumus, jadi tanpa pemisahan ini selnya akan dibuang oleh filter di bawah.
+  if (cWilPindai >= 0) {
+    hasil.wil = hasil.wil || {};
+    var hrfWil = colLetter_(cWilPindai + 1);
+    for (var kw in hasil.kosong) {
+      if (!hasil.kosong.hasOwnProperty(kw)) continue;
+      if (kw.split('|')[0] === hrfWil) {
+        hasil.wil[kw] = true;
+        delete hasil.kosong[kw];   // jangan diproses aturan rumus
       }
     }
   }
@@ -780,6 +809,19 @@ function scanSheet_(sh, sheetName, only) {
   // b11: penanda rumus per kolom. Wajib ada sebelum profil kolom & sebelum pindaiDalam_.
   var posisiRumus_ = {};
   var daftarRumus = {};
+  // b17: kolom Wilayah & Lokasi ditentukan dari HEADER, sebelum sampel dibaca. Dipakai
+  // pindaiDalam_ supaya sel Wilayah kosong di SELURUH sheet (bukan hanya 300 baris awal &
+  // 300 baris akhir) ikut dilaporkan. Sebelumnya butir [4] hanya berjalan di dalam sampel,
+  // sehingga sel seperti ZPAS637!C705 & ZPAS637!C1791 tidak pernah ditawarkan sama sekali.
+  var cWilAwal = -1, cLokAwal = -1;
+  if (lastRow >= 1) {
+    var hdrBaris = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    for (var ha = 0; ha < hdrBaris.length; ha++) {
+      var hdA = String(hdrBaris[ha] == null ? '' : hdrBaris[ha]).trim();
+      if (cWilAwal < 0 && /^wilayah$/i.test(hdA)) cWilAwal = ha;
+      if (cLokAwal < 0 && /^lokasi$/i.test(hdA)) cLokAwal = ha;
+    }
+  }
 
   var SAMPEL = Math.min(CFG.SAMPEL_BARIS || 300, Math.max(2, lastRow - 1));
   var blokAkhir = Math.min(SAMPEL, lastRow - SAMPEL);
@@ -1012,7 +1054,7 @@ function scanSheet_(sh, sheetName, only) {
   // b11: pemindaian menyeluruh dijalankan di sini -- SETELAH kolomPindai terbentuk dan
   // SEBELUM loop membaca nilai. Satu-satunya pemanggilan pindaiDalam_.
   var _tp = Date.now();
-  var hasilPindai = pindaiDalam_(sh, nRow, nCol, kolomPindai, posisiRumus_, daftarRumus);
+  var hasilPindai = pindaiDalam_(sh, nRow, nCol, kolomPindai, posisiRumus_, daftarRumus, { wilayah: cWilAwal, lokasi: cLokAwal });
   galatLuar = hasilPindai.err;
   kosongLuar = hasilPindai.kosong;
   var frmPindai = hasilPindai.frm || {};
@@ -1232,6 +1274,57 @@ function scanSheet_(sh, sheetName, only) {
   // b13: jejak supaya kegagalan tidak lagi ditebak. Dihitung per sebab.
   var jejak = { kosongTotal: 0, tidakPenting: 0, bukanKolomRumus: 0, tanpaPola: 0,
                 barisDilewati: 0, ditolakPrasyarat: 0, diterima: 0, contohKosong: [] };
+
+  /* --- 3a2. b17: Wilayah kosong di SELURUH sheet (bukan hanya blok sampel) --- */
+  // Butir [4] pada loop utama hanya menjangkau 300 baris awal + 300 baris akhir. Tanpa blok
+  // ini, sel seperti ZPAS637!C705 & ZPAS637!C1791 tidak pernah ditawarkan sebagai perbaikan,
+  // sehingga dashboard terus melaporkan "2 data error" yang tidak bisa diperbaiki padahal
+  // nilai wilayahnya sudah pasti (riwayat Lokasi -> Wilayah konsisten, 0 bentrok).
+  var jejakWil = { diterima: 0, ditolak: 0 };
+  var sudahAda = {};
+  for (var sa = 0; sa < out.items.length; sa++) sudahAda[out.items[sa].kunci] = true;
+  if (cWil >= 0) {
+    var hurufWil = colLetter_(cWil + 1);
+    var iLokW = cLok >= 0 ? cLok : cLokAwal;
+    var wilayahLuar = hasilPindai.wil || {};
+    for (var kwi in wilayahLuar) {
+      if (!wilayahLuar.hasOwnProperty(kwi)) continue;
+      var pwi = kwi.split('|');
+      var barisW = parseInt(pwi[1], 10);
+      var kunciW = sheetName + '!' + pwi[0] + barisW;
+      if (only && !only[kunciW]) continue;
+      if (diusulkan[kunciW] || sudahAda[kunciW]) continue;
+      if (barisW < 2 || barisW > nRow) continue;
+      var rowW = barisW - 1;
+      if (!cacheBaris[rowW]) {
+        try {
+          cacheBaris[rowW] = sh.getRange(barisW, 1, 1, nCol).getValues()[0] || [];
+        } catch (e) { cacheBaris[rowW] = []; }
+      }
+      var vW = cacheBaris[rowW];
+      if (!vW || !vW.length) continue;
+      // Periksa ulang: pindaiDalam_ membaca nilai sebelum loop; sel bisa saja sudah diisi.
+      if (teks_(vW[cWil])) continue;
+      var lokW = iLokW >= 0 ? teks_(vW[iLokW]) : '';
+      if (lokW && lokasiToWil[lokW] && !lokasiBentrok[lokW]) {
+        out.items.push(item_(sheetName, rowW, cWil, headers[cWil] || 'Wilayah', hurufWil,
+          'wilayah', '', lokasiToWil[lokW], 'value', '', '',
+          'Lokasi "' + lokW + '" selalu tercatat pada wilayah ' + lokasiToWil[lokW] + ' menurut riwayat sheet.', 0));
+        diusulkan[kunciW] = true;
+        jejakWil.diterima++;
+      } else {
+        jejakWil.ditolak++;
+        out.skipped.push(lewat_(sheetName, rowW, cWil, headers[cWil] || 'Wilayah', hurufWil, '',
+          lokW
+            ? (lokasiBentrok[lokW]
+              ? 'Lokasi "' + lokW + '" pernah tercatat di lebih dari satu wilayah — sengaja tidak ditebak.'
+              : 'Lokasi "' + lokW + '" belum punya riwayat wilayah.')
+            : 'Lokasi pada baris ini juga kosong — tidak bisa diturunkan.'));
+      }
+    }
+  }
+  out.waktu.jejakWil = jejakWil;
+
   var nKosong = 0;
   for (var jk in kosongLuar) if (kosongLuar.hasOwnProperty(jk)) {
     nKosong++;
